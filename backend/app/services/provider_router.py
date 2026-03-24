@@ -58,6 +58,19 @@ def _drop_query_keys(url: str, keys: set[str]) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(params), parts.fragment))
 
 
+def _looks_like_exact_bmw_inventory_path(url: str, model: str) -> bool:
+    path = urlsplit(url).path.lower()
+    model_norm = _norm(model)
+    if not model_norm:
+        return False
+    return (
+        path.endswith(f"/{model_norm}.htm")
+        or path.endswith(f"/bmw-{model_norm}.htm")
+        or f"/new-inventory/{model_norm}.htm" in path
+        or f"/inventory/new/bmw-{model_norm}.htm" in path
+    )
+
+
 def _looks_like_dealer_on_srp(url: str) -> bool:
     path = urlsplit(url).path.lower()
     return path.endswith("/searchnew.aspx") or path.endswith("/searchused.aspx")
@@ -267,8 +280,11 @@ def resolve_inventory_url_for_provider(
         generic_base = _normalize_inventory_candidate_url(route.inventory_url_hint or fallback_url)
         if route.platform_id == "dealer_dot_com" and generic_base:
             base = _normalize_inventory_candidate_url(best_url if best_score > 0 else generic_base)
-            base = _drop_query_keys(base, {"gvBodyStyle"})
-            best_url = _with_query_params(base, {"make": make, "model": model})
+            if make_norm == "bmw" and _looks_like_exact_bmw_inventory_path(base, model):
+                best_url = base
+            else:
+                base = _drop_query_keys(base, {"gvBodyStyle"})
+                best_url = _with_query_params(base, {"make": make, "model": model})
         elif route.platform_id == "dealer_on" and best_score < 100 and generic_base:
             updates = {"Make": make, "Model": model}
             if _looks_like_dealer_on_srp(generic_base):
