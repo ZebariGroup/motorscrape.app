@@ -33,6 +33,7 @@ Return ONLY valid JSON (no markdown fences) with this exact shape:
   ]
 }
 Rules:
+- Extract EVERY SINGLE vehicle you can find on the page. Do not stop early.
 - Extract only real vehicles for sale (cars, trucks, SUVs). Skip service specials, parts, disclaimers, navigation.
 - If the page is not inventory (e.g. contact page), return {"vehicles": []}.
 - Prefer listing-specific URLs and images when present in the snippet.
@@ -82,7 +83,7 @@ async def extract_vehicles_from_html(
             {"role": "user", "content": user_msg},
         ],
         temperature=0.1,
-        max_tokens=4096,
+        max_tokens=8192,
         response_format={"type": "json_object"},
     )
 
