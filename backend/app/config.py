@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # Max dealerships per search (quality vs speed tradeoff)
     max_dealerships: int = 8
     # Max HTML chars sent to the LLM per page
-    max_html_chars: int = 200_000
+    max_html_chars: int = 100_000
     # HTTP timeout for scraper (seconds)
     scrape_timeout: float = 45.0
 

@@ -84,7 +84,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
         {"message": f"Found {len(dealers)} dealerships. Scraping inventory…", "phase": "scrape"},
     )
 
-    sem = asyncio.Semaphore(4)
+    sem = asyncio.Semaphore(2)
 
     async def process_one(index: int, d: DealershipFound) -> list[str]:
         chunks: list[str] = []

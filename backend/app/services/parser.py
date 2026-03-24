@@ -76,7 +76,7 @@ async def extract_vehicles_from_html(
         f"HTML (possibly truncated):\n{snippet}"
     )
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    client = AsyncOpenAI(api_key=settings.openai_api_key, max_retries=3)
     response = await client.beta.chat.completions.parse(
         model="gpt-4o-2024-08-06",
         messages=[
