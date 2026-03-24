@@ -25,8 +25,9 @@ async def fetch_page_html(url: str) -> tuple[str, str]:
             html = await _zenrows_fetch(url, timeout)
             return html, "zenrows"
         except Exception as e:
-            logger.warning("ZenRows fetch failed for %s: %s", url, e)
-            failures.append(f"zenrows: {e}")
+            sanitized = str(e).replace(settings.zenrows_api_key, "***")
+            logger.warning("ZenRows fetch failed for %s: %s", url, sanitized)
+            failures.append(f"zenrows: {sanitized}")
 
     if settings.scrapingbee_api_key:
         try:
@@ -64,7 +65,7 @@ async def _zenrows_fetch(url: str, timeout: httpx.Timeout) -> str:
     params = {
         "apikey": settings.zenrows_api_key,
         "url": url,
-        "js_render": "false",
+        "js_render": "true",
     }
     if settings.zenrows_premium_proxy:
         params["premium_proxy"] = "true"

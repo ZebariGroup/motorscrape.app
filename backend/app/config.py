@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     # Max HTML chars sent to the LLM per page (smaller = cheaper/faster).
     max_html_chars: int = 60_000
     # HTTP timeout for each scraper call (seconds).
-    scrape_timeout: float = 20.0
+    scrape_timeout: float = 35.0
 
 
 settings = Settings()
