@@ -66,6 +66,14 @@ _TEXT_MILEAGE_LABELED_RE = re.compile(r"\bmileage\s*:\s*([0-9][0-9,]{0,6})\b", r
 _TEXT_MILEAGE_UNITS_RE = re.compile(r"\b([0-9][0-9,]{0,6})\s*(?:mi|miles?)\b", re.I)
 _TEXT_VIN_RE = re.compile(r"\b([A-HJ-NPR-Z0-9]{17})\b")
 _TITLE_YEAR_RE = re.compile(r"^(?P<year>20\d{2}|19\d{2})\s+(?P<rest>.+)$")
+_SAVE_PRICE_MSRP_RE = re.compile(
+    r"save:\s*\$[\d,]+\s*\$(?P<price>[\d,]+)\s*msrp\s*\$(?P<msrp>[\d,]+)",
+    re.I,
+)
+_HYUNDAI_SEARCH_TITLE_RE = re.compile(
+    r"^(?P<year>20\d{2}|19\d{2})\s+(?P<make>[A-Za-z]+)\s+(?P<model>[A-Z0-9-]+)\s+(?P<trim>.+?)\s+Save:",
+    re.I,
+)
 
 
 def _truncate(text: str, max_chars: int) -> str:
@@ -719,6 +727,77 @@ def _parse_dom_vehicle_payload(card: Any) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _extract_search_result_card_vehicles(html: str, page_url: str) -> list[VehicleListing]:
+    soup = BeautifulSoup(html, "lxml")
+    vehicles: list[VehicleListing] = []
+    seen: set[str] = set()
+
+    for anchor in soup.select('a.car[href*="/detail/"]'):
+        href = str(anchor.get("href") or "").strip()
+        if not href:
+            continue
+        listing_url = urljoin(page_url, href)
+        card_text = anchor.get_text(" ", strip=True)
+        if not card_text:
+            continue
+
+        hyundai_title_match = _HYUNDAI_SEARCH_TITLE_RE.match(card_text)
+        if hyundai_title_match:
+            title_part = " ".join(
+                x.strip()
+                for x in (
+                    hyundai_title_match.group("year"),
+                    hyundai_title_match.group("make"),
+                    hyundai_title_match.group("model"),
+                    hyundai_title_match.group("trim"),
+                )
+                if x and x.strip()
+            )
+        else:
+            title_part = re.split(
+                r"\s+(?:Save:|MSRP|Retail|Price)\b",
+                card_text,
+                maxsplit=1,
+                flags=re.I,
+            )[0].strip()
+        title_fields = _parse_title_fields(title_part)
+        raw_title = title_fields.get("raw_title") or title_part or None
+        vin = _extract_vin_from_text(card_text)
+        price = None
+        price_match = _SAVE_PRICE_MSRP_RE.search(card_text)
+        if price_match:
+            price = _coerce_float(price_match.group("price"))
+        if price is None:
+            price = _extract_price_from_text(card_text)
+
+        image_url = None
+        img = anchor.select_one("img[src]")
+        if img and img.get("src"):
+            image_url = urljoin(page_url, str(img.get("src")))
+
+        vehicle = VehicleListing(
+            year=_coerce_int(title_fields.get("year")),
+            make=str(title_fields.get("make")).strip() if title_fields.get("make") else None,
+            model=str(title_fields.get("model")).strip() if title_fields.get("model") else None,
+            trim=str(title_fields.get("trim")).strip() if title_fields.get("trim") else None,
+            price=price,
+            mileage=_extract_mileage_from_text(card_text),
+            vehicle_condition=normalize_vehicle_condition(raw_title) or normalize_vehicle_condition(listing_url),
+            vin=vin,
+            image_url=image_url,
+            listing_url=listing_url,
+            raw_title=raw_title,
+        )
+        key = _vehicle_merge_key(vehicle)
+        if key in seen:
+            continue
+        seen.add(key)
+        if any([vehicle.make, vehicle.model, vehicle.vin, vehicle.raw_title]):
+            vehicles.append(vehicle)
+
+    return vehicles
+
+
 def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
     """
     Pull listings from rendered SRP cards, primarily for DealerOn-style pages that
@@ -933,6 +1012,12 @@ def try_extract_vehicles_without_llm(
             by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
     for v in extract_dom_vehicle_cards(html, page_url):
+        if not listing_matches_filters(v, make_filter, model_filter):
+            continue
+        key = _vehicle_merge_key(v)
+        by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
+
+    for v in _extract_search_result_card_vehicles(html, page_url):
         if not listing_matches_filters(v, make_filter, model_filter):
             continue
         key = _vehicle_merge_key(v)

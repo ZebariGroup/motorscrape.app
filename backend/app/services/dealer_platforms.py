@@ -124,6 +124,17 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         extraction_mode="structured_html",
     ),
     PlatformDefinition(
+        platform_id="hyundai_inventory_search",
+        markers=(
+            "hyundai",
+            "/search/new/",
+            "/detail/new/",
+            "new hyundai",
+        ),
+        inventory_path_hints=("search/new", "search/used", "detail/new", "detail/used"),
+        extraction_mode="structured_html",
+    ),
+    PlatformDefinition(
         platform_id="purecars",
         markers=("purecars",),
         inventory_path_hints=("inventory", "new-inventory", "used-inventory"),

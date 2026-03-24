@@ -9,6 +9,7 @@ from app.services.providers import (
     dealer_on,
     generic_franchise,
     honda_acura_inventory,
+    hyundai_inventory_search,
     nissan_infiniti_inventory,
 )
 
@@ -19,6 +20,7 @@ _HANDLERS = {
     "cdk_dealerfire": generic_franchise.extract_inventory,
     "team_velocity": generic_franchise.extract_inventory,
     "honda_acura_inventory": honda_acura_inventory.extract_inventory,
+    "hyundai_inventory_search": hyundai_inventory_search.extract_inventory,
     "nissan_infiniti_inventory": nissan_infiniti_inventory.extract_inventory,
     "fusionzone": generic_franchise.extract_inventory,
     "shift_digital": generic_franchise.extract_inventory,
