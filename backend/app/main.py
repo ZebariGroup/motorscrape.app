@@ -25,7 +25,7 @@ async def search_stream(
     make: str = Query(""),
     model: str = Query(""),
     vehicle_condition: Literal["all", "new", "used"] = Query("all"),
-    radius_miles: int = Query(default=50, ge=5, le=250),
+    radius_miles: int = Query(default=25, ge=5, le=250),
     inventory_scope: str = Query("all"),
     max_dealerships: int | None = Query(default=None, ge=1, le=30),
     max_pages_per_dealer: int | None = Query(default=None, ge=1, le=5),

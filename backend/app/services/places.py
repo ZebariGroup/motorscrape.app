@@ -20,6 +20,8 @@ SEARCH_TEXT_URL = "https://places.googleapis.com/v1/places:searchText"
 # GET https://places.googleapis.com/v1/places/{placeId} — {name} is "places/ChIJ…"
 PLACES_BASE = "https://places.googleapis.com/v1"
 METERS_PER_MILE = 1609.34
+MAX_LOCATION_BIAS_RADIUS_METERS = 50_000
+MAX_LOCATION_BIAS_RADIUS_MILES = int(MAX_LOCATION_BIAS_RADIUS_METERS // METERS_PER_MILE)
 
 # Text Search (New) field mask — websiteUri uses Enterprise SKU; omit if you need to trim billing.
 SEARCH_FIELD_MASK = (
@@ -125,7 +127,10 @@ async def _resolve_location_bias(
     return {
         "circle": {
             "center": {"latitude": lat, "longitude": lng},
-            "radius": int(radius_miles * METERS_PER_MILE),
+            "radius": min(
+                int(radius_miles * METERS_PER_MILE),
+                MAX_LOCATION_BIAS_RADIUS_METERS,
+            ),
         }
     }
 
@@ -185,7 +190,7 @@ async def find_car_dealerships(
 
     make_q = make.strip()
     model_q = model.strip()
-    requested_radius = max(5, min(int(radius_miles or 50), 250))
+    requested_radius = max(5, min(int(radius_miles or 25), 250))
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         location_bias = await _resolve_location_bias(

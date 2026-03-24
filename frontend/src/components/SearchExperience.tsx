@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getApiBaseUrl } from "@/lib/config";
+import { getModelsForMake, VEHICLE_MAKES } from "@/lib/vehicleCatalog";
 import type { DealershipProgress, VehicleListing } from "@/types/inventory";
 
 type AggregatedListing = VehicleListing & {
@@ -29,12 +30,16 @@ function locationBadge(v: AggregatedListing) {
   return v.availability_status ?? null;
 }
 
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, value));
+}
+
 export function SearchExperience() {
   const [location, setLocation] = useState("");
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
   const [vehicleCondition, setVehicleCondition] = useState("all");
-  const [radiusMiles, setRadiusMiles] = useState("50");
+  const [radiusMiles, setRadiusMiles] = useState("25");
   const [inventoryScope, setInventoryScope] = useState("all");
   const [maxDealerships, setMaxDealerships] = useState("8");
   const [maxPagesPerDealer, setMaxPagesPerDealer] = useState("1");
@@ -60,6 +65,44 @@ export function SearchExperience() {
   const doneDealerCount = useMemo(
     () => dealerList.filter((d) => d.status === "done" || d.status === "error").length,
     [dealerList],
+  );
+
+  const targetDealerCount = useMemo(() => {
+    const parsed = Number.parseInt(maxDealerships, 10);
+    return Number.isFinite(parsed) ? parsed : 8;
+  }, [maxDealerships]);
+
+  const modelOptions = useMemo(() => getModelsForMake(make), [make]);
+
+  const discoveredDealerPercent = useMemo(
+    () => clampPercent((dealerList.length / Math.max(targetDealerCount, 1)) * 100),
+    [dealerList.length, targetDealerCount],
+  );
+
+  const completedDealerPercent = useMemo(
+    () => clampPercent((doneDealerCount / Math.max(targetDealerCount, 1)) * 100),
+    [doneDealerCount, targetDealerCount],
+  );
+
+  const pendingDealerSlots = useMemo(() => {
+    if (!running) return 0;
+    return Math.max(0, targetDealerCount - dealerList.length);
+  }, [dealerList.length, running, targetDealerCount]);
+
+  const loadingDealerCards = useMemo(
+    () =>
+      Array.from({
+        length: Math.min(
+          Math.max(pendingDealerSlots, dealerList.length === 0 && running ? 3 : 0),
+          4,
+        ),
+      }),
+    [dealerList.length, pendingDealerSlots, running],
+  );
+
+  const loadingInventoryCards = useMemo(
+    () => Array.from({ length: listings.length === 0 && running ? 4 : 0 }),
+    [listings.length, running],
   );
 
   useEffect(() => {
@@ -249,23 +292,38 @@ export function SearchExperience() {
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-zinc-800 dark:text-zinc-200">Make</span>
-            <input
+            <select
               className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-              placeholder="e.g. Toyota"
               value={make}
-              onChange={(e) => setMake(e.target.value)}
+              onChange={(e) => {
+                setMake(e.target.value);
+                setModel("");
+              }}
               disabled={running}
-            />
+            >
+              <option value="">Any make</option>
+              {VEHICLE_MAKES.map((makeOption) => (
+                <option key={makeOption} value={makeOption}>
+                  {makeOption}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-zinc-800 dark:text-zinc-200">Model</span>
-            <input
+            <select
               className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-              placeholder="e.g. Camry"
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              disabled={running}
-            />
+              disabled={running || modelOptions.length === 0}
+            >
+              <option value="">{make ? "Any model" : "Select make first"}</option>
+              {modelOptions.map((modelOption) => (
+                <option key={modelOption} value={modelOption}>
+                  {modelOption}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-zinc-800 dark:text-zinc-200">
@@ -279,9 +337,7 @@ export function SearchExperience() {
             >
               <option value="10">10 miles</option>
               <option value="25">25 miles</option>
-              <option value="50">50 miles</option>
-              <option value="75">75 miles</option>
-              <option value="100">100 miles</option>
+              <option value="30">30 miles</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -370,14 +426,79 @@ export function SearchExperience() {
               <span>{status}</span>
             </p>
             {running ? (
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Elapsed {searchElapsedSec}s
-                {dealerList.length > 0
-                  ? ` · ${doneDealerCount}/${dealerList.length} dealerships finished · ${activeDealerCount} active`
-                  : ""}
-                . AI parsing is often ~10–40s per page when matches are found; it can run up to
-                about {PARSING_HINT_MAX_SEC}s on a slow or large page.
-              </p>
+              <>
+                <div className="grid gap-2 pt-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/70 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/40">
+                    <div className="text-[11px] font-medium tracking-wide text-emerald-700 uppercase dark:text-emerald-300">
+                      Dealerships found
+                    </div>
+                    <div className="mt-1 flex items-baseline gap-2">
+                      <span className="text-lg font-semibold text-emerald-900 dark:text-emerald-100">
+                        {dealerList.length}
+                      </span>
+                      <span className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
+                        / {targetDealerCount} target
+                      </span>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-amber-200/70 bg-amber-50/70 px-3 py-2 dark:border-amber-900/60 dark:bg-amber-950/40">
+                    <div className="text-[11px] font-medium tracking-wide text-amber-700 uppercase dark:text-amber-300">
+                      Active now
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="inline-flex h-2.5 w-2.5 rounded-full bg-amber-500 motion-safe:animate-pulse" />
+                      <span className="text-lg font-semibold text-amber-900 dark:text-amber-100">
+                        {activeDealerCount}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/70">
+                    <div className="text-[11px] font-medium tracking-wide text-zinc-600 uppercase dark:text-zinc-400">
+                      Vehicles loaded
+                    </div>
+                    <div className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                      {listings.length}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/70">
+                    <div className="text-[11px] font-medium tracking-wide text-zinc-600 uppercase dark:text-zinc-400">
+                      Elapsed
+                    </div>
+                    <div className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                      {searchElapsedSec}s
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-2 pt-2">
+                  <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <span>Dealership discovery</span>
+                    <span>{dealerList.length}/{targetDealerCount}</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-400 transition-[width] duration-700 ease-out"
+                      style={{ width: `${discoveredDealerPercent}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <span>Dealership completion</span>
+                    <span>{doneDealerCount}/{targetDealerCount}</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-300 transition-[width] duration-700 ease-out"
+                      style={{ width: `${completedDealerPercent}%` }}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  {pendingDealerSlots > 0
+                    ? `Still looking for ${pendingDealerSlots} more dealerships in range. `
+                    : ""}
+                  AI parsing is often ~10–40s per page when matches are found; it can run up to
+                  about {PARSING_HINT_MAX_SEC}s on a slow or large page.
+                </p>
+              </>
             ) : null}
           </div>
         ) : null}
@@ -397,80 +518,137 @@ export function SearchExperience() {
           </h2>
           <ul className="space-y-3">
             {dealerList.length === 0 ? (
-              <li className="text-sm text-zinc-500">No dealerships yet — run a search.</li>
+              running ? (
+                <>
+                  {loadingDealerCards.map((_, idx) => (
+                    <li
+                      key={`dealer-loading-${idx}`}
+                      className="relative overflow-hidden rounded-xl border border-dashed border-emerald-200 bg-emerald-50/40 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+                    >
+                      <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/60 to-transparent motion-safe:animate-[shimmer_2s_infinite] dark:via-white/10" />
+                      <div className="relative space-y-3">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500 motion-safe:animate-pulse" />
+                          <div className="h-4 w-40 rounded bg-emerald-200/80 dark:bg-emerald-900/70" />
+                        </div>
+                        <div className="h-3 w-56 rounded bg-zinc-200/80 dark:bg-zinc-800" />
+                        <div className="flex gap-2">
+                          <div className="h-5 w-20 rounded-full bg-amber-200/80 dark:bg-amber-900/60" />
+                          <div className="h-5 w-28 rounded-full bg-zinc-200/80 dark:bg-zinc-800" />
+                        </div>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                          Searching nearby dealerships and building the queue…
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </>
+              ) : (
+                <li className="text-sm text-zinc-500">No dealerships yet — run a search.</li>
+              )
             ) : (
-              dealerList.map((d) => {
-                const phaseSec =
-                  d.phaseSince != null
-                    ? Math.max(0, Math.floor((nowMs - d.phaseSince) / 1000))
-                    : 0;
-                const isBusy = d.status === "scraping" || d.status === "parsing";
-                return (
-                <li
-                  key={d.website + d.index}
-                  className={`relative overflow-hidden rounded-xl border bg-white p-4 text-sm dark:bg-zinc-950 ${
-                    isBusy
-                      ? "border-amber-200 shadow-sm dark:border-amber-900/50"
-                      : "border-zinc-200 dark:border-zinc-800"
-                  }`}
-                >
-                  {isBusy ? (
-                    <div
-                      className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400/70 to-transparent animate-pulse"
-                      aria-hidden
-                    />
-                  ) : null}
-                  <div className="font-medium text-zinc-900 dark:text-zinc-50">{d.name}</div>
-                  {d.address ? (
-                    <div className="mt-1 text-xs text-zinc-500">{d.address}</div>
-                  ) : null}
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                    <span
-                      className={
-                        d.status === "done"
-                          ? "rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-                          : d.status === "error"
-                            ? "rounded-full bg-red-50 px-2 py-0.5 font-medium text-red-800 dark:bg-red-950 dark:text-red-200"
-                            : "rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-900 motion-safe:animate-pulse dark:bg-amber-950 dark:text-amber-100"
-                      }
+              <>
+                {dealerList.map((d) => {
+                  const phaseSec =
+                    d.phaseSince != null
+                      ? Math.max(0, Math.floor((nowMs - d.phaseSince) / 1000))
+                      : 0;
+                  const isBusy = d.status === "scraping" || d.status === "parsing";
+                  return (
+                    <li
+                      key={d.website + d.index}
+                      className={`relative overflow-hidden rounded-xl border bg-white p-4 text-sm transition-all dark:bg-zinc-950 ${
+                        isBusy
+                          ? "border-amber-200 shadow-sm shadow-amber-100/50 dark:border-amber-900/50 dark:shadow-none"
+                          : "border-zinc-200 dark:border-zinc-800"
+                      }`}
                     >
-                      {d.status}
-                    </span>
-                    {d.status === "scraping" && d.fetch_method ? (
-                      <span className="text-zinc-500">via {d.fetch_method}</span>
-                    ) : null}
-                    {d.status === "parsing" ? (
-                      <span className="text-zinc-500">
-                        AI extraction… {phaseSec}s
-                        {d.fetch_method ? (
-                          <span className="text-zinc-400"> (page via {d.fetch_method})</span>
+                      {isBusy ? (
+                        <>
+                          <div
+                            className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400/70 to-transparent animate-pulse"
+                            aria-hidden
+                          />
+                          <div
+                            className="pointer-events-none absolute inset-y-0 left-0 w-20 -translate-x-full bg-gradient-to-r from-transparent via-emerald-200/40 to-transparent motion-safe:animate-[shimmer_2.4s_infinite] dark:via-emerald-400/10"
+                            aria-hidden
+                          />
+                        </>
+                      ) : null}
+                      <div className="font-medium text-zinc-900 dark:text-zinc-50">{d.name}</div>
+                      {d.address ? (
+                        <div className="mt-1 text-xs text-zinc-500">{d.address}</div>
+                      ) : null}
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        <span
+                          className={
+                            d.status === "done"
+                              ? "rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                              : d.status === "error"
+                                ? "rounded-full bg-red-50 px-2 py-0.5 font-medium text-red-800 dark:bg-red-950 dark:text-red-200"
+                                : "rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-900 motion-safe:animate-pulse dark:bg-amber-950 dark:text-amber-100"
+                          }
+                        >
+                          {d.status}
+                        </span>
+                        {d.status === "scraping" && d.fetch_method ? (
+                          <span className="text-zinc-500">via {d.fetch_method}</span>
                         ) : null}
-                      </span>
-                    ) : null}
-                    {d.status === "scraping" ? (
-                      <span className="text-zinc-500">Fetching… {phaseSec}s</span>
-                    ) : null}
-                    {d.listings_found != null ? (
-                      <span className="text-zinc-500">{d.listings_found} listings</span>
-                    ) : null}
-                  </div>
-                  {d.info ? (
-                    <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{d.info}</p>
-                  ) : null}
-                  {d.error ? <p className="mt-2 text-xs text-red-600">{d.error}</p> : null}
-                  {d.website ? (
-                    <a
-                      href={d.website}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 inline-block text-xs font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
-                    >
-                      Open site
-                    </a>
-                  ) : null}
-                </li>
-                );
-              })
+                        {d.status === "parsing" ? (
+                          <span className="text-zinc-500">
+                            AI extraction… {phaseSec}s
+                            {d.fetch_method ? (
+                              <span className="text-zinc-400"> (page via {d.fetch_method})</span>
+                            ) : null}
+                          </span>
+                        ) : null}
+                        {d.status === "scraping" ? (
+                          <span className="text-zinc-500">Fetching… {phaseSec}s</span>
+                        ) : null}
+                        {d.listings_found != null ? (
+                          <span className="text-zinc-500">{d.listings_found} listings</span>
+                        ) : null}
+                      </div>
+                      {d.info ? (
+                        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{d.info}</p>
+                      ) : null}
+                      {d.error ? <p className="mt-2 text-xs text-red-600">{d.error}</p> : null}
+                      {d.website ? (
+                        <a
+                          href={d.website}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-2 inline-block text-xs font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
+                        >
+                          Open site
+                        </a>
+                      ) : null}
+                    </li>
+                  );
+                })}
+                {loadingDealerCards.map((_, idx) => (
+                  <li
+                    key={`dealer-pending-${idx}`}
+                    className="relative overflow-hidden rounded-xl border border-dashed border-zinc-200 bg-zinc-50/70 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900/60"
+                  >
+                    <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/70 to-transparent motion-safe:animate-[shimmer_2.2s_infinite] dark:via-white/10" />
+                    <div className="relative space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex h-2.5 w-2.5 rounded-full bg-amber-500 motion-safe:animate-pulse" />
+                        <div className="h-4 w-36 rounded bg-zinc-200 dark:bg-zinc-800" />
+                      </div>
+                      <div className="h-3 w-52 rounded bg-zinc-200 dark:bg-zinc-800" />
+                      <div className="flex gap-2">
+                        <div className="h-5 w-24 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+                        <div className="h-5 w-20 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+                      </div>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        Discovering another dealership in range…
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </>
             )}
           </ul>
         </section>
@@ -481,19 +659,42 @@ export function SearchExperience() {
             <span className="text-sm text-zinc-500">{listings.length} vehicles</span>
           </div>
           {listings.length === 0 ? (
-            <p className="text-sm text-zinc-500">
-              {running ? (
-                <>
+            running ? (
+              <div className="space-y-4">
+                <p className="text-sm text-zinc-500">
                   Still scanning dealers… New cards appear as each site is contacted. Matches show
-                  here as soon as AI finishes a page (often within a minute per dealer).
-                </>
-              ) : (
-                <>
-                  Results stream in as each dealership is scraped. Large dealer sites may take
-                  longer.
-                </>
-              )}
-            </p>
+                  here as soon as AI finishes a page.
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {loadingInventoryCards.map((_, idx) => (
+                    <article
+                      key={`inventory-loading-${idx}`}
+                      className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
+                    >
+                      <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-zinc-100/90 to-transparent motion-safe:animate-[shimmer_2.1s_infinite] dark:via-white/5" />
+                      <div className="relative">
+                        <div className="aspect-[16/10] w-full bg-zinc-100 dark:bg-zinc-900" />
+                        <div className="space-y-3 p-4">
+                          <div className="h-5 w-3/4 rounded bg-zinc-200 dark:bg-zinc-800" />
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="h-3 rounded bg-zinc-200 dark:bg-zinc-800" />
+                            <div className="h-3 rounded bg-zinc-200 dark:bg-zinc-800" />
+                            <div className="h-3 rounded bg-zinc-200 dark:bg-zinc-800" />
+                            <div className="h-3 rounded bg-zinc-200 dark:bg-zinc-800" />
+                          </div>
+                          <div className="h-3 w-1/2 rounded bg-zinc-200 dark:bg-zinc-800" />
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-zinc-500">
+                Results stream in as each dealership is scraped. Large dealer sites may take
+                longer.
+              </p>
+            )
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               {listings.map((v, idx) => (

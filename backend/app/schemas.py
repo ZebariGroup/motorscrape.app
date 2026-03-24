@@ -14,7 +14,7 @@ class SearchRequest(BaseModel):
         description="Whether to include all inventory, only new vehicles, or only used vehicles.",
     )
     radius_miles: int = Field(
-        default=50,
+        default=25,
         ge=5,
         le=250,
         description="How far from the search location to look for dealerships.",
