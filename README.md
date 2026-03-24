@@ -1,6 +1,6 @@
 # Motorscrape
 
-Next.js + FastAPI platform to discover nearby car dealerships (Google Places), fetch their websites with **direct HTTP first** and managed scrapers (ZenRows / ScrapingBee) only when needed, and extract inventory from structured data when possible (otherwise an LLM). Results stream to the browser via **Server-Sent Events (SSE)**.
+Next.js + FastAPI platform to discover nearby car dealerships (Google Places), detect the dealer website **platform** on first contact, route through a provider-specific extraction strategy when possible, fetch with **direct HTTP first** and managed scrapers (ZenRows / ScrapingBee) only when needed, and extract inventory from structured data when possible (otherwise an LLM). Results stream to the browser via **Server-Sent Events (SSE)**.
 
 ## Deploy on Vercel (Git)
 
@@ -79,7 +79,16 @@ See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requi
 - The backend **tries a normal browser-like HTTP GET first** for each URL. Managed scrapers run only if the response looks blocked, empty, or missing inventory signals.
 - ZenRows is called **without JS rendering first**, then with **`js_render` + `wait`** only if the static pass is still insufficient. Tune `ZENROWS_WAIT_MS` / `SCRAPINGBEE_WAIT_MS` in env or [`backend/app/config.py`](backend/app/config.py).
 - **Structured inventory** (embedded JSON, `inventoryApiURL`-style endpoints, JSON-LD, and sitemap-discovered inventory URLs) is preferred so listings can be parsed **without** calling the LLM when possible.
-- The search stream’s final **`done`** event includes **`fetch_metrics`** (counts per fetch mode, e.g. `fetch_direct`, `fetch_zenrows_rendered`). Each dealership **`done`** payload may include **`fetch_methods`** (sequence used for that dealer).
+- The search stream’s final **`done`** event includes **`fetch_metrics`** (counts per fetch mode, e.g. `fetch_direct`, `fetch_zenrows_rendered`). Each dealership **`done`** payload may include **`fetch_methods`** (sequence used for that dealer), plus **`platform_id`**, **`platform_source`**, and **`strategy_used`**.
+
+## Platform-aware routing
+
+- The backend fingerprints dealer websites and routes them through a provider-specific strategy before generic parsing.
+- Known platforms currently include **Dealer.com**, **DealerOn**, **Dealer Inspire**, **CDK / DealerFire**, **Team Velocity**, **fusionZONE**, **Shift Digital**, **PureCars**, and **Jazel**.
+- Platform detection is cached by normalized dealer domain using the path configured by **`PLATFORM_CACHE_PATH`**.
+- The cache stores the detected platform, extraction mode, whether render is usually required, and the last successful inventory URL hint.
+- On repeated searches, cached platform hits let the backend skip rediscovering the extraction path for the same dealer.
+- The cache is implemented with a small local SQLite store by default. In ephemeral/serverless environments, point **`PLATFORM_CACHE_PATH`** at a writable persistent location or swap the store backend if you need stronger durability across cold starts.
 
 ## Self-hosted browser fallback (evaluation)
 

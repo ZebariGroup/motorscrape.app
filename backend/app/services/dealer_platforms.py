@@ -1,28 +1,160 @@
-"""Lightweight fingerprinting for common dealership website vendors + extra JSON-LD harvest."""
+"""Platform detection, provider registry, and JSON-LD helpers for dealer sites."""
 
 from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-_PLATFORM_MARKERS: list[tuple[str, tuple[str, ...]]] = [
-    ("dealer_dot_com", ("dealer.com", "coxautoinc", "dealerdotcom")),
-    ("dealer_on", ("dealeron.com", "dealeron", "cdn.dealeron")),
-    ("dealer_inspire", ("dealerinspire.com", "dealer-inspire", "dealerinspire")),
-]
+
+@dataclass(frozen=True, slots=True)
+class PlatformProfile:
+    platform_id: str
+    confidence: float
+    extraction_mode: str
+    requires_render: bool
+    inventory_path_hints: tuple[str, ...]
+    detection_source: str
 
 
-def detect_platform(html: str) -> str | None:
+@dataclass(frozen=True, slots=True)
+class PlatformDefinition:
+    platform_id: str
+    markers: tuple[str, ...]
+    inventory_path_hints: tuple[str, ...]
+    extraction_mode: str
+    requires_render: bool = False
+
+
+_PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
+    PlatformDefinition(
+        platform_id="dealer_dot_com",
+        markers=(
+            "dealer.com",
+            "coxautoinc",
+            "dealerdotcom",
+            "inventoryapiurl",
+            "/api/widget/ws-inv-data/getinventory",
+            "ddc.widgetdata",
+        ),
+        inventory_path_hints=("new-inventory", "used-inventory", "searchnew", "searchused", "inventory/index.htm"),
+        extraction_mode="structured_api",
+    ),
+    PlatformDefinition(
+        platform_id="dealer_on",
+        markers=(
+            "dealeron.com",
+            "cdn.dealeron",
+            "dealeron.js",
+            "vhcliaa",
+            "searchresultspagewasabibundle",
+            "vehicle-card--mod",
+        ),
+        inventory_path_hints=("searchnew.aspx", "searchused.aspx", "searchnewinventory", "searchusedinventory"),
+        extraction_mode="rendered_dom",
+        requires_render=True,
+    ),
+    PlatformDefinition(
+        platform_id="dealer_inspire",
+        markers=(
+            "dealerinspire.com",
+            "dealer-inspire",
+            "dealerinspire",
+            "__next_data__",
+            "wp-content/themes/dealerinspire",
+        ),
+        inventory_path_hints=("new-inventory", "used-vehicles", "inventory", "vehicles"),
+        extraction_mode="structured_json",
+    ),
+    PlatformDefinition(
+        platform_id="cdk_dealerfire",
+        markers=("dealerfire", "fortellis", "cdk", "dealerfire.com"),
+        inventory_path_hints=("new-inventory", "used-inventory", "inventory", "new-vehicles"),
+        extraction_mode="hybrid",
+    ),
+    PlatformDefinition(
+        platform_id="team_velocity",
+        markers=("teamvelocity", "tvs", "team velocity"),
+        inventory_path_hints=("new-inventory", "used-inventory", "inventory", "new"),
+        extraction_mode="hybrid",
+    ),
+    PlatformDefinition(
+        platform_id="fusionzone",
+        markers=("fusionzone", "fusion-zone", "fzautomotive"),
+        inventory_path_hints=("inventory", "new-inventory", "used-inventory"),
+        extraction_mode="hybrid",
+    ),
+    PlatformDefinition(
+        platform_id="shift_digital",
+        markers=("shiftdigital", "shift digital"),
+        inventory_path_hints=("inventory", "new-inventory", "used-inventory"),
+        extraction_mode="hybrid",
+    ),
+    PlatformDefinition(
+        platform_id="purecars",
+        markers=("purecars",),
+        inventory_path_hints=("inventory", "new-inventory", "used-inventory"),
+        extraction_mode="hybrid",
+    ),
+    PlatformDefinition(
+        platform_id="jazel",
+        markers=("jazel", "jazelauto", "jazelcauto"),
+        inventory_path_hints=("inventory", "new-inventory", "used-inventory"),
+        extraction_mode="hybrid",
+    ),
+)
+
+
+def _best_platform_definition(html: str, page_url: str = "") -> PlatformDefinition | None:
     lower = html.lower()
-    for pid, needles in _PLATFORM_MARKERS:
-        if any(n in lower for n in needles):
-            return pid
-    return None
+    target = lower + " " + page_url.lower()
+    best: tuple[int, PlatformDefinition] | None = None
+    for definition in _PLATFORM_REGISTRY:
+        score = sum(1 for marker in definition.markers if marker in target)
+        if score <= 0:
+            continue
+        if not best or score > best[0]:
+            best = (score, definition)
+    return best[1] if best else None
+
+
+def detect_platform_profile(html: str, page_url: str = "") -> PlatformProfile | None:
+    definition = _best_platform_definition(html, page_url=page_url)
+    if not definition:
+        return None
+    score = sum(1 for marker in definition.markers if marker in (html.lower() + " " + page_url.lower()))
+    confidence = min(0.55 + 0.1 * score, 0.98)
+    return PlatformProfile(
+        platform_id=definition.platform_id,
+        confidence=confidence,
+        extraction_mode=definition.extraction_mode,
+        requires_render=definition.requires_render,
+        inventory_path_hints=definition.inventory_path_hints,
+        detection_source="html_fingerprint",
+    )
+
+
+def detect_platform(html: str, page_url: str = "") -> str | None:
+    profile = detect_platform_profile(html, page_url=page_url)
+    return profile.platform_id if profile else None
+
+
+def inventory_hints_for_platform(platform_id: str | None) -> tuple[str, ...]:
+    if not platform_id:
+        return ()
+    for definition in _PLATFORM_REGISTRY:
+        if definition.platform_id == platform_id:
+            return definition.inventory_path_hints
+    return ()
+
+
+def all_known_platform_ids() -> tuple[str, ...]:
+    return tuple(d.platform_id for d in _PLATFORM_REGISTRY)
 
 
 def _walk_ld_json_vehicle_objects(obj: Any, out: list[dict], depth: int = 0) -> None:
@@ -69,12 +201,12 @@ def provider_enriched_vehicle_dicts(html: str, page_url: str) -> list[dict] | No
     If a known platform is detected, return extra vehicle-shaped dicts from JSON-LD.
     Returns None if no known platform (caller uses generic extraction).
     """
-    pid = detect_platform(html)
-    if not pid:
+    profile = detect_platform_profile(html, page_url=page_url)
+    if not profile:
         return None
     records = extract_json_ld_vehicle_dicts(html)
     if not records:
-        logger.debug("Platform %s detected for %s but no JSON-LD vehicles found", pid, page_url)
+        logger.debug("Platform %s detected for %s but no JSON-LD vehicles found", profile.platform_id, page_url)
         return []
-    logger.info("Platform %s: %d JSON-LD vehicle record(s) for %s", pid, len(records), page_url)
+    logger.info("Platform %s: %d JSON-LD vehicle record(s) for %s", profile.platform_id, len(records), page_url)
     return records

@@ -8,7 +8,7 @@ import logging
 from collections.abc import AsyncIterator
 from collections import defaultdict
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -19,16 +19,17 @@ from app.services.inventory_discovery import discover_sitemap_inventory_urls
 from app.services.inventory_filters import listing_matches_filters, model_filter_variants
 from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.places import find_car_dealerships
+from app.services.platform_store import normalize_dealer_domain
+from app.services.provider_router import (
+    detect_or_lookup_provider,
+    record_provider_failure,
+    remember_provider_success,
+    resolve_inventory_url_for_provider,
+)
+from app.services.providers import extract_with_provider
 from app.services.scraper import PageKind, fetch_page_html
 
 logger = logging.getLogger(__name__)
-
-
-def _dealer_domain(website: str) -> str:
-    host = urlparse(website).netloc.lower()
-    if host.startswith("www."):
-        host = host[4:]
-    return host
 
 
 def _dedupe_dealers_by_domain(dealers: list[DealershipFound]) -> list[DealershipFound]:
@@ -36,7 +37,7 @@ def _dedupe_dealers_by_domain(dealers: list[DealershipFound]) -> list[Dealership
     out: list[DealershipFound] = []
     for d in dealers:
         w = d.website or ""
-        dom = _dealer_domain(w)
+        dom = normalize_dealer_domain(w)
         if not dom or dom in seen:
             continue
         seen.add(dom)
@@ -145,7 +146,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
     async def process_one(index: int, d: DealershipFound) -> list[str]:
         chunks: list[str] = []
         website = d.website or ""
-        domain = _dealer_domain(website)
+        domain = normalize_dealer_domain(website)
         fetch_methods_used: list[str] = []
 
         async def _fetch(url: str, page_kind: PageKind) -> tuple[str, str]:
@@ -196,6 +197,8 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                 return chunks
             except Exception as e:
                 logger.warning("Scrape failed for %s: %s", website, e)
+                if domain:
+                    record_provider_failure(domain)
                 chunks.append(
                     _sse_pack(
                         "dealership",
@@ -211,7 +214,17 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                 )
                 return chunks
 
-            inv_url = _find_inventory_url(html, website)
+            route = detect_or_lookup_provider(domain=domain, website=website, homepage_html=html)
+            if route:
+                async with metrics_lock:
+                    fetch_metrics[f"platform_{route.platform_id}"] += 1
+                    fetch_metrics[f"platform_source_{route.cache_status}"] += 1
+            inv_url = resolve_inventory_url_for_provider(
+                html,
+                website,
+                route,
+                fallback_url=_find_inventory_url(html, website),
+            )
             if inv_url == website and domain in inv_url_cache:
                 cached = inv_url_cache[domain]
                 if cached and cached.rstrip("/") != website.rstrip("/"):
@@ -253,6 +266,8 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                     )
                 except asyncio.TimeoutError:
                     logger.warning("Initial inventory scrape timed out for %s", inv_url)
+                    if domain:
+                        record_provider_failure(domain)
                     chunks.append(
                         _sse_pack(
                             "dealership",
@@ -272,6 +287,8 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                     return chunks
                 except Exception as e:
                     logger.warning("Initial inventory scrape failed for %s: %s", inv_url, e)
+                    if domain:
+                        record_provider_failure(domain)
                     chunks.append(
                         _sse_pack(
                             "dealership",
@@ -322,15 +339,25 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                         logger.warning("Pagination scrape failed for %s: %s", current_url, e)
                         break
 
-                structured = try_extract_vehicles_without_llm(
+                ext_result = extract_with_provider(
+                    route.platform_id if route else None,
                     page_url=current_url,
                     html=current_html,
                     make_filter=make,
                     model_filter=model,
                 )
-                extraction_mode = "structured" if structured is not None else None
+                if ext_result is not None:
+                    extraction_mode = f"provider:{route.platform_id}" if route else "provider"
+                else:
+                    ext_result = try_extract_vehicles_without_llm(
+                        page_url=current_url,
+                        html=current_html,
+                        make_filter=make,
+                        model_filter=model,
+                    )
+                    extraction_mode = "structured" if ext_result is not None else None
 
-                if structured is None:
+                if ext_result is None:
                     if make.strip() and not _html_mentions_make(current_html, make):
                         logger.info(
                             "Skipping extraction for %s: no make mention (%r) in HTML",
@@ -364,12 +391,13 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                             "current_url": current_url,
                             "status": "parsing",
                             "fetch_method": current_method,
+                            "platform_id": route.platform_id if route else None,
+                            "platform_source": route.cache_status if route else "none",
+                            "strategy_used": route.extraction_mode if route else "generic",
                             "extraction": extraction_mode or "llm",
                         },
                     )
                 )
-
-                ext_result = structured
                 if ext_result is None:
                     try:
                         ext_result = await asyncio.wait_for(
@@ -426,6 +454,13 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                 if vdicts:
                     if domain and pages_scraped == 0:
                         inv_url_cache[domain] = current_url
+                    if domain and route and pages_scraped == 0:
+                        remember_provider_success(
+                            domain=domain,
+                            route=route,
+                            inventory_url_hint=current_url,
+                            requires_render=("rendered" in current_method) or route.requires_render,
+                        )
                     total_vehicles += len(vdicts)
                     chunks.append(
                         _sse_pack(
@@ -454,6 +489,9 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                 "status": "done",
                 "listings_found": total_vehicles,
                 "fetch_methods": fetch_methods_used,
+                "platform_id": route.platform_id if 'route' in locals() and route else None,
+                "platform_source": route.cache_status if 'route' in locals() and route else None,
+                "strategy_used": route.extraction_mode if 'route' in locals() and route else None,
             }
             if skip_info:
                 done_payload["info"] = skip_info

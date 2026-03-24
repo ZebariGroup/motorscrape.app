@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     max_html_chars: int = 60_000
     # HTTP timeout for each scraper call (seconds).
     scrape_timeout: float = 90.0
+    # Platform detection cache. Use a writable path in the runtime environment.
+    platform_cache_enabled: bool = True
+    platform_cache_path: str = "/tmp/motorscrape-platform-cache.sqlite3"
+    platform_cache_ttl_hours: int = 24 * 14
+    platform_cache_failure_threshold: int = 3
 
 
 settings = Settings()

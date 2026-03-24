@@ -21,8 +21,14 @@ export type DealershipProgress = {
   error?: string;
   info?: string;
   fetch_method?: string;
-  /** Last parse path: structured JSON vs LLM */
-  extraction?: "structured" | "llm";
+  /** Parse path: provider route, structured JSON, or LLM */
+  extraction?: string;
+  /** Detected/cached dealer platform identifier */
+  platform_id?: string;
+  /** Where the platform routing info came from */
+  platform_source?: "hit" | "detected" | "refresh" | "stale" | "none";
+  /** Provider strategy currently selected for the dealer */
+  strategy_used?: string;
   /** Per-dealer sequence of fetch modes (e.g. direct, zenrows_rendered) */
   fetch_methods?: string[];
   listings_found?: number;
