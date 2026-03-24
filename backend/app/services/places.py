@@ -19,12 +19,14 @@ logger = logging.getLogger(__name__)
 SEARCH_TEXT_URL = "https://places.googleapis.com/v1/places:searchText"
 # GET https://places.googleapis.com/v1/places/{placeId} — {name} is "places/ChIJ…"
 PLACES_BASE = "https://places.googleapis.com/v1"
+METERS_PER_MILE = 1609.34
 
 # Text Search (New) field mask — websiteUri uses Enterprise SKU; omit if you need to trim billing.
 SEARCH_FIELD_MASK = (
     "places.id,places.name,places.displayName,places.formattedAddress,places.websiteUri"
 )
 DETAILS_FIELD_MASK = "websiteUri"
+LOCATION_FIELD_MASK = "places.location"
 
 
 def _api_error_message(payload: Any) -> str:
@@ -60,6 +62,7 @@ async def _search_places_text(
     *,
     text_query: str,
     limit: int,
+    location_bias: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     body: dict[str, Any] = {
         "textQuery": text_query,
@@ -68,6 +71,8 @@ async def _search_places_text(
         "pageSize": min(limit, 20),
         "languageCode": "en",
     }
+    if location_bias:
+        body["locationBias"] = location_bias
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": key,
@@ -82,6 +87,47 @@ async def _search_places_text(
     payload = r.json()
     places = payload.get("places") or []
     return [p for p in places if isinstance(p, dict)]
+
+
+async def _resolve_location_bias(
+    client: httpx.AsyncClient,
+    key: str,
+    *,
+    location: str,
+    radius_miles: int,
+) -> dict[str, Any] | None:
+    body: dict[str, Any] = {
+        "textQuery": location,
+        "pageSize": 1,
+        "languageCode": "en",
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": key,
+        "X-Goog-FieldMask": LOCATION_FIELD_MASK,
+    }
+    try:
+        r = await client.post(SEARCH_TEXT_URL, json=body, headers=headers)
+        r.raise_for_status()
+    except Exception as e:
+        logger.debug("Location bias lookup failed for %r: %s", location, e)
+        return None
+
+    places = (r.json() or {}).get("places") or []
+    if not places or not isinstance(places[0], dict):
+        return None
+    point = places[0].get("location") or {}
+    lat = point.get("latitude")
+    lng = point.get("longitude")
+    if lat is None or lng is None:
+        return None
+
+    return {
+        "circle": {
+            "center": {"latitude": lat, "longitude": lng},
+            "radius": int(radius_miles * METERS_PER_MILE),
+        }
+    }
 
 
 def _normalize_dealer_website_url(website: str) -> str:
@@ -123,7 +169,7 @@ async def find_car_dealerships(
     make: str = "",
     model: str = "",
     limit: int = 20,
-    coverage_mode: str = "standard",
+    radius_miles: int = 50,
 ) -> list[DealershipFound]:
     """
     Find car dealerships near the given location using Places API (New) Text Search,
@@ -139,9 +185,15 @@ async def find_car_dealerships(
 
     make_q = make.strip()
     model_q = model.strip()
+    requested_radius = max(5, min(int(radius_miles or 50), 250))
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        mode = (coverage_mode or "standard").strip().lower()
+        location_bias = await _resolve_location_bias(
+            client,
+            key,
+            location=location,
+            radius_miles=requested_radius,
+        )
         text_queries: list[str] = []
         if make_q and model_q:
             text_queries.append(f"{make_q} {model_q} car dealership near {location}")
@@ -153,22 +205,24 @@ async def find_car_dealerships(
             text_queries.append(f"car dealership near {location}")
 
         # Places ranking can under-return franchise dealers for some low-volume models.
-        # Supplement narrowly with broader new-car franchise queries and merge results.
+        # Supplement with a fixed query set so dealership discovery stays consistent.
         if make_q:
             text_queries.append(f"new {make_q} near {location}")
             text_queries.append(f"{make_q} showroom near {location}")
-            if mode in {"expanded", "deep"}:
-                text_queries.append(f"{make_q} dealer near {location}")
-                text_queries.append(f"{make_q} inventory near {location}")
-            if mode == "deep":
-                text_queries.append(f"{make_q} dealership near {location}")
-                text_queries.append(f"{make_q} sales near {location}")
+            text_queries.append(f"{make_q} dealer near {location}")
+            text_queries.append(f"{make_q} inventory near {location}")
 
         places: list[dict[str, Any]] = []
         seen_place_resources: set[str] = set()
         for text_query in text_queries:
             try:
-                found = await _search_places_text(client, key, text_query=text_query, limit=limit)
+                found = await _search_places_text(
+                    client,
+                    key,
+                    text_query=text_query,
+                    limit=limit,
+                    location_bias=location_bias,
+                )
             except Exception:
                 if not places:
                     raise

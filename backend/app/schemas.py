@@ -13,9 +13,11 @@ class SearchRequest(BaseModel):
         default="all",
         description="Whether to include all inventory, only new vehicles, or only used vehicles.",
     )
-    coverage_mode: Literal["standard", "expanded", "deep"] = Field(
-        default="standard",
-        description="How broadly to search for dealerships before scraping.",
+    radius_miles: int = Field(
+        default=50,
+        ge=5,
+        le=250,
+        description="How far from the search location to look for dealerships.",
     )
     inventory_scope: Literal["all", "on_lot_only", "exclude_shared", "include_transit"] = Field(
         default="all",

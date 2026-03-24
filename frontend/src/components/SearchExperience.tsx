@@ -34,7 +34,7 @@ export function SearchExperience() {
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
   const [vehicleCondition, setVehicleCondition] = useState("all");
-  const [coverageMode, setCoverageMode] = useState("standard");
+  const [radiusMiles, setRadiusMiles] = useState("50");
   const [inventoryScope, setInventoryScope] = useState("all");
   const [maxDealerships, setMaxDealerships] = useState("8");
   const [maxPagesPerDealer, setMaxPagesPerDealer] = useState("1");
@@ -96,7 +96,7 @@ export function SearchExperience() {
       make: make.trim(),
       model: model.trim(),
       vehicle_condition: vehicleCondition,
-      coverage_mode: coverageMode,
+      radius_miles: radiusMiles,
       inventory_scope: inventoryScope,
       max_dealerships: maxDealerships,
       max_pages_per_dealer: maxPagesPerDealer,
@@ -203,13 +203,13 @@ export function SearchExperience() {
       stopStream();
     };
   }, [
-    coverageMode,
     inventoryScope,
     location,
     make,
     maxDealerships,
     maxPagesPerDealer,
     model,
+    radiusMiles,
     stopStream,
     vehicleCondition,
   ]);
@@ -268,16 +268,20 @@ export function SearchExperience() {
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-zinc-800 dark:text-zinc-200">Coverage</span>
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">
+              Dealership radius
+            </span>
             <select
               className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-              value={coverageMode}
-              onChange={(e) => setCoverageMode(e.target.value)}
+              value={radiusMiles}
+              onChange={(e) => setRadiusMiles(e.target.value)}
               disabled={running}
             >
-              <option value="standard">Standard</option>
-              <option value="expanded">Expanded</option>
-              <option value="deep">Deep</option>
+              <option value="10">10 miles</option>
+              <option value="25">25 miles</option>
+              <option value="50">50 miles</option>
+              <option value="75">75 miles</option>
+              <option value="100">100 miles</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">

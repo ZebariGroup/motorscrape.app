@@ -141,7 +141,7 @@ async def stream_search(
     model: str,
     *,
     vehicle_condition: str = "all",
-    coverage_mode: str = "standard",
+    radius_miles: int = 50,
     inventory_scope: str = "all",
     max_dealerships: int | None = None,
     max_pages_per_dealer: int | None = None,
@@ -159,7 +159,7 @@ async def stream_search(
             make=make,
             model=model,
             limit=min(requested_dealerships * 3, 30),
-            coverage_mode=coverage_mode,
+            radius_miles=radius_miles,
         )
     except Exception as e:
         logger.exception("Places search failed")
@@ -181,7 +181,7 @@ async def stream_search(
         {
             "message": (
                 f"Found {len(dealers)} dealerships. Scraping inventory… "
-                f"(requested {requested_dealerships}, coverage {coverage_mode}, "
+                f"(requested {requested_dealerships}, radius {radius_miles} mi, "
                 f"condition {vehicle_condition})"
             ),
             "phase": "scrape",
@@ -639,7 +639,7 @@ async def stream_search(
             "dealerships": len(dealers),
             "dealer_discovery_count": raw_dealer_count,
             "dealer_deduped_count": deduped_dealer_count,
-            "coverage_mode": coverage_mode,
+            "radius_miles": radius_miles,
             "vehicle_condition": vehicle_condition,
             "inventory_scope": inventory_scope,
             "max_dealerships": requested_dealerships,
