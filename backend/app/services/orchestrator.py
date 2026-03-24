@@ -23,8 +23,6 @@ from app.services.scraper import PageKind, fetch_page_html
 
 logger = logging.getLogger(__name__)
 
-_DEBUG_DEALER_NAME = "Suburban Ford of Ferndale"
-
 
 def _dealer_domain(website: str) -> str:
     host = urlparse(website).netloc.lower()
@@ -149,7 +147,6 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
         website = d.website or ""
         domain = _dealer_domain(website)
         fetch_methods_used: list[str] = []
-        do_debug = (d.name == _DEBUG_DEALER_NAME)
 
         async def _fetch(url: str, page_kind: PageKind) -> tuple[str, str]:
             html, method = await fetch_page_html(url, page_kind=page_kind, metrics=None)
@@ -332,19 +329,6 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                     model_filter=model,
                 )
                 extraction_mode = "structured" if structured is not None else None
-                if do_debug:
-                    try:
-                        structured_count = len(structured.vehicles) if structured else 0
-                    except Exception:
-                        structured_count = 0
-                    logger.info(
-                        "[DEBUG] %s extraction_mode=%s structured_vehicles=%d current_url=%s fetch_method=%s",
-                        d.name,
-                        extraction_mode,
-                        structured_count,
-                        current_url,
-                        current_method,
-                    )
 
                 if structured is None:
                     if make.strip() and not _html_mentions_make(current_html, make):
@@ -439,15 +423,6 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                     v for v in ext_result.vehicles if listing_matches_filters(v, make, model)
                 ]
                 vdicts = [v.model_dump(exclude_none=True) for v in filtered]
-                if do_debug:
-                    logger.info(
-                        "[DEBUG] %s ext_vehicles=%d filtered_vehicles=%d page_kind=%s pages_scraped=%d",
-                        d.name,
-                        len(ext_result.vehicles) if ext_result else 0,
-                        len(vdicts),
-                        "inventory",
-                        pages_scraped,
-                    )
                 if vdicts:
                     if domain and pages_scraped == 0:
                         inv_url_cache[domain] = current_url

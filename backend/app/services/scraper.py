@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Literal
+from urllib.parse import unquote
 from urllib.parse import urlencode
 from urllib.parse import urljoin
 
@@ -22,6 +23,10 @@ _EXTRA_API_RES = (
     re.compile(r'"inventoryApiUrl"\s*:\s*"(?P<url>[^"]+)"', re.I),
     re.compile(r'"inventory_url"\s*:\s*"(?P<url>[^"]+)"', re.I),
     re.compile(r'"inventoryEndpoint"\s*:\s*"(?P<url>[^"]+)"', re.I),
+)
+_WS_INV_FETCH_RE = re.compile(
+    r'fetch\("(?P<url>/api/widget/ws-inv-data/getInventory)".*?body:decodeURI\("(?P<body>.*?)"\)',
+    re.S,
 )
 _INVENTORY_HINTS = (
     "vehicle-card-title",
@@ -272,17 +277,32 @@ def _extract_inventory_api_urls(html: str, base_url: str) -> list[str]:
     return urls
 
 
+def _extract_inventory_post_requests(html: str, base_url: str) -> list[tuple[str, str]]:
+    requests: list[tuple[str, str]] = []
+    for m in _WS_INV_FETCH_RE.finditer(html):
+        abs_url = urljoin(base_url, m.group("url"))
+        body = m.group("body")
+        try:
+            decoded = unquote(body)
+        except Exception:
+            decoded = body
+        decoded = decoded.replace("\\/", "/")
+        if (abs_url, decoded) not in requests:
+            requests.append((abs_url, decoded))
+    return requests
+
+
 async def _maybe_append_inventory_api_data(
     page_url: str,
     html: str,
     timeout: httpx.Timeout,
 ) -> str:
-    # If cards are already rendered there is nothing to enrich.
-    if _html_looks_inventory_ready(html):
-        return html
-
     api_urls = _extract_inventory_api_urls(html, page_url)
-    if not api_urls:
+    api_posts = _extract_inventory_post_requests(html, page_url)
+    # If cards are already rendered and we do not see any API clues, there is nothing to enrich.
+    if _html_looks_inventory_ready(html) and not api_urls and not api_posts:
+        return html
+    if not api_urls and not api_posts:
         return html
 
     payloads: list[str] = []
@@ -293,6 +313,21 @@ async def _maybe_append_inventory_api_data(
                 r.raise_for_status()
             except Exception as e:
                 logger.debug("Inventory API fetch failed for %s: %s", api_url, e)
+                continue
+            content = r.text.strip()
+            if not content.startswith("{"):
+                continue
+            payloads.append(content)
+        for api_url, body in api_posts[:2]:
+            try:
+                r = await client.post(
+                    api_url,
+                    headers={**_browser_headers(), "Content-Type": "application/json"},
+                    content=body,
+                )
+                r.raise_for_status()
+            except Exception as e:
+                logger.debug("Inventory API POST failed for %s: %s", api_url, e)
                 continue
             content = r.text.strip()
             if not content.startswith("{"):
