@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
@@ -364,6 +364,7 @@ def _parse_title_fields(raw_title: str | None) -> dict[str, Any]:
     title = (raw_title or "").strip()
     if not title:
         return {}
+    title = re.sub(r"^(new|used|certified|cpo)\s+", "", title, flags=re.I)
     match = _TITLE_YEAR_RE.match(title)
     if not match:
         return {"raw_title": title}
@@ -506,7 +507,9 @@ def _build_availability_status(
 
 
 def _vehicle_merge_key(v: VehicleListing) -> str:
-    return f"{v.vin or ''}|{v.listing_url or ''}|{v.raw_title or ''}"
+    if v.vin:
+        return f"vin:{v.vin}"
+    return f"{v.listing_url or ''}|{v.raw_title or ''}"
 
 
 def _prefer_vehicle_fields(existing: VehicleListing, incoming: VehicleListing) -> VehicleListing:
@@ -645,7 +648,9 @@ def _vehicle_record_key(d: dict[str, Any]) -> str:
     url = str(
         d.get("vdpUrl") or d.get("vdp_url") or d.get("url") or d.get("listing_url") or ""
     ).strip()
-    return f"{vin}|{url}"
+    if vin:
+        return f"vin:{vin}"
+    return url
 
 
 def collect_structured_vehicle_dicts(html: str, page_url: str) -> list[dict[str, Any]]:
@@ -723,7 +728,7 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
     vehicles: list[VehicleListing] = []
     seen: set[str] = set()
 
-    for card in soup.select(".vehicle-card, .new-vehicle"):
+    for card in soup.select(".vehicle-card, .new-vehicle, .si-vehicle-box"):
         classes = set(card.get("class") or [])
         if "skeleton" in classes:
             continue
@@ -768,7 +773,7 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             is_shared_inventory=False,
         )
 
-        anchor = card.select_one("a[href]")
+        anchor = card if getattr(card, "name", None) == "a" else card.select_one("a[href]")
         listing_url = urljoin(page_url, anchor["href"]) if anchor and anchor.get("href") else None
 
         image_url = _pick_dom_vehicle_image(card, page_url)
@@ -776,7 +781,7 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
         payload_title = " ".join(
             str(x).strip()
             for x in (payload.get("year"), payload.get("make"), payload.get("model"), payload.get("trim"))
-            if str(x).strip()
+            if x not in (None, "") and str(x).strip()
         )
         raw_title = (
             card.get("data-name")
@@ -784,10 +789,18 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             or _text_or_none(card.select_one(".vehicleTitle"))
             or _text_or_none(card.select_one(".hit-title"))
             or _text_or_none(card.select_one(".hit-title a"))
+            or _text_or_none(card.select_one(".vehicle-title"))
             or payload_title
             or payload.get("title")
             or payload.get("name")
         )
+        if not raw_title and card_text:
+            raw_title = re.split(
+                r"\b(?:MSRP|Your\s+Price|Details|Disclosure|Exterior:|Interior:|Engine:|Transmission:|vin:|Stock:)\b",
+                card_text,
+                maxsplit=1,
+                flags=re.I,
+            )[0].strip()
         title_fields = _parse_title_fields(raw_title or card_text)
         if not raw_title:
             raw_title = title_fields.get("raw_title")
@@ -872,6 +885,30 @@ def find_next_page_url(html: str, base_url: str) -> str | None:
             continue
         if any(x in href.lower() for x in ("page=", "p=", "offset=", "start=", "pn=", "pageindex")):
             return urljoin(base_url, href)
+
+    try:
+        current_page = int(dict(parse_qsl(urlsplit(base_url).query)).get("page", "1"))
+    except ValueError:
+        current_page = 1
+
+    numbered_pages: list[tuple[int, str]] = []
+    for a in soup.find_all("a", href=True):
+        href = str(a["href"])
+        parsed = urlsplit(urljoin(base_url, href))
+        query = dict(parse_qsl(parsed.query))
+        page_val = query.get("page")
+        if not page_val:
+            continue
+        try:
+            page_num = int(page_val)
+        except ValueError:
+            continue
+        if page_num > current_page:
+            numbered_pages.append((page_num, urljoin(base_url, href)))
+
+    if numbered_pages:
+        numbered_pages.sort(key=lambda item: item[0])
+        return numbered_pages[0][1]
     return None
 
 

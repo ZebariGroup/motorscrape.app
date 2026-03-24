@@ -97,6 +97,18 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         extraction_mode="hybrid",
     ),
     PlatformDefinition(
+        platform_id="nissan_infiniti_inventory",
+        markers=(
+            "si-vehicle-box",
+            "unlockctadiscountdata",
+            "inventorysettings.data.buttonlabel",
+            "/viewdetails/new/",
+            "inventory_listing",
+        ),
+        inventory_path_hints=("inventory/new", "inventory/used", "new-", "used-", "pre-owned"),
+        extraction_mode="structured_html",
+    ),
+    PlatformDefinition(
         platform_id="purecars",
         markers=("purecars",),
         inventory_path_hints=("inventory", "new-inventory", "used-inventory"),

@@ -23,10 +23,12 @@ from app.services.inventory_filters import (
     listing_matches_vehicle_condition,
     model_filter_variants,
 )
+from app.services.dealer_platforms import detect_platform_profile
 from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.places import find_car_dealerships
 from app.services.platform_store import normalize_dealer_domain
 from app.services.provider_router import (
+    ProviderRoute,
     detect_or_lookup_provider,
     record_provider_failure,
     remember_provider_success,
@@ -381,11 +383,32 @@ async def stream_search(
                     )
                 except Exception as e:
                     logger.debug("Preferred rendered refetch skipped for %s: %s", inv_url or website, e)
+
+            inventory_profile = detect_platform_profile(current_html, page_url=inv_url or website)
+            if inventory_profile and (
+                route is None
+                or inventory_profile.confidence >= route.confidence
+                or route.platform_id in {"team_velocity", "fusionzone", "purecars", "jazel"}
+            ):
+                route = ProviderRoute(
+                    platform_id=inventory_profile.platform_id,
+                    confidence=inventory_profile.confidence,
+                    extraction_mode=inventory_profile.extraction_mode,
+                    requires_render=inventory_profile.requires_render,
+                    detection_source=inventory_profile.detection_source,
+                    cache_status="detected",
+                    inventory_path_hints=inventory_profile.inventory_path_hints,
+                    inventory_url_hint=inv_url or website,
+                )
             
             # 2. Pagination loop
             current_url = inv_url
             pages_scraped = 0
-            max_pages = requested_pages
+            max_pages = (
+                max(requested_pages, 4)
+                if route and route.platform_id == "nissan_infiniti_inventory"
+                else requested_pages
+            )
             total_vehicles = 0
             skip_info: str | None = None
 
