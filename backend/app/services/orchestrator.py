@@ -81,14 +81,21 @@ def _find_inventory_url(html: str, base_url: str) -> str:
             text = a.get_text(strip=True).lower()
             score = 0
 
-            if "inventory" in href or "inventory" in text:
+            # Prefer "new inventory" style pages over used/pre-owned links.
+            if "new-inventory" in href:
+                score += 40
+            if "searchnew" in href:
+                score += 35
+            if "inventory" in href and "new" in href:
+                score += 30
+            elif "inventory" in href or "inventory" in text:
+                score += 20
+            if "new" in href or "new" in text:
                 score += 10
+            if "used-inventory" in href:
+                score += 5
             if "used" in href or "pre-owned" in text or "used" in text:
-                score += 5
-            if "search" in href:
-                score += 5
-            if "new" in href:
-                score += 3
+                score -= 10
 
             # Penalize non-inventory links
             if any(x in href for x in ["service", "parts", "finance", "contact", "about", "specials", "privacy"]):
