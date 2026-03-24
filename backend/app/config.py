@@ -26,17 +26,27 @@ class Settings(BaseSettings):
         ),
     )
     openai_api_key: str = ""
-    # Seconds; bounds slow/hung LLM calls so the search stream can finish
-    openai_timeout: float = 120.0
+    # LLM model used for extraction; keep this fast for stream responsiveness.
+    openai_extraction_model: str = "gpt-4o-mini"
+    # Seconds; bounds slow/hung LLM calls so the search stream can finish.
+    openai_timeout: float = 75.0
     zenrows_api_key: str = ""
+    # Some ZenRows plans do not include premium proxies; leave off unless needed.
+    zenrows_premium_proxy: bool = False
     scrapingbee_api_key: str = ""
 
-    # Max dealerships per search (quality vs speed tradeoff)
+    # Max dealerships per search (quality vs speed tradeoff).
     max_dealerships: int = 8
-    # Max HTML chars sent to the LLM per page
+    # Concurrent dealership workers.
+    search_concurrency: int = 3
+    # Hard cap per dealer so one slow site cannot block final completion.
+    dealership_timeout: float = 150.0
+    # Max pages to follow per dealership inventory.
+    max_pages_per_dealer: int = 2
+    # Max HTML chars sent to the LLM per page.
     max_html_chars: int = 100_000
-    # HTTP timeout for scraper (seconds)
-    scrape_timeout: float = 45.0
+    # HTTP timeout for each scraper call (seconds).
+    scrape_timeout: float = 20.0
 
 
 settings = Settings()

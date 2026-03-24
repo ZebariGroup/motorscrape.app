@@ -95,14 +95,14 @@ async def extract_vehicles_from_html(
         timeout=settings.openai_timeout,
     )
     response = await client.beta.chat.completions.parse(
-        model="gpt-4o-2024-08-06",
+        model=settings.openai_extraction_model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_msg},
         ],
         response_format=ExtractionResult,
         temperature=0.1,
-        max_tokens=8192,
+        max_tokens=4096,
     )
 
     parsed = response.choices[0].message.parsed

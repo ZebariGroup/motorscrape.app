@@ -18,6 +18,7 @@ async def fetch_page_html(url: str) -> tuple[str, str]:
     Tries ZenRows, then ScrapingBee, then a plain httpx GET.
     """
     timeout = httpx.Timeout(settings.scrape_timeout)
+    failures: list[str] = []
 
     if settings.zenrows_api_key:
         try:
@@ -25,6 +26,7 @@ async def fetch_page_html(url: str) -> tuple[str, str]:
             return html, "zenrows"
         except Exception as e:
             logger.warning("ZenRows fetch failed for %s: %s", url, e)
+            failures.append(f"zenrows: {e}")
 
     if settings.scrapingbee_api_key:
         try:
@@ -32,11 +34,17 @@ async def fetch_page_html(url: str) -> tuple[str, str]:
             return html, "scrapingbee"
         except Exception as e:
             logger.warning("ScrapingBee fetch failed for %s: %s", url, e)
+            failures.append(f"scrapingbee: {e}")
 
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        r = await client.get(url, headers=_browser_headers())
-        r.raise_for_status()
-        return r.text, "direct"
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            r = await client.get(url, headers=_browser_headers())
+            r.raise_for_status()
+            return r.text, "direct"
+    except Exception as e:
+        failures.append(f"direct: {e}")
+        detail = " | ".join(failures)
+        raise RuntimeError(f"All fetch methods failed for {url}: {detail}") from e
 
 
 def _browser_headers() -> dict[str, str]:
@@ -57,8 +65,9 @@ async def _zenrows_fetch(url: str, timeout: httpx.Timeout) -> str:
         "apikey": settings.zenrows_api_key,
         "url": url,
         "js_render": "false",
-        "premium_proxy": "true",
     }
+    if settings.zenrows_premium_proxy:
+        params["premium_proxy"] = "true"
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         r = await client.get(api_url, params=params)
         r.raise_for_status()

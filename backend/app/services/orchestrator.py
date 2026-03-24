@@ -84,7 +84,9 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
         {"message": f"Found {len(dealers)} dealerships. Scraping inventory…", "phase": "scrape"},
     )
 
-    sem = asyncio.Semaphore(2)
+    sem = asyncio.Semaphore(max(1, settings.search_concurrency))
+    fetch_timeout = settings.scrape_timeout * 3 + 5.0
+    parse_timeout = settings.openai_timeout + 5.0
 
     async def process_one(index: int, d: DealershipFound) -> list[str]:
         chunks: list[str] = []
@@ -105,7 +107,28 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
         async with sem:
             # 1. Fetch homepage to find inventory link
             try:
-                html, method = await fetch_page_html(website)
+                html, method = await asyncio.wait_for(
+                    fetch_page_html(website),
+                    timeout=fetch_timeout,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Scrape timed out for %s", website)
+                chunks.append(
+                    _sse_pack(
+                        "dealership",
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": d.name,
+                            "website": website,
+                            "status": "error",
+                            "error": (
+                                f"Timed out while fetching pages after ~{int(fetch_timeout)}s."
+                            ),
+                        },
+                    )
+                )
+                return chunks
             except Exception as e:
                 logger.warning("Scrape failed for %s: %s", website, e)
                 chunks.append(
@@ -128,7 +151,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
             # 2. Pagination loop
             current_url = inv_url
             pages_scraped = 0
-            max_pages = 2
+            max_pages = max(1, settings.max_pages_per_dealer)
             total_vehicles = 0
 
             while current_url and pages_scraped < max_pages:
@@ -146,7 +169,13 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                         )
                     )
                     try:
-                        html, method = await fetch_page_html(current_url)
+                        html, method = await asyncio.wait_for(
+                            fetch_page_html(current_url),
+                            timeout=fetch_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning("Pagination scrape timed out for %s", current_url)
+                        break
                     except Exception as e:
                         logger.warning("Pagination scrape failed for %s: %s", current_url, e)
                         break
@@ -166,12 +195,33 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                 )
 
                 try:
-                    ext_result = await extract_vehicles_from_html(
-                        page_url=current_url,
-                        html=html,
-                        make_filter=make,
-                        model_filter=model,
+                    ext_result = await asyncio.wait_for(
+                        extract_vehicles_from_html(
+                            page_url=current_url,
+                            html=html,
+                            make_filter=make,
+                            model_filter=model,
+                        ),
+                        timeout=parse_timeout,
                     )
+                except asyncio.TimeoutError:
+                    msg = f"Timed out during AI extraction after ~{int(parse_timeout)}s."
+                    logger.warning("Parse timed out for %s", current_url)
+                    if pages_scraped == 0:
+                        chunks.append(
+                            _sse_pack(
+                                "dealership",
+                                {
+                                    "index": index,
+                                    "total": len(dealers),
+                                    "name": d.name,
+                                    "website": current_url,
+                                    "status": "error",
+                                    "error": msg,
+                                },
+                            )
+                        )
+                    break
                 except Exception as e:
                     logger.warning("Parse failed for %s: %s", current_url, e)
                     if pages_scraped == 0:
@@ -226,7 +276,37 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
             )
         return chunks
 
-    tasks = [asyncio.create_task(process_one(i, d)) for i, d in enumerate(dealers, start=1)]
+    async def process_one_with_timeout(index: int, d: DealershipFound) -> list[str]:
+        try:
+            return await asyncio.wait_for(
+                process_one(index, d),
+                timeout=settings.dealership_timeout,
+            )
+        except asyncio.TimeoutError:
+            website = d.website or ""
+            logger.warning("Dealership worker timed out for %s", website)
+            return [
+                _sse_pack(
+                    "dealership",
+                    {
+                        "index": index,
+                        "total": len(dealers),
+                        "name": d.name,
+                        "website": website,
+                        "address": d.address,
+                        "status": "error",
+                        "error": (
+                            "Timed out while processing this dealership. "
+                            "Skipping to keep search moving."
+                        ),
+                    },
+                )
+            ]
+
+    tasks = [
+        asyncio.create_task(process_one_with_timeout(i, d))
+        for i, d in enumerate(dealers, start=1)
+    ]
     for t in asyncio.as_completed(tasks):
         try:
             parts = await t
