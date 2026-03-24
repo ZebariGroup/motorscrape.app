@@ -22,4 +22,6 @@ export type DealershipProgress = {
   info?: string;
   fetch_method?: string;
   listings_found?: number;
+  /** Client-only: when the current status phase started (ms since epoch). */
+  phaseSince?: number;
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getApiBaseUrl } from "@/lib/config";
 import type { DealershipProgress, VehicleListing } from "@/types/inventory";
@@ -9,6 +9,9 @@ type AggregatedListing = VehicleListing & {
   dealership: string;
   dealership_website: string;
 };
+
+/** Matches backend default parse cap: openai_timeout (75) + orchestrator margin (~5). */
+const PARSING_HINT_MAX_SEC = 80;
 
 function formatMoney(n: number | undefined) {
   if (n == null || Number.isNaN(n)) return "—";
@@ -28,17 +31,41 @@ export function SearchExperience() {
   const [listings, setListings] = useState<AggregatedListing[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
+  const [tick, setTick] = useState(0);
   const esRef = useRef<EventSource | null>(null);
+  const searchStartedAtRef = useRef<number | null>(null);
 
   const dealerList = useMemo(
     () => Object.values(dealers).sort((a, b) => a.index - b.index),
     [dealers],
   );
 
+  const activeDealerCount = useMemo(
+    () => dealerList.filter((d) => d.status === "scraping" || d.status === "parsing").length,
+    [dealerList],
+  );
+
+  const doneDealerCount = useMemo(
+    () => dealerList.filter((d) => d.status === "done" || d.status === "error").length,
+    [dealerList],
+  );
+
+  useEffect(() => {
+    if (!running) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [running]);
+
+  const searchElapsedSec = useMemo(() => {
+    if (!running || searchStartedAtRef.current == null) return 0;
+    return Math.max(0, Math.floor((Date.now() - searchStartedAtRef.current) / 1000));
+  }, [running, tick]);
+
   const stopStream = useCallback(() => {
     esRef.current?.close();
     esRef.current = null;
     setRunning(false);
+    searchStartedAtRef.current = null;
   }, []);
 
   const startSearch = useCallback(() => {
@@ -47,6 +74,8 @@ export function SearchExperience() {
     setListings([]);
     setDealers({});
     setStatus(null);
+    setTick(0);
+    searchStartedAtRef.current = Date.now();
 
     const base = getApiBaseUrl();
     const params = new URLSearchParams({
@@ -73,7 +102,12 @@ export function SearchExperience() {
       try {
         const d = JSON.parse(ev.data) as DealershipProgress;
         const key = d.website || `${d.name}-${d.index}`;
-        setDealers((prev) => ({ ...prev, [key]: { ...prev[key], ...d } }));
+        setDealers((prev) => {
+          const prevRow = prev[key];
+          const statusChanged = prevRow?.status !== d.status;
+          const phaseSince = statusChanged ? Date.now() : (prevRow?.phaseSince ?? Date.now());
+          return { ...prev, [key]: { ...prevRow, ...d, phaseSince } };
+        });
       } catch {
         /* ignore */
       }
@@ -143,7 +177,13 @@ export function SearchExperience() {
         </p>
       </header>
 
-      <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <section
+        className={`rounded-2xl border bg-white p-6 shadow-sm dark:bg-zinc-950 ${
+          running
+            ? "border-emerald-300/80 ring-2 ring-emerald-500/15 dark:border-emerald-800/60"
+            : "border-zinc-200 dark:border-zinc-800"
+        }`}
+      >
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-zinc-800 dark:text-zinc-200">Location</span>
@@ -195,7 +235,27 @@ export function SearchExperience() {
           </div>
         </div>
         {status ? (
-          <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">{status}</p>
+          <div className="mt-4 space-y-1">
+            <p className="flex flex-wrap items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+              {running ? (
+                <span
+                  className="inline-flex h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse"
+                  aria-hidden
+                />
+              ) : null}
+              <span>{status}</span>
+            </p>
+            {running ? (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Elapsed {searchElapsedSec}s
+                {dealerList.length > 0
+                  ? ` · ${doneDealerCount}/${dealerList.length} dealerships finished · ${activeDealerCount} active`
+                  : ""}
+                . AI parsing is often ~10–40s per page when matches are found; it can run up to
+                about {PARSING_HINT_MAX_SEC}s on a slow or large page.
+              </p>
+            ) : null}
+          </div>
         ) : null}
         {errors.length > 0 ? (
           <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-red-600 dark:text-red-400">
@@ -215,11 +275,27 @@ export function SearchExperience() {
             {dealerList.length === 0 ? (
               <li className="text-sm text-zinc-500">No dealerships yet — run a search.</li>
             ) : (
-              dealerList.map((d) => (
+              dealerList.map((d) => {
+                const phaseSec =
+                  d.phaseSince != null
+                    ? Math.max(0, Math.floor((Date.now() - d.phaseSince) / 1000))
+                    : 0;
+                const isBusy = d.status === "scraping" || d.status === "parsing";
+                return (
                 <li
                   key={d.website + d.index}
-                  className="rounded-xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-950"
+                  className={`relative overflow-hidden rounded-xl border bg-white p-4 text-sm dark:bg-zinc-950 ${
+                    isBusy
+                      ? "border-amber-200 shadow-sm dark:border-amber-900/50"
+                      : "border-zinc-200 dark:border-zinc-800"
+                  }`}
                 >
+                  {isBusy ? (
+                    <div
+                      className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400/70 to-transparent animate-pulse"
+                      aria-hidden
+                    />
+                  ) : null}
                   <div className="font-medium text-zinc-900 dark:text-zinc-50">{d.name}</div>
                   {d.address ? (
                     <div className="mt-1 text-xs text-zinc-500">{d.address}</div>
@@ -231,7 +307,7 @@ export function SearchExperience() {
                           ? "rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
                           : d.status === "error"
                             ? "rounded-full bg-red-50 px-2 py-0.5 font-medium text-red-800 dark:bg-red-950 dark:text-red-200"
-                            : "rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-100"
+                            : "rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-900 motion-safe:animate-pulse dark:bg-amber-950 dark:text-amber-100"
                       }
                     >
                       {d.status}
@@ -241,11 +317,14 @@ export function SearchExperience() {
                     ) : null}
                     {d.status === "parsing" ? (
                       <span className="text-zinc-500">
-                        AI extraction…
+                        AI extraction… {phaseSec}s
                         {d.fetch_method ? (
                           <span className="text-zinc-400"> (page via {d.fetch_method})</span>
                         ) : null}
                       </span>
+                    ) : null}
+                    {d.status === "scraping" ? (
+                      <span className="text-zinc-500">Fetching… {phaseSec}s</span>
                     ) : null}
                     {d.listings_found != null ? (
                       <span className="text-zinc-500">{d.listings_found} listings</span>
@@ -266,7 +345,8 @@ export function SearchExperience() {
                     </a>
                   ) : null}
                 </li>
-              ))
+                );
+              })
             )}
           </ul>
         </section>
@@ -278,7 +358,17 @@ export function SearchExperience() {
           </div>
           {listings.length === 0 ? (
             <p className="text-sm text-zinc-500">
-              Results stream in as each dealership is scraped. Large dealer sites may take longer.
+              {running ? (
+                <>
+                  Still scanning dealers… New cards appear as each site is contacted. Matches show
+                  here as soon as AI finishes a page (often within a minute per dealer).
+                </>
+              ) : (
+                <>
+                  Results stream in as each dealership is scraped. Large dealer sites may take
+                  longer.
+                </>
+              )}
             </p>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
