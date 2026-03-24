@@ -99,6 +99,8 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
     PlatformDefinition(
         platform_id="nissan_infiniti_inventory",
         markers=(
+            "infiniti",
+            "nissan",
             "si-vehicle-box",
             "unlockctadiscountdata",
             "inventorysettings.data.buttonlabel",
@@ -106,6 +108,19 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
             "inventory_listing",
         ),
         inventory_path_hints=("inventory/new", "inventory/used", "new-", "used-", "pre-owned"),
+        extraction_mode="structured_html",
+    ),
+    PlatformDefinition(
+        platform_id="honda_acura_inventory",
+        markers=(
+            "honda",
+            "acura",
+            "si-vehicle-box",
+            "unlockctadiscountdata",
+            "/viewdetails/",
+            "inventory_listing",
+        ),
+        inventory_path_hints=("inventory/new", "inventory/used", "new-", "used-", "certified", "pre-owned"),
         extraction_mode="structured_html",
     ),
     PlatformDefinition(
