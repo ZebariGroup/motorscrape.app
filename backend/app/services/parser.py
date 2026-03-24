@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -253,6 +254,10 @@ def _coerce_int(val: Any) -> int | None:
     s = str(val).strip().replace(",", "")
     if not s:
         return None
+    lower = s.lower()
+    m_k = re.search(r"(\d+(?:\.\d+)?)\s*k\b", lower)
+    if m_k:
+        return int(float(m_k.group(1)) * 1000)
     try:
         return int(float(s))
     except ValueError:
@@ -303,6 +308,28 @@ def _pick_price_from_dict(d: dict[str, Any]) -> float | None:
     return None
 
 
+def _pick_price_from_pricelib(raw: Any) -> float | None:
+    if not raw:
+        return None
+    try:
+        decoded = base64.b64decode(str(raw)).decode("utf-8", errors="ignore")
+    except Exception:
+        return None
+    candidates: list[float] = []
+    for label in (
+        "calc_FINAL PRICE",
+        "calc_FINAL PRICE".lower(),
+        "calc_INTERNET PRICE",
+        "Internet Price",
+        "A/Z Plan Price",
+        "MSRP",
+    ):
+        m = re.search(rf"{re.escape(label)}:([0-9]+(?:\.[0-9]+)?)", decoded, re.I)
+        if m:
+            candidates.append(float(m.group(1)))
+    return min(candidates) if candidates else None
+
+
 def _pick_year(d: dict[str, Any]) -> int | None:
     y = d.get("year") or d.get("vehicleModelDate") or d.get("modelYear")
     return _coerce_int(y)
@@ -338,6 +365,39 @@ def _build_availability_status(
             return "Listed online"
         return status_text
     return None
+
+
+def _vehicle_merge_key(v: VehicleListing) -> str:
+    return f"{v.vin or ''}|{v.listing_url or ''}|{v.raw_title or ''}"
+
+
+def _prefer_vehicle_fields(existing: VehicleListing, incoming: VehicleListing) -> VehicleListing:
+    merged = existing.model_dump()
+    incoming_data = incoming.model_dump()
+    for key, value in incoming_data.items():
+        if value in (None, "", [], {}):
+            continue
+        current = merged.get(key)
+        if current in (None, "", [], {}):
+            merged[key] = value
+            continue
+        if key == "price":
+            try:
+                curr_num = float(current)
+                inc_num = float(value)
+            except Exception:
+                continue
+            if curr_num <= 0 < inc_num:
+                merged[key] = value
+        elif key == "mileage":
+            try:
+                curr_num = int(current)
+                inc_num = int(value)
+            except Exception:
+                continue
+            if curr_num <= 1 < inc_num:
+                merged[key] = value
+    return VehicleListing(**merged)
 
 
 def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing | None:
@@ -512,6 +572,8 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             or card.get("data-msrp")
             or card.get("data-dotagging-item-price")
         )
+        if price in (None, 0.0):
+            price = _pick_price_from_pricelib(card.get("data-pricelib")) or price
         is_in_stock = _coerce_bool(card.get("data-instock"))
         is_in_transit = _coerce_bool(card.get("data-intransit"))
         inventory_location = card.get("data-dotagging-item-location")
@@ -607,18 +669,20 @@ def try_extract_vehicles_without_llm(
     """
     dicts = collect_structured_vehicle_dicts(html, page_url)
     vehicles: list[VehicleListing] = []
+    by_key: dict[str, VehicleListing] = {}
     for d in dicts:
         v = dict_to_vehicle_listing(d, page_url)
         if v and listing_matches_filters(v, make_filter, model_filter):
-            vehicles.append(v)
+            key = _vehicle_merge_key(v)
+            by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
     for v in extract_dom_vehicle_cards(html, page_url):
         if not listing_matches_filters(v, make_filter, model_filter):
             continue
-        key = f"{v.vin or ''}|{v.listing_url or ''}|{v.raw_title or ''}"
-        if any(f"{x.vin or ''}|{x.listing_url or ''}|{x.raw_title or ''}" == key for x in vehicles):
-            continue
-        vehicles.append(v)
+        key = _vehicle_merge_key(v)
+        by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
+
+    vehicles = list(by_key.values())
 
     if not vehicles:
         return None
