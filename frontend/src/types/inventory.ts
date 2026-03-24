@@ -21,6 +21,10 @@ export type DealershipProgress = {
   error?: string;
   info?: string;
   fetch_method?: string;
+  /** Last parse path: structured JSON vs LLM */
+  extraction?: "structured" | "llm";
+  /** Per-dealer sequence of fetch modes (e.g. direct, zenrows_rendered) */
+  fetch_methods?: string[];
   listings_found?: number;
   /** Client-only: when the current status phase started (ms since epoch). */
   phaseSince?: number;

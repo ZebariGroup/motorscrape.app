@@ -5,44 +5,50 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from collections.abc import AsyncIterator
+from collections import defaultdict
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
+import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
-from app.schemas import DealershipFound, VehicleListing
-from app.services.parser import extract_vehicles_from_html
+from app.schemas import DealershipFound
+from app.services.inventory_discovery import discover_sitemap_inventory_urls
+from app.services.inventory_filters import listing_matches_filters, model_filter_variants
+from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.places import find_car_dealerships
-from app.services.scraper import fetch_page_html
+from app.services.scraper import PageKind, fetch_page_html
 
 logger = logging.getLogger(__name__)
 
 
-def _model_filter_variants(model: str) -> list[str]:
-    """Substrings to match user model input in HTML or listing text (F-150 / F150 / F 150)."""
-    raw = model.strip().lower()
-    if not raw:
-        return []
-    variants: set[str] = {raw}
-    alnum = re.sub(r"[^a-z0-9]", "", raw)
-    if alnum:
-        variants.add(alnum)
-    m = re.match(r"^([a-z]+)(\d[\w]*)$", alnum)
-    if m:
-        prefix, rest = m.group(1), m.group(2)
-        variants.add(f"{prefix}-{rest}")
-        variants.add(f"{prefix} {rest}")
-    return sorted(variants, key=len, reverse=True)
+def _dealer_domain(website: str) -> str:
+    host = urlparse(website).netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def _dedupe_dealers_by_domain(dealers: list[DealershipFound]) -> list[DealershipFound]:
+    seen: set[str] = set()
+    out: list[DealershipFound] = []
+    for d in dealers:
+        w = d.website or ""
+        dom = _dealer_domain(w)
+        if not dom or dom in seen:
+            continue
+        seen.add(dom)
+        out.append(d)
+    return out
 
 
 def _html_mentions_model(html: str, model: str) -> bool:
     if not model.strip():
         return True
     hay = html.lower()
-    return any(v in hay for v in _model_filter_variants(model))
+    return any(v in hay for v in model_filter_variants(model))
 
 
 def _html_mentions_make(html: str, make: str) -> bool:
@@ -50,23 +56,6 @@ def _html_mentions_make(html: str, make: str) -> bool:
     if not mk:
         return True
     return mk in html.lower()
-
-
-def _listing_matches_filters(v: VehicleListing, make_f: str, model_f: str) -> bool:
-    make_f = make_f.strip().lower()
-    model_f = model_f.strip()
-    if not make_f and not model_f:
-        return True
-    blob = " ".join(
-        filter(None, [v.make or "", v.model or "", v.trim or "", v.raw_title or ""])
-    ).lower()
-    if make_f and make_f not in blob:
-        return False
-    if model_f:
-        vars_ = _model_filter_variants(model_f)
-        if vars_ and not any(x in blob for x in vars_):
-            return False
-    return True
 
 
 def _find_inventory_url(html: str, base_url: str) -> str:
@@ -134,7 +123,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
         yield _sse_pack("done", {"ok": False})
         return
 
-    # Cap to max_dealerships with websites
+    dealers = _dedupe_dealers_by_domain(dealers)
     dealers = dealers[: settings.max_dealerships]
     if not dealers:
         yield _sse_pack("status", {"message": "No dealerships with websites found.", "phase": "places"})
@@ -149,10 +138,24 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
     sem = asyncio.Semaphore(max(1, settings.search_concurrency))
     fetch_timeout = settings.scrape_timeout * 3 + 5.0
     parse_timeout = settings.openai_timeout + 5.0
+    fetch_metrics: dict[str, int] = defaultdict(int)
+    metrics_lock = asyncio.Lock()
+    inv_url_cache: dict[str, str] = {}
 
     async def process_one(index: int, d: DealershipFound) -> list[str]:
         chunks: list[str] = []
         website = d.website or ""
+        domain = _dealer_domain(website)
+        fetch_methods_used: list[str] = []
+
+        async def _fetch(url: str, page_kind: PageKind) -> tuple[str, str]:
+            html, method = await fetch_page_html(url, page_kind=page_kind, metrics=None)
+            fetch_methods_used.append(method)
+            async with metrics_lock:
+                key = f"fetch_{method}"
+                fetch_metrics[key] += 1
+            return html, method
+
         chunks.append(
             _sse_pack(
                 "dealership",
@@ -170,7 +173,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
             # 1. Fetch homepage to find inventory link
             try:
                 html, method = await asyncio.wait_for(
-                    fetch_page_html(website),
+                    _fetch(website, "homepage"),
                     timeout=fetch_timeout,
                 )
             except asyncio.TimeoutError:
@@ -209,6 +212,22 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                 return chunks
 
             inv_url = _find_inventory_url(html, website)
+            if inv_url == website and domain in inv_url_cache:
+                cached = inv_url_cache[domain]
+                if cached and cached.rstrip("/") != website.rstrip("/"):
+                    inv_url = cached
+            if inv_url == website:
+                try:
+                    sm_timeout = httpx.Timeout(min(settings.scrape_timeout, 30.0))
+                    candidates = await discover_sitemap_inventory_urls(website, sm_timeout)
+                    for cand in candidates:
+                        if cand.rstrip("/") != website.rstrip("/"):
+                            inv_url = cand
+                            logger.info("Using sitemap inventory candidate for %s: %s", domain, inv_url)
+                            break
+                except Exception as e:
+                    logger.debug("Sitemap discovery skipped for %s: %s", website, e)
+
             current_html = html
             current_method = method
 
@@ -229,7 +248,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                 )
                 try:
                     current_html, current_method = await asyncio.wait_for(
-                        fetch_page_html(inv_url),
+                        _fetch(inv_url, "inventory"),
                         timeout=fetch_timeout,
                     )
                 except asyncio.TimeoutError:
@@ -293,7 +312,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                     )
                     try:
                         current_html, current_method = await asyncio.wait_for(
-                            fetch_page_html(current_url),
+                            _fetch(current_url, "inventory"),
                             timeout=fetch_timeout,
                         )
                     except asyncio.TimeoutError:
@@ -303,27 +322,36 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                         logger.warning("Pagination scrape failed for %s: %s", current_url, e)
                         break
 
-                if make.strip() and not _html_mentions_make(current_html, make):
-                    logger.info(
-                        "Skipping LLM for %s: no make mention (%r) in HTML",
-                        current_url,
-                        make.strip(),
-                    )
-                    skip_info = (
-                        f'No "{make.strip()}" mention found on this page; skipped AI extraction.'
-                    )
-                    break
+                structured = try_extract_vehicles_without_llm(
+                    page_url=current_url,
+                    html=current_html,
+                    make_filter=make,
+                    model_filter=model,
+                )
+                extraction_mode = "structured" if structured is not None else None
 
-                if model.strip() and not _html_mentions_model(current_html, model):
-                    logger.info(
-                        "Skipping LLM for %s: no model mention (%r) in HTML",
-                        current_url,
-                        model.strip(),
-                    )
-                    skip_info = (
-                        f'No "{model.strip()}" found on this page; skipped AI extraction.'
-                    )
-                    break
+                if structured is None:
+                    if make.strip() and not _html_mentions_make(current_html, make):
+                        logger.info(
+                            "Skipping extraction for %s: no make mention (%r) in HTML",
+                            current_url,
+                            make.strip(),
+                        )
+                        skip_info = (
+                            f'No "{make.strip()}" mention found on this page; skipped extraction.'
+                        )
+                        break
+
+                    if model.strip() and not _html_mentions_model(current_html, model):
+                        logger.info(
+                            "Skipping extraction for %s: no model mention (%r) in HTML",
+                            current_url,
+                            model.strip(),
+                        )
+                        skip_info = (
+                            f'No "{model.strip()}" found on this page; skipped extraction.'
+                        )
+                        break
 
                 chunks.append(
                     _sse_pack(
@@ -336,63 +364,68 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                             "current_url": current_url,
                             "status": "parsing",
                             "fetch_method": current_method,
+                            "extraction": extraction_mode or "llm",
                         },
                     )
                 )
 
-                try:
-                    ext_result = await asyncio.wait_for(
-                        extract_vehicles_from_html(
-                            page_url=current_url,
-                            html=current_html,
-                            make_filter=make,
-                            model_filter=model,
-                        ),
-                        timeout=parse_timeout,
-                    )
-                except asyncio.TimeoutError:
-                    msg = f"Timed out during AI extraction after ~{int(parse_timeout)}s."
-                    logger.warning("Parse timed out for %s", current_url)
-                    if pages_scraped == 0:
-                        chunks.append(
-                            _sse_pack(
-                                "dealership",
-                                {
-                                    "index": index,
-                                    "total": len(dealers),
-                                    "name": d.name,
-                                    "website": website,
-                                    "current_url": current_url,
-                                    "status": "error",
-                                    "error": msg,
-                                },
-                            )
+                ext_result = structured
+                if ext_result is None:
+                    try:
+                        ext_result = await asyncio.wait_for(
+                            extract_vehicles_from_html(
+                                page_url=current_url,
+                                html=current_html,
+                                make_filter=make,
+                                model_filter=model,
+                            ),
+                            timeout=parse_timeout,
                         )
-                    break
-                except Exception as e:
-                    logger.warning("Parse failed for %s: %s", current_url, e)
-                    if pages_scraped == 0:
-                        chunks.append(
-                            _sse_pack(
-                                "dealership",
-                                {
-                                    "index": index,
-                                    "total": len(dealers),
-                                    "name": d.name,
-                                    "website": website,
-                                    "current_url": current_url,
-                                    "status": "error",
-                                    "error": str(e),
-                                },
+                    except asyncio.TimeoutError:
+                        msg = f"Timed out during AI extraction after ~{int(parse_timeout)}s."
+                        logger.warning("Parse timed out for %s", current_url)
+                        if pages_scraped == 0:
+                            chunks.append(
+                                _sse_pack(
+                                    "dealership",
+                                    {
+                                        "index": index,
+                                        "total": len(dealers),
+                                        "name": d.name,
+                                        "website": website,
+                                        "current_url": current_url,
+                                        "status": "error",
+                                        "error": msg,
+                                    },
+                                )
                             )
-                        )
-                    break
+                        break
+                    except Exception as e:
+                        logger.warning("Parse failed for %s: %s", current_url, e)
+                        if pages_scraped == 0:
+                            chunks.append(
+                                _sse_pack(
+                                    "dealership",
+                                    {
+                                        "index": index,
+                                        "total": len(dealers),
+                                        "name": d.name,
+                                        "website": website,
+                                        "current_url": current_url,
+                                        "status": "error",
+                                        "error": str(e),
+                                    },
+                                )
+                            )
+                        break
 
                 filtered = [
-                    v for v in ext_result.vehicles if _listing_matches_filters(v, make, model)
+                    v for v in ext_result.vehicles if listing_matches_filters(v, make, model)
                 ]
                 vdicts = [v.model_dump(exclude_none=True) for v in filtered]
                 if vdicts:
+                    if domain and pages_scraped == 0:
+                        inv_url_cache[domain] = current_url
                     total_vehicles += len(vdicts)
                     chunks.append(
                         _sse_pack(
@@ -420,6 +453,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                 "website": website,
                 "status": "done",
                 "listings_found": total_vehicles,
+                "fetch_methods": fetch_methods_used,
             }
             if skip_info:
                 done_payload["info"] = skip_info
@@ -466,4 +500,11 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
             logger.exception("Worker failed")
             yield _sse_pack("search_error", {"message": str(e), "phase": "worker"})
 
-    yield _sse_pack("done", {"ok": True, "dealerships": len(dealers)})
+    yield _sse_pack(
+        "done",
+        {
+            "ok": True,
+            "dealerships": len(dealers),
+            "fetch_metrics": dict(fetch_metrics),
+        },
+    )

@@ -33,16 +33,19 @@ class Settings(BaseSettings):
     zenrows_api_key: str = ""
     # Some ZenRows plans do not include premium proxies; leave off unless needed.
     zenrows_premium_proxy: bool = False
+    # Milliseconds to wait after JS render (only when js_render=true); lower saves time/credits.
+    zenrows_wait_ms: int = 3000
     scrapingbee_api_key: str = ""
+    scrapingbee_wait_ms: int = 3000
 
     # Max dealerships per search (quality vs speed tradeoff).
     max_dealerships: int = 8
     # Concurrent dealership workers.
-    search_concurrency: int = 3
+    search_concurrency: int = 2
     # Hard cap per dealer so one slow site cannot block final completion.
     dealership_timeout: float = 150.0
     # Max pages to follow per dealership inventory.
-    max_pages_per_dealer: int = 2
+    max_pages_per_dealer: int = 1
     # Max HTML chars sent to the LLM per page (smaller = cheaper/faster).
     max_html_chars: int = 60_000
     # HTTP timeout for each scraper call (seconds).

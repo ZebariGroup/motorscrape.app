@@ -14,6 +14,8 @@ from openai import AsyncOpenAI
 
 from app.config import settings
 from app.schemas import ExtractionResult, VehicleListing
+from app.services.dealer_platforms import provider_enriched_vehicle_dicts
+from app.services.inventory_filters import listing_matches_filters
 
 logger = logging.getLogger(__name__)
 
@@ -210,11 +212,12 @@ def _clean_html(html: str, base_url: str) -> str:
 
 def _prepare_snippet_sync(html: str, base_url: str, max_chars: int) -> str:
     """Extract embedded JSON vehicle data + cleaned HTML, respecting the char budget."""
+    # Always walk the full HTML for embedded JSON / JSON-LD (injected API payloads may be at the end).
+    soup_full = BeautifulSoup(html, "lxml")
+    json_records = _extract_json_inventory(html, soup_full)
+
     max_raw = max(max_chars * 3, 600_000)
     capped = html[:max_raw] if len(html) > max_raw else html
-
-    soup = BeautifulSoup(capped, "lxml")
-    json_records = _extract_json_inventory(html, soup)
 
     json_section = ""
     if json_records:
@@ -236,6 +239,215 @@ def _prepare_snippet_sync(html: str, base_url: str, max_chars: int) -> str:
     cleaned = _truncate(cleaned, html_budget)
 
     return json_section + cleaned
+
+
+def _coerce_int(val: Any) -> int | None:
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return None
+    if isinstance(val, int):
+        return val
+    if isinstance(val, float):
+        return int(val)
+    s = str(val).strip().replace(",", "")
+    if not s:
+        return None
+    try:
+        return int(float(s))
+    except ValueError:
+        m = re.search(r"\d+", s)
+        return int(m.group(0)) if m else None
+
+
+def _coerce_float(val: Any) -> float | None:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return float(val)
+    s = re.sub(r"[^\d.]", "", str(val))
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _pick_price_from_dict(d: dict[str, Any]) -> float | None:
+    for key in ("price", "priceInet", "price_inet", "internetPrice", "sellingPrice"):
+        p = _coerce_float(d.get(key))
+        if p is not None and p > 0:
+            return p
+    offers = d.get("offers")
+    if isinstance(offers, dict):
+        for key in ("price", "lowPrice", "highPrice"):
+            p = _coerce_float(offers.get(key))
+            if p is not None and p > 0:
+                return p
+    return None
+
+
+def _pick_year(d: dict[str, Any]) -> int | None:
+    y = d.get("year") or d.get("vehicleModelDate") or d.get("modelYear")
+    return _coerce_int(y)
+
+
+def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing | None:
+    """Map a loose inventory/schema dict to VehicleListing; returns None if not vehicle-like."""
+    make = d.get("make") or d.get("manufacturer") or d.get("brand")
+    model = d.get("model")
+    vin = d.get("vin") or d.get("vehicleIdentificationNumber") or d.get("vehicle_identification_number")
+    if isinstance(make, dict):
+        make = make.get("name")
+    if isinstance(model, dict):
+        model = model.get("name")
+    make_s = str(make).strip() if make else None
+    model_s = str(model).strip() if model else None
+    vin_s = str(vin).strip() if vin else None
+    if not make_s and not model_s and not vin_s:
+        return None
+    if not make_s and not model_s:
+        # VIN-only without make/model is too weak for display
+        return None
+
+    vdp = (
+        d.get("vdpUrl")
+        or d.get("vdp_url")
+        or d.get("listing_url")
+        or d.get("url")
+        or d.get("sameAs")
+    )
+    listing_url = None
+    if vdp:
+        listing_url = urljoin(base_url, str(vdp).replace("\\/", "/"))
+
+    img = (
+        d.get("image_url")
+        or d.get("imageUrl")
+        or d.get("image")
+        or d.get("primaryImageUrl")
+    )
+    if isinstance(img, list) and img:
+        img = img[0]
+    if isinstance(img, dict):
+        img = img.get("url") or img.get("contentUrl")
+    image_url = urljoin(base_url, str(img).replace("\\/", "/")) if img else None
+
+    miles = d.get("miles") or d.get("mileage") or d.get("odometer")
+    trim = d.get("trim")
+    if isinstance(trim, dict):
+        trim = trim.get("name")
+    trim_s = str(trim).strip() if trim else None
+
+    title_parts = [str(x) for x in [_pick_year(d), make_s, model_s, trim_s] if x]
+    raw_title = " ".join(title_parts) if title_parts else None
+
+    return VehicleListing(
+        year=_pick_year(d),
+        make=make_s,
+        model=model_s,
+        trim=trim_s,
+        price=_pick_price_from_dict(d),
+        mileage=_coerce_int(miles),
+        vin=vin_s,
+        image_url=image_url,
+        listing_url=listing_url,
+        raw_title=raw_title,
+    )
+
+
+def _vehicle_record_key(d: dict[str, Any]) -> str:
+    vin = str(d.get("vin") or d.get("vehicleIdentificationNumber") or "").strip()
+    url = str(
+        d.get("vdpUrl") or d.get("vdp_url") or d.get("url") or d.get("listing_url") or ""
+    ).strip()
+    return f"{vin}|{url}"
+
+
+def collect_structured_vehicle_dicts(html: str, page_url: str) -> list[dict[str, Any]]:
+    """Merge generic embedded JSON inventory with platform-specific JSON-LD vehicles."""
+    soup = BeautifulSoup(html, "lxml")
+    generic = _extract_json_inventory(html, soup)
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for r in generic:
+        k = _vehicle_record_key(r)
+        if k not in seen:
+            seen.add(k)
+            merged.append(r)
+    extra = provider_enriched_vehicle_dicts(html, page_url)
+    if extra:
+        for d in extra:
+            nd = _normalize_schema_org(d)
+            k = _vehicle_record_key(nd)
+            if k in seen:
+                continue
+            if nd.get("make") or nd.get("model") or nd.get("vehicleIdentificationNumber"):
+                seen.add(k)
+                merged.append(nd)
+    return merged
+
+
+def find_next_page_url(html: str, base_url: str) -> str | None:
+    """Best-effort rel=next / pagination link without calling the LLM."""
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return None
+
+    link = soup.find("link", attrs={"rel": lambda x: x and "next" in str(x).lower()})
+    if link and link.get("href"):
+        return urljoin(base_url, str(link["href"]))
+
+    for a in soup.find_all("a", href=True):
+        rel = a.get("rel")
+        rel_s = " ".join(rel).lower() if isinstance(rel, list) else str(rel or "").lower()
+        if "next" in rel_s:
+            return urljoin(base_url, str(a["href"]))
+
+    for a in soup.find_all("a", href=True):
+        cls = " ".join(a.get("class") or []).lower()
+        text = a.get_text(strip=True).lower()
+        href = str(a["href"])
+        if "next" not in cls and text not in ("next", "next page", "›", "»"):
+            continue
+        if any(x in href.lower() for x in ("page=", "p=", "offset=", "start=", "pn=", "pageindex")):
+            return urljoin(base_url, href)
+    return None
+
+
+def try_extract_vehicles_without_llm(
+    *,
+    page_url: str,
+    html: str,
+    make_filter: str,
+    model_filter: str,
+) -> ExtractionResult | None:
+    """
+    If embedded/JSON-LD/inventory-api data yields concrete vehicles, map them without OpenAI.
+    Returns None when structured data is missing or too weak.
+    """
+    dicts = collect_structured_vehicle_dicts(html, page_url)
+    if not dicts:
+        return None
+
+    vehicles: list[VehicleListing] = []
+    for d in dicts:
+        v = dict_to_vehicle_listing(d, page_url)
+        if v and listing_matches_filters(v, make_filter, model_filter):
+            vehicles.append(v)
+
+    if not vehicles:
+        return None
+
+    next_u = find_next_page_url(html, page_url)
+    logger.info(
+        "Structured extraction: %d vehicle(s) without LLM for %s",
+        len(vehicles),
+        page_url,
+    )
+    return ExtractionResult(vehicles=vehicles, next_page_url=next_u)
 
 
 async def extract_vehicles_from_html(

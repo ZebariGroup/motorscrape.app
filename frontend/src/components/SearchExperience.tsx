@@ -145,9 +145,24 @@ export function SearchExperience() {
       }
     };
 
-    const onDone = () => {
+    const onDone = (ev: Event) => {
+      const me = ev as MessageEvent;
+      try {
+        const data = JSON.parse(me.data) as {
+          ok?: boolean;
+          fetch_metrics?: Record<string, number>;
+        };
+        const fm = data.fetch_metrics;
+        if (fm && Object.keys(fm).length > 0) {
+          const parts = Object.entries(fm).map(([k, v]) => `${k}: ${v}`);
+          setStatus(`Search finished · ${parts.join(" · ")}`);
+        } else {
+          setStatus((s) => s ?? "Search finished.");
+        }
+      } catch {
+        setStatus((s) => s ?? "Search finished.");
+      }
       stopStream();
-      setStatus((s) => s ?? "Search finished.");
     };
 
     es.addEventListener("status", onStatus);

@@ -1,6 +1,6 @@
 # Motorscrape
 
-Next.js + FastAPI platform to discover nearby car dealerships (Google Places), fetch their websites through managed scrapers when configured, and extract inventory with an LLM. Results stream to the browser via **Server-Sent Events (SSE)**.
+Next.js + FastAPI platform to discover nearby car dealerships (Google Places), fetch their websites with **direct HTTP first** and managed scrapers (ZenRows / ScrapingBee) only when needed, and extract inventory from structured data when possible (otherwise an LLM). Results stream to the browser via **Server-Sent Events (SSE)**.
 
 ## Deploy on Vercel (Git)
 
@@ -15,7 +15,7 @@ This repo is set up for **[Vercel Services](https://vercel.com/docs/services)**:
    |------|----------|--------|
    | `GOOGLE_PLACES_API_KEY` | Yes | Same key as in Google Cloud; you can also use `GOOGLE_MAPS_API_KEY`. Enable **[Places API](https://console.cloud.google.com/apis/library/places.googleapis.com)** (New) for Text Search + Place Details ([docs](https://developers.google.com/maps/documentation/places/web-service/text-search)) |
    | `OPENAI_API_KEY` | Yes | Used for `gpt-4o-mini` extraction |
-   | `ZENROWS_API_KEY` | No | Managed fetch / anti-bot ([ZenRows](https://docs.zenrows.com/)) |
+   | `ZENROWS_API_KEY` | No | Managed fetch / anti-bot ([ZenRows](https://docs.zenrows.com/)); used after direct fetch fails or HTML lacks inventory signals |
    | `SCRAPINGBEE_API_KEY` | No | Alternative managed fetch ([ScrapingBee](https://www.scrapingbee.com/documentation/)) |
 
    Optional overrides:
@@ -73,6 +73,17 @@ See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requi
 | `vehicles`     | Batch of extracted listings for one dealer   |
 | `search_error` | Recoverable or fatal application error       |
 | `done`         | Stream complete                              |
+
+## Scraping cost (ZenRows / ScrapingBee)
+
+- The backend **tries a normal browser-like HTTP GET first** for each URL. Managed scrapers run only if the response looks blocked, empty, or missing inventory signals.
+- ZenRows is called **without JS rendering first**, then with **`js_render` + `wait`** only if the static pass is still insufficient. Tune `ZENROWS_WAIT_MS` / `SCRAPINGBEE_WAIT_MS` in env or [`backend/app/config.py`](backend/app/config.py).
+- **Structured inventory** (embedded JSON, `inventoryApiURL`-style endpoints, JSON-LD, and sitemap-discovered inventory URLs) is preferred so listings can be parsed **without** calling the LLM when possible.
+- The search stream’s final **`done`** event includes **`fetch_metrics`** (counts per fetch mode, e.g. `fetch_direct`, `fetch_zenrows_rendered`). Each dealership **`done`** payload may include **`fetch_methods`** (sequence used for that dealer).
+
+## Self-hosted browser fallback (evaluation)
+
+If you want to avoid recurring managed-scraper fees, the typical pattern is **self-hosted headless browsers** (e.g. Playwright) plus **residential/datacenter proxies** and your own block detection—**not** “raw Playwright alone” on hard anti-bot sites. Expect higher ops burden than ZenRows. Optional directions: stealth browser builds, a small worker pool, and using that path **only** when direct + static managed fetches fail.
 
 ## Legal & ethics
 

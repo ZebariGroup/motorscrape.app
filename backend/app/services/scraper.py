@@ -1,9 +1,9 @@
-"""Fetch dealership pages via managed scrapers (ZenRows / ScrapingBee) or direct HTTP."""
+"""Fetch dealership pages via direct HTTP first, then managed scrapers (ZenRows / ScrapingBee) when needed."""
 
 from __future__ import annotations
 
 import logging
-import re
+from typing import Literal
 from urllib.parse import urlencode
 from urllib.parse import urljoin
 
@@ -13,7 +13,15 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+PageKind = Literal["homepage", "inventory"]
+
 _INVENTORY_URL_RE = re.compile(r'"inventoryApiURL"\s*:\s*"(?P<url>[^"]+)"')
+# Extra embedded config keys seen on dealer SPAs
+_EXTRA_API_RES = (
+    re.compile(r'"inventoryApiUrl"\s*:\s*"(?P<url>[^"]+)"', re.I),
+    re.compile(r'"inventory_url"\s*:\s*"(?P<url>[^"]+)"', re.I),
+    re.compile(r'"inventoryEndpoint"\s*:\s*"(?P<url>[^"]+)"', re.I),
+)
 _INVENTORY_HINTS = (
     "vehicle-card-title",
     "vehiclecard",
@@ -21,45 +29,158 @@ _INVENTORY_HINTS = (
     "inventory-listing",
     "srpvehicle",
 )
+_BLOCK_MARKERS = (
+    "cf-browser-verification",
+    "checking your browser",
+    "just a moment",
+    "attention required",
+    "enable javascript",
+    "datadome",
+    "perimeterx",
+    "px-captcha",
+    "captcha.js",
+    "access denied",
+    "request blocked",
+)
+_STRUCTURE_HINTS = (
+    '"inventory":',
+    '"inventoryapiurl"',
+    "__next_data__",
+    "application/ld+json",
+    '"@type":"vehicle"',
+    '"@type": "vehicle"',
+    '"vehicleidentificationnumber"',
+    '"vdpurl"',
+)
 
 
-async def fetch_page_html(url: str) -> tuple[str, str]:
+async def fetch_page_html(
+    url: str,
+    *,
+    page_kind: PageKind = "inventory",
+    metrics: dict[str, int] | None = None,
+) -> tuple[str, str]:
     """
     Return (html, method_used).
-    Tries ZenRows, then ScrapingBee, then a plain httpx GET.
+
+    Order: direct HTTP → optional inventory API enrichment → if insufficient, ZenRows
+    (static, then JS render) → same for ScrapingBee → last-chance direct error.
+
+    method_used values: direct, zenrows_static, zenrows_rendered, scrapingbee_static,
+    scrapingbee_rendered (and direct after managed retry is still the managed tag that succeeded).
     """
     timeout = httpx.Timeout(settings.scrape_timeout)
     failures: list[str] = []
 
-    if settings.zenrows_api_key:
-        try:
-            html = await _zenrows_fetch(url, timeout)
-            html = await _maybe_append_inventory_api_data(url, html, timeout)
-            return html, "zenrows"
-        except Exception as e:
-            sanitized = str(e).replace(settings.zenrows_api_key, "***")
-            logger.warning("ZenRows fetch failed for %s: %s", url, sanitized)
-            failures.append(f"zenrows: {sanitized}")
+    def _m(key: str) -> None:
+        if metrics is not None:
+            metrics[key] = metrics.get(key, 0) + 1
 
-    if settings.scrapingbee_api_key:
-        try:
-            html = await _scrapingbee_fetch(url, timeout)
-            html = await _maybe_append_inventory_api_data(url, html, timeout)
-            return html, "scrapingbee"
-        except Exception as e:
-            logger.warning("ScrapingBee fetch failed for %s: %s", url, e)
-            failures.append(f"scrapingbee: {e}")
-
+    # 1) Direct first (cheapest)
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            r = await client.get(url, headers=_browser_headers())
-            r.raise_for_status()
-            html = await _maybe_append_inventory_api_data(url, r.text, timeout)
+        html = await _direct_get(url, timeout)
+        html = await _maybe_append_inventory_api_data(url, html, timeout)
+        if _direct_html_sufficient(html, page_kind=page_kind):
+            _m("direct_ok")
             return html, "direct"
+        logger.info("Direct fetch insufficient for %s (%s), escalating to managed scrapers", url, page_kind)
+        _m("direct_insufficient")
     except Exception as e:
         failures.append(f"direct: {e}")
-        detail = " | ".join(failures)
-        raise RuntimeError(f"All fetch methods failed for {url}: {detail}") from e
+        logger.debug("Direct fetch failed for %s: %s", url, e)
+        _m("direct_failed")
+
+    # 2) ZenRows: static then rendered
+    if settings.zenrows_api_key:
+        try:
+            html = await _zenrows_fetch(url, timeout, js_render=False)
+            html = await _maybe_append_inventory_api_data(url, html, timeout)
+            if _direct_html_sufficient(html, page_kind=page_kind):
+                _m("zenrows_static_ok")
+                return html, "zenrows_static"
+        except Exception as e:
+            sanitized = str(e).replace(settings.zenrows_api_key, "***")
+            logger.warning("ZenRows static fetch failed for %s: %s", url, sanitized)
+            failures.append(f"zenrows_static: {sanitized}")
+
+        try:
+            html = await _zenrows_fetch(
+                url,
+                timeout,
+                js_render=True,
+                wait_ms=settings.zenrows_wait_ms,
+            )
+            html = await _maybe_append_inventory_api_data(url, html, timeout)
+            _m("zenrows_rendered_ok")
+            return html, "zenrows_rendered"
+        except Exception as e:
+            sanitized = str(e).replace(settings.zenrows_api_key, "***")
+            logger.warning("ZenRows rendered fetch failed for %s: %s", url, sanitized)
+            failures.append(f"zenrows_rendered: {sanitized}")
+
+    # 3) ScrapingBee: static then rendered
+    if settings.scrapingbee_api_key:
+        try:
+            html = await _scrapingbee_fetch(url, timeout, render_js=False)
+            html = await _maybe_append_inventory_api_data(url, html, timeout)
+            if _direct_html_sufficient(html, page_kind=page_kind):
+                _m("scrapingbee_static_ok")
+                return html, "scrapingbee_static"
+        except Exception as e:
+            logger.warning("ScrapingBee static fetch failed for %s: %s", url, e)
+            failures.append(f"scrapingbee_static: {e}")
+
+        try:
+            html = await _scrapingbee_fetch(
+                url,
+                timeout,
+                render_js=True,
+                wait_ms=settings.scrapingbee_wait_ms,
+            )
+            html = await _maybe_append_inventory_api_data(url, html, timeout)
+            _m("scrapingbee_rendered_ok")
+            return html, "scrapingbee_rendered"
+        except Exception as e:
+            logger.warning("ScrapingBee rendered fetch failed for %s: %s", url, e)
+            failures.append(f"scrapingbee_rendered: {e}")
+
+    # 4) If we had a direct body that was "insufficient", return it rather than failing completely
+    try:
+        html = await _direct_get(url, timeout)
+        html = await _maybe_append_inventory_api_data(url, html, timeout)
+        _m("direct_fallback_ok")
+        return html, "direct"
+    except Exception as e:
+        failures.append(f"direct_retry: {e}")
+
+    detail = " | ".join(failures)
+    raise RuntimeError(f"All fetch methods failed for {url}: {detail}") from None
+
+
+def _looks_like_block_page(html: str) -> bool:
+    if not html or len(html.strip()) < 200:
+        return True
+    lower = html.lower()
+    return any(m in lower for m in _BLOCK_MARKERS)
+
+
+def _has_structured_inventory_hint(html: str) -> bool:
+    lower = html.lower()
+    return any(h in lower for h in _STRUCTURE_HINTS)
+
+
+def _direct_html_sufficient(html: str, *, page_kind: PageKind) -> bool:
+    if _looks_like_block_page(html):
+        return False
+    if _has_structured_inventory_hint(html):
+        return True
+    if _html_looks_inventory_ready(html):
+        return True
+    lower = html.lower()
+    if page_kind == "homepage":
+        return len(html) >= 1800 and ("href=" in lower or "inventory" in lower)
+    # inventory page: allow smaller SPAs if structured markers exist; else need size/cards
+    return len(html) >= 5000 or _html_looks_inventory_ready(html)
 
 
 def _browser_headers() -> dict[str, str]:
@@ -73,15 +194,29 @@ def _browser_headers() -> dict[str, str]:
     }
 
 
-async def _zenrows_fetch(url: str, timeout: httpx.Timeout) -> str:
+async def _direct_get(url: str, timeout: httpx.Timeout) -> str:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        r = await client.get(url, headers=_browser_headers())
+        r.raise_for_status()
+        return r.text
+
+
+async def _zenrows_fetch(
+    url: str,
+    timeout: httpx.Timeout,
+    *,
+    js_render: bool,
+    wait_ms: int = 0,
+) -> str:
     """https://docs.zenrows.com/universal-scraper-api"""
     api_url = "https://api.zenrows.com/v1/"
-    params = {
+    params: dict[str, str] = {
         "apikey": settings.zenrows_api_key,
         "url": url,
-        "js_render": "true",
-        "wait": "5000",
+        "js_render": "true" if js_render else "false",
     }
+    if js_render and wait_ms > 0:
+        params["wait"] = str(wait_ms)
     if settings.zenrows_premium_proxy:
         params["premium_proxy"] = "true"
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -90,17 +225,23 @@ async def _zenrows_fetch(url: str, timeout: httpx.Timeout) -> str:
         return r.text
 
 
-async def _scrapingbee_fetch(url: str, timeout: httpx.Timeout) -> str:
+async def _scrapingbee_fetch(
+    url: str,
+    timeout: httpx.Timeout,
+    *,
+    render_js: bool,
+    wait_ms: int = 0,
+) -> str:
     """https://www.scrapingbee.com/documentation/"""
     base = "https://app.scrapingbee.com/api/v1/"
-    qs = urlencode(
-        {
-            "api_key": settings.scrapingbee_api_key,
-            "url": url,
-            "render_js": "true",
-            "wait": "5000",
-        }
-    )
+    q: dict[str, str | int] = {
+        "api_key": settings.scrapingbee_api_key,
+        "url": url,
+        "render_js": "true" if render_js else "false",
+    }
+    if render_js and wait_ms > 0:
+        q["wait"] = wait_ms
+    qs = urlencode(q)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         r = await client.get(f"{base}?{qs}")
         r.raise_for_status()
@@ -120,6 +261,13 @@ def _extract_inventory_api_urls(html: str, base_url: str) -> list[str]:
         abs_url = urljoin(base_url, fixed)
         if abs_url not in urls:
             urls.append(abs_url)
+    for cre in _EXTRA_API_RES:
+        for m in cre.finditer(html):
+            raw = m.group("url")
+            fixed = raw.replace("\\/", "/")
+            abs_url = urljoin(base_url, fixed)
+            if abs_url not in urls:
+                urls.append(abs_url)
     return urls
 
 
