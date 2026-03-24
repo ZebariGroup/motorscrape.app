@@ -7,6 +7,7 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -97,6 +98,18 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         extraction_mode="hybrid",
     ),
     PlatformDefinition(
+        platform_id="kia_inventory",
+        markers=(
+            "kia",
+            "si-vehicle-box",
+            "unlockctadiscountdata",
+            "/viewdetails/",
+            "inventory_listing",
+        ),
+        inventory_path_hints=("inventory/new", "inventory/used", "new-", "used-", "certified", "pre-owned"),
+        extraction_mode="structured_html",
+    ),
+    PlatformDefinition(
         platform_id="nissan_infiniti_inventory",
         markers=(
             "infiniti",
@@ -149,11 +162,27 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
 )
 
 
+def _family_stack_allowed_for_url(platform_id: str, page_url: str) -> bool:
+    target = page_url.lower()
+    host = urlsplit(page_url).netloc.lower()
+    if platform_id == "nissan_infiniti_inventory":
+        return any(token in host or token in target for token in ("nissan", "infiniti"))
+    if platform_id == "honda_acura_inventory":
+        return any(token in host or token in target for token in ("honda", "acura"))
+    if platform_id == "hyundai_inventory_search":
+        return "hyundai" in host or "hyundai" in target
+    if platform_id == "kia_inventory":
+        return "kia" in host or "kia" in target
+    return True
+
+
 def _best_platform_definition(html: str, page_url: str = "") -> PlatformDefinition | None:
     lower = html.lower()
     target = lower + " " + page_url.lower()
     best: tuple[int, PlatformDefinition] | None = None
     for definition in _PLATFORM_REGISTRY:
+        if not _family_stack_allowed_for_url(definition.platform_id, page_url):
+            continue
         score = sum(1 for marker in definition.markers if marker in target)
         if score <= 0:
             continue

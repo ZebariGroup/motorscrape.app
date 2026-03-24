@@ -406,7 +406,11 @@ async def stream_search(
             pages_scraped = 0
             max_pages = (
                 max(requested_pages, 4)
-                if route and route.platform_id in {"nissan_infiniti_inventory", "honda_acura_inventory"}
+                if route and route.platform_id in {
+                    "nissan_infiniti_inventory",
+                    "honda_acura_inventory",
+                    "kia_inventory",
+                }
                 else requested_pages
             )
             total_vehicles = 0
