@@ -30,6 +30,8 @@ _WS_INV_FETCH_RE = re.compile(
 )
 _INVENTORY_HINTS = (
     "vehicle-card-title",
+    "vehicle-card",
+    "vehicle-card--mod",
     "vehiclecard",
     "inventory_list",
     "inventory-listing",
@@ -59,6 +61,7 @@ _STRUCTURE_HINTS = (
     '"vdpurl"',
 )
 _PLACEHOLDER_MARKERS = (
+    "srp-inventory skeleton",
     "vehicle-card--mod skeleton",
     "card-skeleton-image",
     "vehicle-card vehicle-card--mod skeleton",
@@ -69,6 +72,7 @@ async def fetch_page_html(
     url: str,
     *,
     page_kind: PageKind = "inventory",
+    prefer_render: bool = False,
     metrics: dict[str, int] | None = None,
 ) -> tuple[str, str]:
     """
@@ -86,6 +90,42 @@ async def fetch_page_html(
     def _m(key: str) -> None:
         if metrics is not None:
             metrics[key] = metrics.get(key, 0) + 1
+
+    if prefer_render and page_kind == "inventory":
+        if settings.zenrows_api_key:
+            try:
+                html = await _zenrows_fetch(
+                    url,
+                    timeout,
+                    js_render=True,
+                    wait_ms=settings.zenrows_wait_ms,
+                )
+                html = await _maybe_append_inventory_api_data(url, html, timeout)
+                if _direct_html_sufficient(html, page_kind=page_kind):
+                    _m("zenrows_rendered_ok")
+                    return html, "zenrows_rendered"
+                _m("zenrows_rendered_insufficient")
+            except Exception as e:
+                sanitized = str(e).replace(settings.zenrows_api_key, "***")
+                logger.warning("ZenRows preferred rendered fetch failed for %s: %s", url, sanitized)
+                failures.append(f"zenrows_rendered_preferred: {sanitized}")
+
+        if settings.scrapingbee_api_key:
+            try:
+                html = await _scrapingbee_fetch(
+                    url,
+                    timeout,
+                    render_js=True,
+                    wait_ms=settings.scrapingbee_wait_ms,
+                )
+                html = await _maybe_append_inventory_api_data(url, html, timeout)
+                if _direct_html_sufficient(html, page_kind=page_kind):
+                    _m("scrapingbee_rendered_ok")
+                    return html, "scrapingbee_rendered"
+                _m("scrapingbee_rendered_insufficient")
+            except Exception as e:
+                logger.warning("ScrapingBee preferred rendered fetch failed for %s: %s", url, e)
+                failures.append(f"scrapingbee_rendered_preferred: {e}")
 
     # 1) Direct first (cheapest)
     try:
@@ -197,8 +237,8 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind) -> bool:
     lower = html.lower()
     if page_kind == "homepage":
         return len(html) >= 1800 and ("href=" in lower or "inventory" in lower)
-    # inventory page: allow smaller SPAs if structured markers exist; else need size/cards
-    return len(html) >= 5000 or _html_looks_inventory_ready(html)
+    # Inventory pages often return large SEO shells or placeholder grids.
+    return False
 
 
 def _browser_headers() -> dict[str, str]:

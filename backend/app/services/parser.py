@@ -61,6 +61,10 @@ _VEHICLE_FULL_REGEX = re.compile(
     r'(?:.*?\\"vin\\":\\"(?P<vin>[^\\]*)\\")?'
     r'(?:.*?\\"vdpUrl\\":\\"(?P<vdpUrl>[^\\]*)\\")?',
 )
+_TEXT_PRICE_RE = re.compile(r"\$([0-9][0-9,]{2,})(?:\.\d{2})?")
+_TEXT_MILEAGE_RE = re.compile(r"\b([0-9][0-9,]{0,6})\s*(?:mi|miles?)\b", re.I)
+_TEXT_VIN_RE = re.compile(r"\b([A-HJ-NPR-Z0-9]{17})\b")
+_TITLE_YEAR_RE = re.compile(r"^(?P<year>20\d{2}|19\d{2})\s+(?P<rest>.+)$")
 
 
 def _truncate(text: str, max_chars: int) -> str:
@@ -296,6 +300,52 @@ def _coerce_bool(val: Any) -> bool | None:
     return None
 
 
+def _extract_price_from_text(text: str | None) -> float | None:
+    if not text:
+        return None
+    for match in _TEXT_PRICE_RE.finditer(text):
+        price = _coerce_float(match.group(0))
+        if price and price > 500:
+            return price
+    return None
+
+
+def _extract_mileage_from_text(text: str | None) -> int | None:
+    if not text:
+        return None
+    for match in _TEXT_MILEAGE_RE.finditer(text):
+        miles = _coerce_int(match.group(1))
+        if miles is not None:
+            return miles
+    return None
+
+
+def _extract_vin_from_text(text: str | None) -> str | None:
+    if not text:
+        return None
+    match = _TEXT_VIN_RE.search(text.upper())
+    return match.group(1) if match else None
+
+
+def _parse_title_fields(raw_title: str | None) -> dict[str, Any]:
+    title = (raw_title or "").strip()
+    if not title:
+        return {}
+    match = _TITLE_YEAR_RE.match(title)
+    if not match:
+        return {"raw_title": title}
+    rest = match.group("rest").strip()
+    parts = rest.split()
+    out: dict[str, Any] = {"raw_title": title, "year": _coerce_int(match.group("year"))}
+    if parts:
+        out["make"] = parts[0]
+    if len(parts) >= 2:
+        out["model"] = parts[1]
+    if len(parts) >= 3:
+        out["trim"] = " ".join(parts[2:])
+    return out
+
+
 def _pick_price_from_dict(d: dict[str, Any]) -> float | None:
     for key in ("price", "priceInet", "price_inet", "internetPrice", "sellingPrice"):
         p = _coerce_float(d.get(key))
@@ -347,7 +397,13 @@ def _pick_inventory_location(d: dict[str, Any]) -> str | None:
     return None
 
 
-def _pick_vehicle_condition(d: dict[str, Any], *, raw_title: str | None = None) -> str | None:
+def _pick_vehicle_condition(
+    d: dict[str, Any],
+    *,
+    raw_title: str | None = None,
+    listing_url: str | None = None,
+    status_text: str | None = None,
+) -> str | None:
     for key in (
         "vehicle_condition",
         "vehicleCondition",
@@ -361,7 +417,11 @@ def _pick_vehicle_condition(d: dict[str, Any], *, raw_title: str | None = None) 
         normalized = normalize_vehicle_condition(d.get(key))
         if normalized:
             return normalized
-    return normalize_vehicle_condition(raw_title)
+    return (
+        normalize_vehicle_condition(status_text)
+        or normalize_vehicle_condition(raw_title)
+        or normalize_vehicle_condition(listing_url)
+    )
 
 
 def _build_availability_status(
@@ -479,12 +539,16 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
     if status_text:
         status_text = str(status_text).replace("_", " ").strip().title()
 
-    title_parts = [str(x) for x in [_pick_year(d), make_s, model_s, trim_s] if x]
-    raw_title = " ".join(title_parts) if title_parts else None
     title_hint = d.get("title") or d.get("name") or d.get("vehicleTitle")
+    raw_title = str(title_hint).strip() if title_hint else None
+    if not raw_title:
+        title_parts = [str(x) for x in [_pick_year(d), make_s, model_s, trim_s] if x]
+        raw_title = " ".join(title_parts) if title_parts else None
     vehicle_condition = _pick_vehicle_condition(
         d,
-        raw_title=raw_title or (str(title_hint).strip() if title_hint else None),
+        raw_title=raw_title,
+        listing_url=listing_url,
+        status_text=str(status_text) if status_text else None,
     )
 
     return VehicleListing(
@@ -586,7 +650,8 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
         if "skeleton" in classes:
             continue
 
-        vin = card.get("data-vin") or card.get("data-dotagging-item-id")
+        card_text = card.get_text(" ", strip=True)
+        vin = card.get("data-vin") or card.get("data-dotagging-item-id") or _extract_vin_from_text(card_text)
         make = card.get("data-make") or card.get("data-dotagging-item-make")
         model = card.get("data-model") or card.get("data-dotagging-item-model")
         year = _coerce_int(card.get("data-year") or card.get("data-dotagging-item-year"))
@@ -620,11 +685,28 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             or _text_or_none(card.select_one(".vehicle-card__title"))
             or _text_or_none(card.select_one(".vehicleTitle"))
         )
+        title_fields = _parse_title_fields(raw_title or card_text)
+        if not raw_title:
+            raw_title = title_fields.get("raw_title")
+        if not make:
+            make = title_fields.get("make")
+        if not model:
+            model = title_fields.get("model")
+        if year is None:
+            year = _coerce_int(title_fields.get("year"))
+        if not trim:
+            trim = title_fields.get("trim")
+        if price in (None, 0.0):
+            price = _extract_price_from_text(card_text) or price
+        if mileage is None:
+            mileage = _extract_mileage_from_text(card_text)
         vehicle_condition = (
             normalize_vehicle_condition(card.get("data-condition"))
             or normalize_vehicle_condition(card.get("data-newused"))
             or normalize_vehicle_condition(card.get("data-vehiclecondition"))
             or normalize_vehicle_condition(raw_title)
+            or normalize_vehicle_condition(card_text)
+            or normalize_vehicle_condition(listing_url)
         )
 
         key = f"{vin or ''}|{listing_url or ''}|{raw_title or ''}"

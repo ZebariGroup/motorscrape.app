@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import parse_qsl
+from urllib.parse import urlsplit
 
 from app.schemas import VehicleListing
 
@@ -33,7 +35,13 @@ def normalize_vehicle_condition(value: object) -> str | None:
 
 
 def infer_vehicle_condition_from_page(page_url: str, html: str) -> str | None:
-    hay = f"{page_url}\n{html[:8000]}".lower()
+    lower_url = (page_url or "").strip().lower()
+    if not lower_url:
+        return None
+    parts = urlsplit(lower_url)
+    query_pairs = parse_qsl(parts.query, keep_blank_values=True)
+    query_blob = " ".join(f"{k}={v}" for k, v in query_pairs)
+    hay = f"{parts.path} {query_blob}"
     if any(token in hay for token in ("used-inventory", "used-vehicles", "searchused", "pre-owned", "preowned")):
         return "used"
     if any(token in hay for token in ("new-inventory", "new-vehicles", "searchnew")):

@@ -201,8 +201,18 @@ async def stream_search(
         domain = normalize_dealer_domain(website)
         fetch_methods_used: list[str] = []
 
-        async def _fetch(url: str, page_kind: PageKind) -> tuple[str, str]:
-            html, method = await fetch_page_html(url, page_kind=page_kind, metrics=None)
+        async def _fetch(
+            url: str,
+            page_kind: PageKind,
+            *,
+            prefer_render: bool = False,
+        ) -> tuple[str, str]:
+            html, method = await fetch_page_html(
+                url,
+                page_kind=page_kind,
+                prefer_render=prefer_render,
+                metrics=None,
+            )
             fetch_methods_used.append(method)
             async with metrics_lock:
                 key = f"fetch_{method}"
@@ -320,7 +330,7 @@ async def stream_search(
                 )
                 try:
                     current_html, current_method = await asyncio.wait_for(
-                        _fetch(inv_url, "inventory"),
+                        _fetch(inv_url, "inventory", prefer_render=bool(route and route.requires_render)),
                         timeout=fetch_timeout,
                     )
                 except asyncio.TimeoutError:
@@ -363,6 +373,14 @@ async def stream_search(
                         )
                     )
                     return chunks
+            elif route and route.requires_render:
+                try:
+                    current_html, current_method = await asyncio.wait_for(
+                        _fetch(inv_url or website, "inventory", prefer_render=True),
+                        timeout=fetch_timeout,
+                    )
+                except Exception as e:
+                    logger.debug("Preferred rendered refetch skipped for %s: %s", inv_url or website, e)
             
             # 2. Pagination loop
             current_url = inv_url
@@ -388,7 +406,11 @@ async def stream_search(
                     )
                     try:
                         current_html, current_method = await asyncio.wait_for(
-                            _fetch(current_url, "inventory"),
+                            _fetch(
+                                current_url,
+                                "inventory",
+                                prefer_render=bool(route and route.requires_render),
+                            ),
                             timeout=fetch_timeout,
                         )
                     except asyncio.TimeoutError:
