@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -16,7 +17,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    google_places_api_key: str = ""
+    # Accept GOOGLE_PLACES_API_KEY or the common Google Cloud console name for a Maps/Places key.
+    google_places_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "GOOGLE_PLACES_API_KEY",
+            "GOOGLE_MAPS_API_KEY",
+        ),
+    )
     openai_api_key: str = ""
     zenrows_api_key: str = ""
     scrapingbee_api_key: str = ""

@@ -22,7 +22,11 @@ async def find_car_dealerships(location: str, *, limit: int = 20) -> list[Dealer
     """
     key = settings.google_places_api_key
     if not key:
-        raise ValueError("GOOGLE_PLACES_API_KEY is not set")
+        raise ValueError(
+            "Google Places API key is not set. Use env var GOOGLE_PLACES_API_KEY "
+            "(or GOOGLE_MAPS_API_KEY). On Vercel, add it in Project → Settings → "
+            "Environment Variables for Production and Preview; a local .env file is not deployed."
+        )
 
     query = f"car dealership near {location}"
     params = {"query": query, "key": key, "type": "car_dealer"}

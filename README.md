@@ -9,11 +9,11 @@ This repo is set up for **[Vercel Services](https://vercel.com/docs/services)**:
 1. Push this repository to GitHub (for example [ZebariGroup/motorscrape.app](https://github.com/ZebariGroup/motorscrape.app.git)).
 2. In [Vercel](https://vercel.com/new), **Import** the repo.
 3. **Framework preset:** choose **Services** (required when `experimentalServices` is present in [`vercel.json`](vercel.json)). If the UI does not offer it yet, follow [Vercel’s Services docs](https://vercel.com/docs/services) for your account tier.
-4. **Environment variables** (Production and Preview — add to **Sensitive** where applicable):
+4. **Environment variables** (Production and Preview — add to **Sensitive** where applicable). **Your repo `.env` is not deployed** (it is gitignored); Vercel only sees variables you add in the dashboard.
 
    | Name | Required | Notes |
    |------|----------|--------|
-   | `GOOGLE_PLACES_API_KEY` | Yes | Places **Text Search** + **Place Details** (legacy APIs enabled in Google Cloud) |
+   | `GOOGLE_PLACES_API_KEY` | Yes | Same key as in Google Cloud; you can also use `GOOGLE_MAPS_API_KEY`. Enable Places **Text Search** + **Place Details** (legacy APIs) |
    | `OPENAI_API_KEY` | Yes | Used for `gpt-4o-mini` extraction |
    | `ZENROWS_API_KEY` | No | Managed fetch / anti-bot ([ZenRows](https://docs.zenrows.com/)) |
    | `SCRAPINGBEE_API_KEY` | No | Alternative managed fetch ([ScrapingBee](https://www.scrapingbee.com/documentation/)) |
