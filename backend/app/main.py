@@ -5,7 +5,6 @@ from fastapi import APIRouter, FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from app.routing import api_path_prefix
 from app.services.orchestrator import stream_search
 
 logging.basicConfig(level=logging.INFO)
@@ -40,7 +39,6 @@ async def search_stream(
     )
 
 
-_prefix = api_path_prefix()
 app = FastAPI(title="Motorscrape API", version="0.1.0")
 
 app.add_middleware(
@@ -55,7 +53,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-if _prefix:
-    app.include_router(router, prefix=_prefix)
-else:
-    app.include_router(router)
+# Mount twice so the same deployment works locally (/health) and on Vercel Services
+# whether the platform forwards the `/server` prefix or strips it to root paths.
+app.include_router(router)
+app.include_router(router, prefix="/server")
