@@ -317,8 +317,11 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         or d.get("listing_url")
         or d.get("url")
         or d.get("sameAs")
+        or d.get("link")
     )
     listing_url = None
+    if isinstance(vdp, list) and vdp:
+        vdp = vdp[0]
     if vdp:
         listing_url = urljoin(base_url, str(vdp).replace("\\/", "/"))
 
@@ -328,10 +331,12 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         or d.get("image")
         or d.get("primaryImageUrl")
     )
+    if not img and isinstance(d.get("images"), list) and d["images"]:
+        img = d["images"][0]
     if isinstance(img, list) and img:
         img = img[0]
     if isinstance(img, dict):
-        img = img.get("url") or img.get("contentUrl")
+        img = img.get("url") or img.get("contentUrl") or img.get("uri") or img.get("src")
     image_url = urljoin(base_url, str(img).replace("\\/", "/")) if img else None
 
     miles = d.get("miles") or d.get("mileage") or d.get("odometer")
@@ -389,6 +394,95 @@ def collect_structured_vehicle_dicts(html: str, page_url: str) -> list[dict[str,
     return merged
 
 
+def _text_or_none(node: Any) -> str | None:
+    if not node:
+        return None
+    text = node.get_text(" ", strip=True)
+    return text or None
+
+
+def _pick_dom_vehicle_image(card: Any, page_url: str) -> str | None:
+    preferred_selectors = (
+        ".hero-carousel__background-image--grid",
+        ".hero-carousel__background-image--list",
+        ".vehicle-image img",
+        "img[src]",
+    )
+    for selector in preferred_selectors:
+        for img in card.select(selector):
+            src = (img.get("src") or "").strip()
+            if not src:
+                continue
+            lower = src.lower()
+            if lower.endswith(".svg") or "copy.svg" in lower or "icon" in lower:
+                continue
+            return urljoin(page_url, src)
+    return None
+
+
+def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
+    """
+    Pull listings from rendered SRP cards, primarily for DealerOn-style pages that
+    expose data-* attrs after JS render but little/no embedded JSON.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    vehicles: list[VehicleListing] = []
+    seen: set[str] = set()
+
+    for card in soup.select(".vehicle-card"):
+        classes = set(card.get("class") or [])
+        if "skeleton" in classes:
+            continue
+
+        vin = card.get("data-vin") or card.get("data-dotagging-item-id")
+        make = card.get("data-make") or card.get("data-dotagging-item-make")
+        model = card.get("data-model") or card.get("data-dotagging-item-model")
+        year = _coerce_int(card.get("data-year") or card.get("data-dotagging-item-year"))
+        trim = card.get("data-trim") or card.get("data-dotagging-item-variant")
+        mileage = _coerce_int(card.get("data-odometer") or card.get("data-dotagging-item-odometer"))
+        price = _coerce_float(
+            card.get("data-price")
+            or card.get("data-msrp")
+            or card.get("data-dotagging-item-price")
+        )
+
+        anchor = card.select_one("a[href]")
+        listing_url = urljoin(page_url, anchor["href"]) if anchor and anchor.get("href") else None
+
+        image_url = _pick_dom_vehicle_image(card, page_url)
+
+        raw_title = (
+            card.get("data-name")
+            or _text_or_none(card.select_one(".vehicle-card__title"))
+            or _text_or_none(card.select_one(".vehicleTitle"))
+        )
+
+        key = f"{vin or ''}|{listing_url or ''}|{raw_title or ''}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        if not any([make, model, vin, raw_title]):
+            continue
+
+        vehicles.append(
+            VehicleListing(
+                year=year,
+                make=str(make).strip() if make else None,
+                model=str(model).strip() if model else None,
+                trim=str(trim).strip() if trim else None,
+                price=price,
+                mileage=mileage,
+                vin=str(vin).strip() if vin else None,
+                image_url=image_url,
+                listing_url=listing_url,
+                raw_title=str(raw_title).strip() if raw_title else None,
+            )
+        )
+
+    return vehicles
+
+
 def find_next_page_url(html: str, base_url: str) -> str | None:
     """Best-effort rel=next / pagination link without calling the LLM."""
     try:
@@ -429,14 +523,19 @@ def try_extract_vehicles_without_llm(
     Returns None when structured data is missing or too weak.
     """
     dicts = collect_structured_vehicle_dicts(html, page_url)
-    if not dicts:
-        return None
-
     vehicles: list[VehicleListing] = []
     for d in dicts:
         v = dict_to_vehicle_listing(d, page_url)
         if v and listing_matches_filters(v, make_filter, model_filter):
             vehicles.append(v)
+
+    for v in extract_dom_vehicle_cards(html, page_url):
+        if not listing_matches_filters(v, make_filter, model_filter):
+            continue
+        key = f"{v.vin or ''}|{v.listing_url or ''}|{v.raw_title or ''}"
+        if any(f"{x.vin or ''}|{x.listing_url or ''}|{x.raw_title or ''}" == key for x in vehicles):
+            continue
+        vehicles.append(v)
 
     if not vehicles:
         return None

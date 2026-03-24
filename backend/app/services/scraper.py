@@ -58,6 +58,11 @@ _STRUCTURE_HINTS = (
     '"vehicleidentificationnumber"',
     '"vdpurl"',
 )
+_PLACEHOLDER_MARKERS = (
+    "vehicle-card--mod skeleton",
+    "card-skeleton-image",
+    "vehicle-card vehicle-card--mod skeleton",
+)
 
 
 async def fetch_page_html(
@@ -175,8 +180,15 @@ def _has_structured_inventory_hint(html: str) -> bool:
     return any(h in lower for h in _STRUCTURE_HINTS)
 
 
+def _looks_like_placeholder_inventory(html: str) -> bool:
+    lower = html.lower()
+    return any(marker in lower for marker in _PLACEHOLDER_MARKERS)
+
+
 def _direct_html_sufficient(html: str, *, page_kind: PageKind) -> bool:
     if _looks_like_block_page(html):
+        return False
+    if page_kind == "inventory" and _looks_like_placeholder_inventory(html):
         return False
     if _has_structured_inventory_hint(html):
         return True
