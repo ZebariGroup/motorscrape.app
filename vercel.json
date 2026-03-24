@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "experimentalServices": {
+    "web": {
+      "entrypoint": "frontend",
+      "routePrefix": "/",
+      "framework": "nextjs"
+    },
+    "api": {
+      "entrypoint": "backend/main.py",
+      "routePrefix": "/server",
+      "framework": "fastapi",
+      "maxDuration": 300,
+      "excludeFiles": "{frontend/**,**/.venv/**,**/.git/**,**/__pycache__/**,**/*.pyc,**/.next/**}"
+    }
+  },
+  "env": {
+    "MOTORSCRAPE_API_PREFIX": "/server",
+    "NEXT_PUBLIC_API_URL": "/server"
+  }
+}
