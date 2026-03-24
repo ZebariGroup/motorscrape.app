@@ -49,6 +49,19 @@ vercel curl /server/health --scope <your-team-slug> --yes
 - Scraping + LLM can run longer than default function limits. The API service sets [`maxDuration`: 300](vercel.json) seconds; your Vercel plan must allow that duration ([functions limits](https://vercel.com/docs/functions/limitations)).
 - If previews hit timeouts, reduce concurrency or `max_dealerships` in [`backend/app/config.py`](backend/app/config.py) later.
 
+### Google `REQUEST_DENIED` (Places Text Search)
+
+This app calls the **legacy** Places Web Service (`/maps/api/place/textsearch/json` and `details/json`) from **your backend on Vercel** (not the user’s browser). `REQUEST_DENIED` is almost always configuration on the Google side:
+
+1. **Billing** — [Enable billing](https://console.cloud.google.com/billing) on the Google Cloud project that owns the key.
+2. **Enable the right APIs** — In [APIs & Services → Library](https://console.cloud.google.com/apis/library), enable **Places API** (and ensure **Places API (New)** does not replace what you need; legacy Text Search still uses the classic web service). If unsure, enable **Places API** and **Geocoding API** as needed for your console prompts.
+3. **API key application restrictions** — A key restricted to **HTTP referrers (websites)** is for browser/JavaScript use only. **Server-side requests from Vercel will be denied.** For backend use you typically need **Application restrictions: None** (tighten with **API restrictions** only, limiting the key to Places-related APIs), or a separate **server** key without referrer locking.
+4. **API restrictions** — Under the key, set **API restrictions** to restrict to Places (and related) APIs only; do not leave the key unrestricted in production if you can avoid it.
+
+After changes in Google Cloud, update `GOOGLE_PLACES_API_KEY` / `GOOGLE_MAPS_API_KEY` in Vercel if you created a new key, then redeploy or push a commit.
+
+The API error stream now includes Google’s `error_message` text when present, which often states the exact restriction (e.g. referrer not allowed).
+
 ## Optional: run without Vercel
 
 See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000`. Frontend: `cd frontend && npm install && npm run dev` (unset `NEXT_PUBLIC_API_URL` so the UI targets `http://localhost:8000`).

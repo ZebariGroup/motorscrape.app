@@ -15,6 +15,12 @@ TEXT_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
 
 
+def _places_failure_message(payload: dict, *, label: str) -> str:
+    status = payload.get("status")
+    detail = payload.get("error_message") or "No error_message from Google."
+    return f"{label} failed: {status}. {detail}"
+
+
 async def find_car_dealerships(location: str, *, limit: int = 20) -> list[DealershipFound]:
     """
     Find car dealerships near the given location using Places Text Search,
@@ -38,7 +44,7 @@ async def find_car_dealerships(location: str, *, limit: int = 20) -> list[Dealer
         status = payload.get("status")
         if status not in ("OK", "ZERO_RESULTS"):
             logger.warning("Places text search status=%s error_message=%s", status, payload.get("error_message"))
-            raise RuntimeError(f"Google Places Text Search failed: {status}")
+            raise RuntimeError(_places_failure_message(payload, label="Google Places Text Search"))
 
         results: list[DealershipFound] = []
         for item in payload.get("results", [])[:limit]:
@@ -75,7 +81,14 @@ async def _place_details_website(client: httpx.AsyncClient, place_id: str, key: 
     r = await client.get(DETAILS_URL, params=params)
     r.raise_for_status()
     data = r.json()
-    if data.get("status") != "OK":
+    st = data.get("status")
+    if st != "OK":
+        logger.debug(
+            "Place Details status=%s place_id=%s error_message=%s",
+            st,
+            place_id,
+            data.get("error_message"),
+        )
         return None
     result = data.get("result") or {}
     return result.get("website")
