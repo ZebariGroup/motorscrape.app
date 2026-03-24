@@ -9,6 +9,26 @@ class SearchRequest(BaseModel):
     location: str = Field(..., min_length=2, description="City, ZIP, or address")
     make: str = Field(default="", description="Vehicle make filter, e.g. Toyota")
     model: str = Field(default="", description="Vehicle model filter, e.g. Camry")
+    coverage_mode: Literal["standard", "expanded", "deep"] = Field(
+        default="standard",
+        description="How broadly to search for dealerships before scraping.",
+    )
+    inventory_scope: Literal["all", "on_lot_only", "exclude_shared", "include_transit"] = Field(
+        default="all",
+        description="Inventory availability scope to include in results.",
+    )
+    max_dealerships: int | None = Field(
+        default=None,
+        ge=1,
+        le=30,
+        description="Optional per-search override for number of dealerships to scrape.",
+    )
+    max_pages_per_dealer: int | None = Field(
+        default=None,
+        ge=1,
+        le=5,
+        description="Optional per-search override for pagination depth per dealership.",
+    )
 
 
 class DealershipFound(BaseModel):

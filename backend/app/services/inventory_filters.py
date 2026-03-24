@@ -55,3 +55,19 @@ def listing_matches_filters(v: VehicleListing, make_f: str, model_f: str) -> boo
         elif vars_ and not any(x in blob for x in vars_):
             return False
     return True
+
+
+def listing_matches_inventory_scope(
+    v: VehicleListing,
+    inventory_scope: str,
+) -> bool:
+    scope = (inventory_scope or "all").strip().lower()
+    if scope == "all":
+        return True
+    if scope == "on_lot_only":
+        return v.is_in_stock is True and not bool(v.is_offsite) and not bool(v.is_shared_inventory)
+    if scope == "exclude_shared":
+        return not bool(v.is_offsite) and not bool(v.is_shared_inventory)
+    if scope == "include_transit":
+        return not bool(v.is_offsite) and not bool(v.is_shared_inventory)
+    return True

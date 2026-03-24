@@ -23,9 +23,21 @@ async def search_stream(
     location: str = Query(..., min_length=2),
     make: str = Query(""),
     model: str = Query(""),
+    coverage_mode: str = Query("standard"),
+    inventory_scope: str = Query("all"),
+    max_dealerships: int | None = Query(default=None, ge=1, le=30),
+    max_pages_per_dealer: int | None = Query(default=None, ge=1, le=5),
 ) -> StreamingResponse:
     async def body() -> AsyncIterator[bytes]:
-        async for chunk in stream_search(location=location, make=make.strip(), model=model.strip()):
+        async for chunk in stream_search(
+            location=location,
+            make=make.strip(),
+            model=model.strip(),
+            coverage_mode=coverage_mode,
+            inventory_scope=inventory_scope,
+            max_dealerships=max_dealerships,
+            max_pages_per_dealer=max_pages_per_dealer,
+        ):
             yield chunk.encode("utf-8")
 
     return StreamingResponse(

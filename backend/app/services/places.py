@@ -123,6 +123,7 @@ async def find_car_dealerships(
     make: str = "",
     model: str = "",
     limit: int = 20,
+    coverage_mode: str = "standard",
 ) -> list[DealershipFound]:
     """
     Find car dealerships near the given location using Places API (New) Text Search,
@@ -140,6 +141,7 @@ async def find_car_dealerships(
     model_q = model.strip()
 
     async with httpx.AsyncClient(timeout=30.0) as client:
+        mode = (coverage_mode or "standard").strip().lower()
         text_queries: list[str] = []
         if make_q and model_q:
             text_queries.append(f"{make_q} {model_q} car dealership near {location}")
@@ -155,6 +157,12 @@ async def find_car_dealerships(
         if make_q:
             text_queries.append(f"new {make_q} near {location}")
             text_queries.append(f"{make_q} showroom near {location}")
+            if mode in {"expanded", "deep"}:
+                text_queries.append(f"{make_q} dealer near {location}")
+                text_queries.append(f"{make_q} inventory near {location}")
+            if mode == "deep":
+                text_queries.append(f"{make_q} dealership near {location}")
+                text_queries.append(f"{make_q} sales near {location}")
 
         places: list[dict[str, Any]] = []
         seen_place_resources: set[str] = set()

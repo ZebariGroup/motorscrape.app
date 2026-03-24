@@ -33,6 +33,10 @@ export function SearchExperience() {
   const [location, setLocation] = useState("");
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
+  const [coverageMode, setCoverageMode] = useState("standard");
+  const [inventoryScope, setInventoryScope] = useState("all");
+  const [maxDealerships, setMaxDealerships] = useState("8");
+  const [maxPagesPerDealer, setMaxPagesPerDealer] = useState("1");
   const [status, setStatus] = useState<string | null>(null);
   const [dealers, setDealers] = useState<Record<string, DealershipProgress>>({});
   const [listings, setListings] = useState<AggregatedListing[]>([]);
@@ -89,6 +93,10 @@ export function SearchExperience() {
       location: location.trim(),
       make: make.trim(),
       model: model.trim(),
+      coverage_mode: coverageMode,
+      inventory_scope: inventoryScope,
+      max_dealerships: maxDealerships,
+      max_pages_per_dealer: maxPagesPerDealer,
     });
     const url = `${base}/search/stream?${params.toString()}`;
 
@@ -158,11 +166,20 @@ export function SearchExperience() {
         const data = JSON.parse(me.data) as {
           ok?: boolean;
           fetch_metrics?: Record<string, number>;
+          dealer_discovery_count?: number;
+          dealer_deduped_count?: number;
+          max_dealerships?: number;
         };
         const fm = data.fetch_metrics;
         if (fm && Object.keys(fm).length > 0) {
           const parts = Object.entries(fm).map(([k, v]) => `${k}: ${v}`);
-          setStatus(`Search finished · ${parts.join(" · ")}`);
+          const dealerPart =
+            data.dealer_discovery_count != null && data.dealer_deduped_count != null
+              ? `dealers found: ${data.dealer_discovery_count}, unique: ${data.dealer_deduped_count}, searched: ${data.max_dealerships ?? "?"}`
+              : null;
+          setStatus(
+            `Search finished${dealerPart ? ` · ${dealerPart}` : ""} · ${parts.join(" · ")}`,
+          );
         } else {
           setStatus((s) => s ?? "Search finished.");
         }
@@ -237,7 +254,63 @@ export function SearchExperience() {
               disabled={running}
             />
           </label>
-          <div className="flex flex-col justify-end gap-2 sm:flex-row">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">Coverage</span>
+            <select
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              value={coverageMode}
+              onChange={(e) => setCoverageMode(e.target.value)}
+              disabled={running}
+            >
+              <option value="standard">Standard</option>
+              <option value="expanded">Expanded</option>
+              <option value="deep">Deep</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">Inventory scope</span>
+            <select
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              value={inventoryScope}
+              onChange={(e) => setInventoryScope(e.target.value)}
+              disabled={running}
+            >
+              <option value="all">All listed</option>
+              <option value="on_lot_only">On lot only</option>
+              <option value="exclude_shared">Exclude shared/off-site</option>
+              <option value="include_transit">Include in transit</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">Max dealerships</span>
+            <select
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              value={maxDealerships}
+              onChange={(e) => setMaxDealerships(e.target.value)}
+              disabled={running}
+            >
+              <option value="8">8</option>
+              <option value="12">12</option>
+              <option value="16">16</option>
+              <option value="24">24</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">Pages per dealer</span>
+            <select
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              value={maxPagesPerDealer}
+              onChange={(e) => setMaxPagesPerDealer(e.target.value)}
+              disabled={running}
+            >
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="5">5</option>
+            </select>
+          </label>
+        </div>
+        <div className="mt-4 flex flex-col justify-end gap-2 sm:flex-row">
             <button
               type="button"
               className="inline-flex flex-1 items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
@@ -254,7 +327,6 @@ export function SearchExperience() {
             >
               Stop
             </button>
-          </div>
         </div>
         {status ? (
           <div className="mt-4 space-y-1">

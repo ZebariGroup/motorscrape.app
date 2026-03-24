@@ -16,7 +16,11 @@ from bs4 import BeautifulSoup
 from app.config import settings
 from app.schemas import DealershipFound
 from app.services.inventory_discovery import discover_sitemap_inventory_urls
-from app.services.inventory_filters import listing_matches_filters, model_filter_variants
+from app.services.inventory_filters import (
+    listing_matches_filters,
+    listing_matches_inventory_scope,
+    model_filter_variants,
+)
 from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.places import find_car_dealerships
 from app.services.platform_store import normalize_dealer_domain
@@ -105,18 +109,30 @@ def _sse_pack(event_type: str, data: dict[str, Any]) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
-async def stream_search(location: str, make: str, model: str) -> AsyncIterator[str]:
+async def stream_search(
+    location: str,
+    make: str,
+    model: str,
+    *,
+    coverage_mode: str = "standard",
+    inventory_scope: str = "all",
+    max_dealerships: int | None = None,
+    max_pages_per_dealer: int | None = None,
+) -> AsyncIterator[str]:
     """
     Yield SSE-formatted strings: status, dealership, vehicles, error, done.
     """
     yield _sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
+    requested_dealerships = max(1, min(max_dealerships or settings.max_dealerships, 30))
+    requested_pages = max(1, min(max_pages_per_dealer or settings.max_pages_per_dealer, 5))
 
     try:
         dealers = await find_car_dealerships(
             location,
             make=make,
             model=model,
-            limit=settings.max_dealerships * 2,
+            limit=min(requested_dealerships * 3, 30),
+            coverage_mode=coverage_mode,
         )
     except Exception as e:
         logger.exception("Places search failed")
@@ -124,8 +140,10 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
         yield _sse_pack("done", {"ok": False})
         return
 
+    raw_dealer_count = len(dealers)
     dealers = _dedupe_dealers_by_domain(dealers)
-    dealers = dealers[: settings.max_dealerships]
+    deduped_dealer_count = len(dealers)
+    dealers = dealers[: requested_dealerships]
     if not dealers:
         yield _sse_pack("status", {"message": "No dealerships with websites found.", "phase": "places"})
         yield _sse_pack("done", {"ok": True, "dealerships": 0})
@@ -133,7 +151,13 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
 
     yield _sse_pack(
         "status",
-        {"message": f"Found {len(dealers)} dealerships. Scraping inventory…", "phase": "scrape"},
+        {
+            "message": (
+                f"Found {len(dealers)} dealerships. Scraping inventory… "
+                f"(requested {requested_dealerships}, coverage {coverage_mode})"
+            ),
+            "phase": "scrape",
+        },
     )
 
     sem = asyncio.Semaphore(max(1, settings.search_concurrency))
@@ -308,7 +332,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
             # 2. Pagination loop
             current_url = inv_url
             pages_scraped = 0
-            max_pages = max(1, settings.max_pages_per_dealer)
+            max_pages = requested_pages
             total_vehicles = 0
             skip_info: str | None = None
 
@@ -448,7 +472,10 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                         break
 
                 filtered = [
-                    v for v in ext_result.vehicles if listing_matches_filters(v, make, model)
+                    v
+                    for v in ext_result.vehicles
+                    if listing_matches_filters(v, make, model)
+                    and listing_matches_inventory_scope(v, inventory_scope)
                 ]
                 vdicts = [v.model_dump(exclude_none=True) for v in filtered]
                 if vdicts:
@@ -543,6 +570,12 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
         {
             "ok": True,
             "dealerships": len(dealers),
+            "dealer_discovery_count": raw_dealer_count,
+            "dealer_deduped_count": deduped_dealer_count,
+            "coverage_mode": coverage_mode,
+            "inventory_scope": inventory_scope,
+            "max_dealerships": requested_dealerships,
+            "max_pages_per_dealer": requested_pages,
             "fetch_metrics": dict(fetch_metrics),
         },
     )
