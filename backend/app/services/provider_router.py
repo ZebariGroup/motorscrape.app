@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
 
@@ -28,6 +29,17 @@ class ProviderRoute:
     cache_status: str
     inventory_path_hints: tuple[str, ...]
     inventory_url_hint: str | None = None
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
+def _with_query_params(url: str, updates: dict[str, str]) -> str:
+    parts = urlsplit(url)
+    params = dict(parse_qsl(parts.query, keep_blank_values=True))
+    params.update({k: v for k, v in updates.items() if v})
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(params), parts.fragment))
 
 
 def _route_from_profile(
@@ -123,33 +135,46 @@ def resolve_inventory_url_for_provider(
     route: ProviderRoute | None,
     *,
     fallback_url: str,
+    make: str = "",
+    model: str = "",
 ) -> str:
-    if route and route.inventory_url_hint:
-        return route.inventory_url_hint
-
     try:
         soup = BeautifulSoup(html, "lxml")
     except Exception:
+        if route and route.inventory_url_hint:
+            return route.inventory_url_hint
         return fallback_url
 
-    best_url = fallback_url
+    best_url = route.inventory_url_hint or fallback_url
     best_score = -1
     hints = tuple(h.lower() for h in (route.inventory_path_hints if route else ()))
+    make_norm = _norm(make)
+    model_norm = _norm(model)
 
     for a in soup.find_all("a", href=True):
         href = str(a["href"])
         href_lower = href.lower()
         text = a.get_text(strip=True).lower()
+        combined_norm = _norm(f"{text} {href_lower}")
         score = 0
 
         for hint in hints:
             if hint and hint in href_lower:
                 score += 50
 
+        if make_norm and make_norm in combined_norm:
+            score += 30
+        if model_norm and model_norm in combined_norm:
+            score += 120
+
         if "new-inventory" in href_lower:
             score += 40
         if "searchnew" in href_lower:
             score += 35
+        if "for-sale" in href_lower:
+            score += 35
+        if "inventory" in href_lower and "new" in href_lower and model_norm:
+            score += 30
         if "inventory" in href_lower and "new" in href_lower:
             score += 30
         elif "inventory" in href_lower or "inventory" in text:
@@ -162,9 +187,18 @@ def resolve_inventory_url_for_provider(
             score -= 10
         if any(x in href_lower for x in ["service", "parts", "finance", "contact", "about", "specials", "privacy"]):
             score -= 20
+        if any(x in href_lower for x in ["research", "compare", "reviews", "schedule"]):
+            score -= 25
 
         if score > best_score and score > 0:
             best_score = score
             best_url = urljoin(base_url, href)
+
+    if model_norm and route:
+        generic_base = route.inventory_url_hint or fallback_url
+        if route.platform_id == "dealer_dot_com" and generic_base:
+            best_url = _with_query_params(generic_base, {"model": model})
+        elif route.platform_id == "dealer_on" and best_score < 100 and generic_base:
+            best_url = _with_query_params(generic_base, {"Make": make, "Model": model})
 
     return best_url

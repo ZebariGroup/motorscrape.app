@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -177,6 +178,63 @@ def _walk_ld_json_vehicle_objects(obj: Any, out: list[dict], depth: int = 0) -> 
             _walk_ld_json_vehicle_objects(item, out, depth + 1)
 
 
+def _list_item_name_to_vehicle_fields(name: str) -> dict[str, Any]:
+    text = (name or "").strip()
+    if not text:
+        return {}
+    parts = text.split()
+    if len(parts) < 3:
+        return {"raw_title": text}
+    year = parts[0] if re.fullmatch(r"\d{4}", parts[0]) else None
+    make = parts[1] if year else None
+    suffix = parts[2:] if year else parts
+    model = " ".join(suffix) if suffix else None
+    out: dict[str, Any] = {"raw_title": text}
+    if year:
+        out["year"] = year
+    if make:
+        out["make"] = make
+    if model:
+        out["model"] = model
+    return out
+
+
+def _schema_list_item_to_vehicle_dict(item: dict[str, Any]) -> dict[str, Any] | None:
+    name = item.get("name")
+    identifier = item.get("identifier")
+    url = item.get("url")
+    image = item.get("image")
+    if not any([name, identifier, url, image]):
+        return None
+    out = _list_item_name_to_vehicle_fields(str(name or ""))
+    if identifier:
+        out["vin"] = str(identifier)
+    if url:
+        out["vdpUrl"] = str(url)
+    if image:
+        out["image_url"] = str(image)
+    return out if out else None
+
+
+def _collect_item_list_vehicle_objects(obj: Any, out: list[dict], depth: int = 0) -> None:
+    if depth > 14:
+        return
+    if isinstance(obj, dict):
+        obj_type = obj.get("@type")
+        types = [str(obj_type).lower()] if isinstance(obj_type, str) else [str(x).lower() for x in obj_type] if isinstance(obj_type, list) else []
+        if "itemlist" in types and isinstance(obj.get("itemListElement"), list):
+            for item in obj["itemListElement"]:
+                if isinstance(item, dict):
+                    converted = _schema_list_item_to_vehicle_dict(item)
+                    if converted:
+                        out.append(converted)
+        for v in obj.values():
+            _collect_item_list_vehicle_objects(v, out, depth + 1)
+    elif isinstance(obj, list):
+        for item in obj:
+            _collect_item_list_vehicle_objects(item, out, depth + 1)
+
+
 def extract_json_ld_vehicle_dicts(html: str) -> list[dict]:
     """Collect schema.org-style vehicle/product objects from application/ld+json scripts."""
     soup = BeautifulSoup(html, "lxml")
@@ -193,6 +251,7 @@ def extract_json_ld_vehicle_dicts(html: str) -> list[dict]:
         except (json.JSONDecodeError, ValueError):
             continue
         _walk_ld_json_vehicle_objects(blob, out)
+        _collect_item_list_vehicle_objects(blob, out)
     return out
 
 

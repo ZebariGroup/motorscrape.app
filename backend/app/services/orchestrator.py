@@ -248,6 +248,8 @@ async def stream_search(
                 website,
                 route,
                 fallback_url=_find_inventory_url(html, website),
+                make=make,
+                model=model,
             )
             if inv_url == website and domain in inv_url_cache:
                 cached = inv_url_cache[domain]
