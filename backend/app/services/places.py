@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import parse_qsl
+from urllib.parse import urlencode
+from urllib.parse import urlsplit
+from urllib.parse import urlunsplit
 
 import httpx
 
@@ -48,6 +52,39 @@ def _name_matches_make(dealer_name: str, make: str) -> bool:
     mk_compact = "".join(ch for ch in mk if ch.isalnum())
     nm_compact = "".join(ch for ch in nm if ch.isalnum())
     return mk in nm or (mk_compact and mk_compact in nm_compact)
+
+
+def _normalize_dealer_website_url(website: str) -> str:
+    """
+    Strip common marketing/tracking params from dealership website URLs returned by
+    Google Places. Several dealer sites rate-limit or block the tracked URL while the
+    clean canonical homepage works.
+    """
+    raw = (website or "").strip()
+    if not raw:
+        return ""
+
+    parts = urlsplit(raw)
+    if not parts.scheme or not parts.netloc:
+        return raw
+
+    tracking_prefixes = ("utm_",)
+    tracking_keys = {
+        "gclid",
+        "gbraid",
+        "wbraid",
+        "fbclid",
+        "msclkid",
+        "mc_cid",
+        "mc_eid",
+    }
+    kept = [
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if k.lower() not in tracking_keys and not k.lower().startswith(tracking_prefixes)
+    ]
+    clean_query = urlencode(kept, doseq=True)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, clean_query, ""))
 
 
 async def find_car_dealerships(
@@ -113,6 +150,7 @@ async def find_car_dealerships(
 
             if not website and place_resource:
                 website = await _place_details_website(client, place_resource, key)
+            website = _normalize_dealer_website_url(str(website or ""))
 
             if not website:
                 logger.debug("Skipping %s — no website in Places data", name)
@@ -162,4 +200,4 @@ async def _place_details_website(
         return None
     data = r.json()
     uri = data.get("websiteUri")
-    return str(uri) if uri else None
+    return _normalize_dealer_website_url(str(uri)) if uri else None
