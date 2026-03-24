@@ -38,7 +38,25 @@ def _display_name(place: dict[str, Any]) -> str:
     return "Unknown"
 
 
-async def find_car_dealerships(location: str, *, limit: int = 20) -> list[DealershipFound]:
+def _name_matches_make(dealer_name: str, make: str) -> bool:
+    """Loose brand match on dealership name to avoid unrelated franchises."""
+    mk = make.strip().lower()
+    nm = dealer_name.strip().lower()
+    if not mk:
+        return True
+    # Treat punctuation/spacing variants as equivalent.
+    mk_compact = "".join(ch for ch in mk if ch.isalnum())
+    nm_compact = "".join(ch for ch in nm if ch.isalnum())
+    return mk in nm or (mk_compact and mk_compact in nm_compact)
+
+
+async def find_car_dealerships(
+    location: str,
+    *,
+    make: str = "",
+    model: str = "",
+    limit: int = 20,
+) -> list[DealershipFound]:
     """
     Find car dealerships near the given location using Places API (New) Text Search,
     then fetch Place Details when websiteUri is missing.
@@ -51,8 +69,12 @@ async def find_car_dealerships(location: str, *, limit: int = 20) -> list[Dealer
             "Environment Variables for Production and Preview; a local .env file is not deployed."
         )
 
+    make_q = make.strip()
+    model_q = model.strip()
+    search_terms = " ".join(x for x in [make_q, model_q, "car dealership"] if x)
+    text_query = f"{search_terms} near {location}"
     body: dict[str, Any] = {
-        "textQuery": f"car dealership near {location}",
+        "textQuery": text_query,
         "includedType": "car_dealer",
         "strictTypeFiltering": True,
         "pageSize": min(limit, 20),
@@ -105,7 +127,12 @@ async def find_car_dealerships(location: str, *, limit: int = 20) -> list[Dealer
                 )
             )
 
-        return results
+        if not make_q:
+            return results
+
+        brand_matches = [d for d in results if _name_matches_make(d.name, make_q)]
+        # If we found brand-specific dealers, prefer those so searches feel sane to users.
+        return brand_matches if brand_matches else results
 
 
 async def _place_details_website(

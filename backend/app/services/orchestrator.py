@@ -45,6 +45,13 @@ def _html_mentions_model(html: str, model: str) -> bool:
     return any(v in hay for v in _model_filter_variants(model))
 
 
+def _html_mentions_make(html: str, make: str) -> bool:
+    mk = make.strip().lower()
+    if not mk:
+        return True
+    return mk in html.lower()
+
+
 def _listing_matches_filters(v: VehicleListing, make_f: str, model_f: str) -> bool:
     make_f = make_f.strip().lower()
     model_f = model_f.strip()
@@ -108,7 +115,12 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
     yield _sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
 
     try:
-        dealers = await find_car_dealerships(location, limit=settings.max_dealerships * 2)
+        dealers = await find_car_dealerships(
+            location,
+            make=make,
+            model=model,
+            limit=settings.max_dealerships * 2,
+        )
     except Exception as e:
         logger.exception("Places search failed")
         yield _sse_pack("search_error", {"message": str(e), "phase": "places"})
@@ -190,6 +202,65 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                 return chunks
 
             inv_url = _find_inventory_url(html, website)
+            current_html = html
+            current_method = method
+
+            # If inventory is on a different URL, fetch it before first parse.
+            if inv_url and inv_url != website:
+                chunks.append(
+                    _sse_pack(
+                        "dealership",
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": d.name,
+                            "website": website,
+                            "current_url": inv_url,
+                            "status": "scraping",
+                        },
+                    )
+                )
+                try:
+                    current_html, current_method = await asyncio.wait_for(
+                        fetch_page_html(inv_url),
+                        timeout=fetch_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Initial inventory scrape timed out for %s", inv_url)
+                    chunks.append(
+                        _sse_pack(
+                            "dealership",
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "current_url": inv_url,
+                                "status": "error",
+                                "error": (
+                                    f"Timed out while fetching inventory page after ~{int(fetch_timeout)}s."
+                                ),
+                            },
+                        )
+                    )
+                    return chunks
+                except Exception as e:
+                    logger.warning("Initial inventory scrape failed for %s: %s", inv_url, e)
+                    chunks.append(
+                        _sse_pack(
+                            "dealership",
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "current_url": inv_url,
+                                "status": "error",
+                                "error": str(e),
+                            },
+                        )
+                    )
+                    return chunks
             
             # 2. Pagination loop
             current_url = inv_url
@@ -214,7 +285,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                         )
                     )
                     try:
-                        html, method = await asyncio.wait_for(
+                        current_html, current_method = await asyncio.wait_for(
                             fetch_page_html(current_url),
                             timeout=fetch_timeout,
                         )
@@ -225,7 +296,18 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                         logger.warning("Pagination scrape failed for %s: %s", current_url, e)
                         break
 
-                if model.strip() and not _html_mentions_model(html, model):
+                if make.strip() and not _html_mentions_make(current_html, make):
+                    logger.info(
+                        "Skipping LLM for %s: no make mention (%r) in HTML",
+                        current_url,
+                        make.strip(),
+                    )
+                    skip_info = (
+                        f'No "{make.strip()}" mention found on this page; skipped AI extraction.'
+                    )
+                    break
+
+                if model.strip() and not _html_mentions_model(current_html, model):
                     logger.info(
                         "Skipping LLM for %s: no model mention (%r) in HTML",
                         current_url,
@@ -246,7 +328,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                             "website": website,
                             "current_url": current_url,
                             "status": "parsing",
-                            "fetch_method": method,
+                            "fetch_method": current_method,
                         },
                     )
                 )
@@ -255,7 +337,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                     ext_result = await asyncio.wait_for(
                         extract_vehicles_from_html(
                             page_url=current_url,
-                            html=html,
+                            html=current_html,
                             make_filter=make,
                             model_filter=model,
                         ),
