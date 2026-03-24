@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Literal
+from urllib.parse import parse_qsl
 from urllib.parse import unquote
 from urllib.parse import urlencode
 from urllib.parse import urljoin
@@ -26,6 +27,10 @@ _EXTRA_API_RES = (
 )
 _WS_INV_FETCH_RE = re.compile(
     r'fetch\("(?P<url>/api/widget/ws-inv-data/getInventory)".*?body:decodeURI\("(?P<body>.*?)"\)',
+    re.S,
+)
+_DDC_WIDGET_PROPS_RE = re.compile(
+    r'DDC\.WidgetData\[[^\]]+\]\.props\s*=\s*\{(?P<body>.*?)\n\}\s*</script>',
     re.S,
 )
 _INVENTORY_HINTS = (
@@ -344,21 +349,65 @@ def _extract_inventory_post_requests(html: str, base_url: str) -> list[tuple[str
     return requests
 
 
+def _extract_inventory_get_requests(html: str, base_url: str) -> list[tuple[str, dict[str, str]]]:
+    requests: list[tuple[str, dict[str, str]]] = []
+    for match in _DDC_WIDGET_PROPS_RE.finditer(html):
+        body = match.group("body")
+        api_match = _INVENTORY_URL_RE.search(body)
+        if not api_match:
+            continue
+        raw = api_match.group("url")
+        fixed = raw.replace("\\/", "/")
+        abs_url = urljoin(base_url, fixed)
+
+        params_match = re.search(r'"params"\s*:\s*"(?P<params>[^"]*)"', body)
+        query: dict[str, str] = {}
+        if params_match:
+            raw_params = params_match.group("params").replace("\\u0026", "&")
+            query = {k: v for k, v in parse_qsl(raw_params, keep_blank_values=True) if k}
+            if raw_params:
+                query["params"] = raw_params
+
+        req = (abs_url, query)
+        if req not in requests:
+            requests.append(req)
+    return requests
+
+
 async def _maybe_append_inventory_api_data(
     page_url: str,
     html: str,
     timeout: httpx.Timeout,
 ) -> str:
     api_urls = _extract_inventory_api_urls(html, page_url)
+    api_gets = _extract_inventory_get_requests(html, page_url)
     api_posts = _extract_inventory_post_requests(html, page_url)
     # If cards are already rendered and we do not see any API clues, there is nothing to enrich.
-    if _html_looks_inventory_ready(html) and not api_urls and not api_posts:
+    if _html_looks_inventory_ready(html) and not api_urls and not api_gets and not api_posts:
         return html
-    if not api_urls and not api_posts:
+    if not api_urls and not api_gets and not api_posts:
         return html
 
     payloads: list[str] = []
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        for api_url, query in api_gets[:2]:
+            try:
+                r = await client.get(api_url, params=query or None, headers=_browser_headers())
+                if r.status_code == 403 and settings.zenrows_api_key:
+                    full_url = api_url
+                    if query:
+                        full_url = f"{api_url}?{urlencode(query)}"
+                    content = await _zenrows_fetch(full_url, timeout, js_render=False)
+                    payloads.append(content)
+                    continue
+                r.raise_for_status()
+            except Exception as e:
+                logger.debug("Inventory API GET failed for %s: %s", api_url, e)
+                continue
+            content = r.text.strip()
+            if not content.startswith("{"):
+                continue
+            payloads.append(content)
         for api_url in api_urls[:2]:
             try:
                 r = await client.get(api_url, headers=_browser_headers())

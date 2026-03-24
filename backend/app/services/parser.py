@@ -140,6 +140,34 @@ def _normalize_schema_org(rec: dict) -> dict:
     return out
 
 
+def _merge_vehicle_dicts(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(existing)
+    for key, value in incoming.items():
+        if value in (None, "", [], {}):
+            continue
+        current = merged.get(key)
+        if current in (None, "", [], {}):
+            merged[key] = value
+            continue
+        if isinstance(current, dict) and isinstance(value, dict):
+            nested = dict(current)
+            for nk, nv in value.items():
+                if nv not in (None, "", [], {}):
+                    nested[nk] = nv
+            merged[key] = nested
+            continue
+        if isinstance(current, list) and isinstance(value, list):
+            if len(value) > len(current):
+                merged[key] = value
+            continue
+        if isinstance(current, str) and isinstance(value, list):
+            merged[key] = value
+            continue
+        if len(str(value)) > len(str(current)):
+            merged[key] = value
+    return merged
+
+
 def _collect_vehicle_arrays(obj: Any, out: list[dict], depth: int = 0) -> None:
     """Recursively walk parsed JSON and collect dicts that look like vehicle inventory."""
     if depth > 12:
@@ -347,10 +375,36 @@ def _parse_title_fields(raw_title: str | None) -> dict[str, Any]:
 
 
 def _pick_price_from_dict(d: dict[str, Any]) -> float | None:
-    for key in ("price", "priceInet", "price_inet", "internetPrice", "sellingPrice"):
+    for key in (
+        "price",
+        "priceInet",
+        "price_inet",
+        "internetPrice",
+        "sellingPrice",
+        "salePrice",
+        "askingPrice",
+        "retailPrice",
+        "retailValue",
+        "msrp",
+    ):
         p = _coerce_float(d.get(key))
         if p is not None and p > 0:
             return p
+    for pricing_key in ("trackingPricing", "pricing"):
+        pricing = d.get(pricing_key)
+        if isinstance(pricing, dict):
+            for key in ("internetPrice", "salePrice", "askingPrice", "retailPrice", "retailValue", "msrp"):
+                p = _coerce_float(pricing.get(key))
+                if p is not None and p > 0:
+                    return p
+            dprice = pricing.get("dprice")
+            if isinstance(dprice, list):
+                for row in dprice:
+                    if not isinstance(row, dict):
+                        continue
+                    p = _coerce_float(row.get("value"))
+                    if p is not None and p > 0:
+                        return p
     offers = d.get("offers")
     if isinstance(offers, dict):
         for key in ("price", "lowPrice", "highPrice"):
@@ -540,7 +594,10 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         status_text = str(status_text).replace("_", " ").strip().title()
 
     title_hint = d.get("title") or d.get("name") or d.get("vehicleTitle")
-    raw_title = str(title_hint).strip() if title_hint else None
+    if isinstance(title_hint, list):
+        raw_title = " ".join(str(x).strip() for x in title_hint if str(x).strip()) or None
+    else:
+        raw_title = str(title_hint).strip() if title_hint else None
     if not raw_title:
         title_parts = [str(x) for x in [_pick_year(d), make_s, model_s, trim_s] if x]
         raw_title = " ".join(title_parts) if title_parts else None
@@ -591,22 +648,27 @@ def collect_structured_vehicle_dicts(html: str, page_url: str) -> list[dict[str,
     soup = BeautifulSoup(html, "lxml")
     generic = _extract_json_inventory(html, soup)
     merged: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    by_key: dict[str, int] = {}
     for r in generic:
         k = _vehicle_record_key(r)
-        if k not in seen:
-            seen.add(k)
+        if k not in by_key:
+            by_key[k] = len(merged)
             merged.append(r)
+        else:
+            idx = by_key[k]
+            merged[idx] = _merge_vehicle_dicts(merged[idx], r)
     extra = provider_enriched_vehicle_dicts(html, page_url)
     if extra:
         for d in extra:
             nd = _normalize_schema_org(d)
             k = _vehicle_record_key(nd)
-            if k in seen:
-                continue
             if nd.get("make") or nd.get("model") or nd.get("vehicleIdentificationNumber"):
-                seen.add(k)
-                merged.append(nd)
+                if k not in by_key:
+                    by_key[k] = len(merged)
+                    merged.append(nd)
+                else:
+                    idx = by_key[k]
+                    merged[idx] = _merge_vehicle_dicts(merged[idx], nd)
     return merged
 
 
