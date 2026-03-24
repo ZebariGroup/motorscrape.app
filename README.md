@@ -20,10 +20,25 @@ This repo is set up for **[Vercel Services](https://vercel.com/docs/services)**:
 
    Optional overrides:
 
-   - `MOTORSCRAPE_API_PREFIX` — must match the API service `routePrefix` in [`vercel.json`](vercel.json) (default there is `/server`).
-   - `NEXT_PUBLIC_API_URL` — normally set in `vercel.json` to `/server` so the browser calls the collocated API; override only if you split frontends/backends.
+   - `NEXT_PUBLIC_API_URL` — set in [`vercel.json`](vercel.json) to `/server` so the browser hits the FastAPI service; override only if you change `routePrefix` or split deployments.
 
 5. **Redeploy** after changing env vars.
+
+**CLI (Git + Vercel)**
+
+```bash
+git remote add origin https://github.com/ZebariGroup/motorscrape.app.git   # once
+git push -u origin main
+
+vercel link --yes --scope <your-team-slug>    # once, from repo root
+vercel deploy --prod --yes --scope <your-team-slug>
+```
+
+With [deployment protection](https://vercel.com/docs/deployment-protection), smoke-test the API using the logged-in CLI:
+
+```bash
+vercel curl /server/health --scope <your-team-slug> --yes
+```
 
 **URLs**
 
