@@ -47,6 +47,34 @@ def _looks_like_dealer_on_srp(url: str) -> bool:
     return path.endswith("/searchnew.aspx") or path.endswith("/searchused.aspx")
 
 
+def _model_href_match_score(href: str, text: str, model_norm: str) -> int:
+    if not model_norm:
+        return 0
+    href_parts = urlsplit(href)
+    href_lower = href.lower()
+    text_lower = text.lower()
+    href_segments = [seg for seg in href_parts.path.lower().split("/") if seg]
+    text_segments = [seg for seg in re.split(r"\W+", text_lower) if seg]
+    norm_href_segments = [_norm(seg) for seg in href_segments]
+    norm_text_segments = [_norm(seg) for seg in text_segments]
+
+    score = 0
+    if model_norm in _norm(f"{text_lower} {href_lower}"):
+        score += 120
+
+    if any(seg == model_norm for seg in norm_href_segments):
+        score += 180
+    elif any(seg.startswith(model_norm) and seg != model_norm for seg in norm_href_segments):
+        score += 40
+
+    if any(seg == model_norm for seg in norm_text_segments):
+        score += 80
+    elif any(seg.startswith(model_norm) and seg != model_norm for seg in norm_text_segments):
+        score += 20
+
+    return score
+
+
 def _route_from_profile(
     profile: PlatformProfile,
     *,
@@ -171,8 +199,7 @@ def resolve_inventory_url_for_provider(
 
         if make_norm and make_norm in combined_norm:
             score += 30
-        if model_norm and model_norm in combined_norm:
-            score += 120
+        score += _model_href_match_score(href_lower, text, model_norm)
 
         if "for-sale" in href_lower:
             score += 35

@@ -62,7 +62,8 @@ _VEHICLE_FULL_REGEX = re.compile(
     r'(?:.*?\\"vdpUrl\\":\\"(?P<vdpUrl>[^\\]*)\\")?',
 )
 _TEXT_PRICE_RE = re.compile(r"\$([0-9][0-9,]{2,})(?:\.\d{2})?")
-_TEXT_MILEAGE_RE = re.compile(r"\b([0-9][0-9,]{0,6})\s*(?:mi|miles?)\b", re.I)
+_TEXT_MILEAGE_LABELED_RE = re.compile(r"\bmileage\s*:\s*([0-9][0-9,]{0,6})\b", re.I)
+_TEXT_MILEAGE_UNITS_RE = re.compile(r"\b([0-9][0-9,]{0,6})\s*(?:mi|miles?)\b", re.I)
 _TEXT_VIN_RE = re.compile(r"\b([A-HJ-NPR-Z0-9]{17})\b")
 _TITLE_YEAR_RE = re.compile(r"^(?P<year>20\d{2}|19\d{2})\s+(?P<rest>.+)$")
 
@@ -341,7 +342,11 @@ def _extract_price_from_text(text: str | None) -> float | None:
 def _extract_mileage_from_text(text: str | None) -> int | None:
     if not text:
         return None
-    for match in _TEXT_MILEAGE_RE.finditer(text):
+    for match in _TEXT_MILEAGE_LABELED_RE.finditer(text):
+        miles = _coerce_int(match.group(1))
+        if miles is not None:
+            return miles
+    for match in _TEXT_MILEAGE_UNITS_RE.finditer(text):
         miles = _coerce_int(match.group(1))
         if miles is not None:
             return miles
@@ -698,6 +703,17 @@ def _pick_dom_vehicle_image(card: Any, page_url: str) -> str | None:
     return None
 
 
+def _parse_dom_vehicle_payload(card: Any) -> dict[str, Any]:
+    raw = card.get("data-vehicle")
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
     """
     Pull listings from rendered SRP cards, primarily for DealerOn-style pages that
@@ -707,22 +723,37 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
     vehicles: list[VehicleListing] = []
     seen: set[str] = set()
 
-    for card in soup.select(".vehicle-card"):
+    for card in soup.select(".vehicle-card, .new-vehicle"):
         classes = set(card.get("class") or [])
         if "skeleton" in classes:
             continue
 
+        payload = _parse_dom_vehicle_payload(card)
         card_text = card.get_text(" ", strip=True)
-        vin = card.get("data-vin") or card.get("data-dotagging-item-id") or _extract_vin_from_text(card_text)
-        make = card.get("data-make") or card.get("data-dotagging-item-make")
-        model = card.get("data-model") or card.get("data-dotagging-item-model")
-        year = _coerce_int(card.get("data-year") or card.get("data-dotagging-item-year"))
-        trim = card.get("data-trim") or card.get("data-dotagging-item-variant")
-        mileage = _coerce_int(card.get("data-odometer") or card.get("data-dotagging-item-odometer"))
+        vin = (
+            card.get("data-vin")
+            or card.get("data-dotagging-item-id")
+            or payload.get("vin")
+            or _extract_vin_from_text(card_text)
+        )
+        make = card.get("data-make") or card.get("data-dotagging-item-make") or payload.get("make")
+        model = card.get("data-model") or card.get("data-dotagging-item-model") or payload.get("model")
+        year = _coerce_int(card.get("data-year") or card.get("data-dotagging-item-year") or payload.get("year"))
+        trim = card.get("data-trim") or card.get("data-dotagging-item-variant") or payload.get("trim")
+        mileage = _coerce_int(
+            card.get("data-odometer")
+            or card.get("data-dotagging-item-odometer")
+            or payload.get("mileage")
+            or payload.get("odometer")
+        )
         price = _coerce_float(
             card.get("data-price")
             or card.get("data-msrp")
             or card.get("data-dotagging-item-price")
+            or payload.get("price")
+            or payload.get("internetPrice")
+            or payload.get("salePrice")
+            or payload.get("msrp")
         )
         if price in (None, 0.0):
             price = _pick_price_from_pricelib(card.get("data-pricelib")) or price
@@ -742,10 +773,20 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
 
         image_url = _pick_dom_vehicle_image(card, page_url)
 
+        payload_title = " ".join(
+            str(x).strip()
+            for x in (payload.get("year"), payload.get("make"), payload.get("model"), payload.get("trim"))
+            if str(x).strip()
+        )
         raw_title = (
             card.get("data-name")
             or _text_or_none(card.select_one(".vehicle-card__title"))
             or _text_or_none(card.select_one(".vehicleTitle"))
+            or _text_or_none(card.select_one(".hit-title"))
+            or _text_or_none(card.select_one(".hit-title a"))
+            or payload_title
+            or payload.get("title")
+            or payload.get("name")
         )
         title_fields = _parse_title_fields(raw_title or card_text)
         if not raw_title:
@@ -766,6 +807,8 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             normalize_vehicle_condition(card.get("data-condition"))
             or normalize_vehicle_condition(card.get("data-newused"))
             or normalize_vehicle_condition(card.get("data-vehiclecondition"))
+            or normalize_vehicle_condition(payload.get("condition"))
+            or normalize_vehicle_condition(payload.get("type"))
             or normalize_vehicle_condition(raw_title)
             or normalize_vehicle_condition(card_text)
             or normalize_vehicle_condition(listing_url)
