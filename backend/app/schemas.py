@@ -19,16 +19,24 @@ class DealershipFound(BaseModel):
 
 
 class VehicleListing(BaseModel):
-    year: int | None = None
-    make: str | None = None
-    model: str | None = None
-    trim: str | None = None
-    price: float | None = None
-    mileage: int | None = None
-    vin: str | None = None
-    image_url: str | None = None
-    listing_url: str | None = None
-    raw_title: str | None = None
+    year: int | None = Field(default=None, description="Year of the vehicle.")
+    make: str | None = Field(default=None, description="Make of the vehicle, e.g. Toyota.")
+    model: str | None = Field(default=None, description="Model of the vehicle, e.g. Camry.")
+    trim: str | None = Field(default=None, description="Trim level of the vehicle.")
+    price: float | None = Field(default=None, description="Price in USD as a number, no symbols.")
+    mileage: int | None = Field(default=None, description="Mileage as an integer, no commas.")
+    vin: str | None = Field(default=None, description="17-character Vehicle Identification Number.")
+    image_url: str | None = Field(default=None, description="Absolute URL to the main image of the vehicle.")
+    listing_url: str | None = Field(default=None, description="Absolute URL to the vehicle's detail page.")
+    raw_title: str | None = Field(default=None, description="The raw title text of the listing.")
+
+
+class ExtractionResult(BaseModel):
+    vehicles: list[VehicleListing] = Field(description="List of vehicles found on the page.")
+    next_page_url: str | None = Field(
+        default=None,
+        description="Absolute URL to the NEXT page of inventory results, if pagination exists. Must be a valid URL or null."
+    )
 
 
 class SSEEvent(BaseModel):
