@@ -13,7 +13,7 @@ This repo is set up for **[Vercel Services](https://vercel.com/docs/services)**:
 
    | Name | Required | Notes |
    |------|----------|--------|
-   | `GOOGLE_PLACES_API_KEY` | Yes | Same key as in Google Cloud; you can also use `GOOGLE_MAPS_API_KEY`. Enable Places **Text Search** + **Place Details** (legacy APIs) |
+   | `GOOGLE_PLACES_API_KEY` | Yes | Same key as in Google Cloud; you can also use `GOOGLE_MAPS_API_KEY`. Enable **[Places API](https://console.cloud.google.com/apis/library/places.googleapis.com)** (New) for Text Search + Place Details ([docs](https://developers.google.com/maps/documentation/places/web-service/text-search)) |
    | `OPENAI_API_KEY` | Yes | Used for `gpt-4o-mini` extraction |
    | `ZENROWS_API_KEY` | No | Managed fetch / anti-bot ([ZenRows](https://docs.zenrows.com/)) |
    | `SCRAPINGBEE_API_KEY` | No | Alternative managed fetch ([ScrapingBee](https://www.scrapingbee.com/documentation/)) |
@@ -49,18 +49,16 @@ vercel curl /server/health --scope <your-team-slug> --yes
 - Scraping + LLM can run longer than default function limits. The API service sets [`maxDuration`: 300](vercel.json) seconds; your Vercel plan must allow that duration ([functions limits](https://vercel.com/docs/functions/limitations)).
 - If previews hit timeouts, reduce concurrency or `max_dealerships` in [`backend/app/config.py`](backend/app/config.py) later.
 
-### Google `REQUEST_DENIED` (Places Text Search)
+### Google Places errors (`PERMISSION_DENIED`, `REQUEST_DENIED`, etc.)
 
-This app calls the **legacy** Places Web Service (`/maps/api/place/textsearch/json` and `details/json`) from **your backend on Vercel** (not the user’s browser). `REQUEST_DENIED` is almost always configuration on the Google side:
+Discovery uses **[Places API (New)](https://developers.google.com/maps/documentation/places/web-service/text-search)** (`places:searchText` and Place Details `GET`) from **your backend on Vercel**, not the browser.
 
 1. **Billing** — [Enable billing](https://console.cloud.google.com/billing) on the Google Cloud project that owns the key.
-2. **Enable the right APIs** — In [APIs & Services → Library](https://console.cloud.google.com/apis/library), enable **Places API** (and ensure **Places API (New)** does not replace what you need; legacy Text Search still uses the classic web service). If unsure, enable **Places API** and **Geocoding API** as needed for your console prompts.
-3. **API key application restrictions** — A key restricted to **HTTP referrers (websites)** is for browser/JavaScript use only. **Server-side requests from Vercel will be denied.** For backend use you typically need **Application restrictions: None** (tighten with **API restrictions** only, limiting the key to Places-related APIs), or a separate **server** key without referrer locking.
-4. **API restrictions** — Under the key, set **API restrictions** to restrict to Places (and related) APIs only; do not leave the key unrestricted in production if you can avoid it.
+2. **Enable Places API (New)** — In [APIs & Services → Library](https://console.cloud.google.com/apis/library), enable **[Places API](https://console.cloud.google.com/apis/library/places.googleapis.com)** (`places.googleapis.com`). Legacy-only projects will see errors like [legacy API not activated](https://developers.google.com/maps/legacy#LegacyApiNotActivatedMapError).
+3. **API key application restrictions** — A key restricted to **HTTP referrers (websites)** is for browser use only; **server-side calls from Vercel will fail.** Use **Application restrictions: None** for the backend key (or IP where feasible), and scope with **API restrictions** to Places only.
+4. **SKU / field mask** — Text Search requests `websiteUri`, which maps to an **Enterprise** Text Search SKU in Google’s pricing tables; ensure your project is allowed to use those fields or trim the field mask in [`backend/app/services/places.py`](backend/app/services/places.py) and rely on the follow-up Place Details call only.
 
-After changes in Google Cloud, update `GOOGLE_PLACES_API_KEY` / `GOOGLE_MAPS_API_KEY` in Vercel if you created a new key, then redeploy or push a commit.
-
-The API error stream now includes Google’s `error_message` text when present, which often states the exact restriction (e.g. referrer not allowed).
+After changes in Google Cloud, update the key in Vercel if needed, then redeploy or push a commit. Error responses from Google are surfaced in the search stream when possible.
 
 ## Optional: run without Vercel
 
