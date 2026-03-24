@@ -22,6 +22,13 @@ function formatMoney(n: number | undefined) {
   }).format(n);
 }
 
+function locationBadge(v: AggregatedListing) {
+  if (v.is_in_transit) return "In transit";
+  if (v.is_offsite || v.is_shared_inventory) return "Shared / off-site";
+  if (v.is_in_stock) return "On lot";
+  return v.availability_status ?? null;
+}
+
 export function SearchExperience() {
   const [location, setLocation] = useState("");
   const [make, setMake] = useState("");
@@ -422,6 +429,10 @@ export function SearchExperience() {
                       <dd className="truncate">{v.vin ?? "—"}</dd>
                       <dt className="font-medium text-zinc-500">Dealer</dt>
                       <dd className="truncate">{v.dealership}</dd>
+                      <dt className="font-medium text-zinc-500">Availability</dt>
+                      <dd>{locationBadge(v) ?? "—"}</dd>
+                      <dt className="font-medium text-zinc-500">Location</dt>
+                      <dd className="truncate">{v.inventory_location ?? "—"}</dd>
                     </dl>
                     <div className="flex flex-wrap gap-2 pt-1">
                       {v.listing_url ? (

@@ -9,6 +9,12 @@ export type VehicleListing = {
   image_url?: string;
   listing_url?: string;
   raw_title?: string;
+  inventory_location?: string;
+  availability_status?: string;
+  is_offsite?: boolean;
+  is_in_transit?: boolean;
+  is_in_stock?: boolean;
+  is_shared_inventory?: boolean;
 };
 
 export type DealershipProgress = {

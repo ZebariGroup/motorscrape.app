@@ -274,6 +274,21 @@ def _coerce_float(val: Any) -> float | None:
         return None
 
 
+def _coerce_bool(val: Any) -> bool | None:
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return bool(val)
+    text = str(val).strip().lower()
+    if text in {"true", "1", "yes", "y", "in stock", "instock"}:
+        return True
+    if text in {"false", "0", "no", "n"}:
+        return False
+    return None
+
+
 def _pick_price_from_dict(d: dict[str, Any]) -> float | None:
     for key in ("price", "priceInet", "price_inet", "internetPrice", "sellingPrice"):
         p = _coerce_float(d.get(key))
@@ -291,6 +306,38 @@ def _pick_price_from_dict(d: dict[str, Any]) -> float | None:
 def _pick_year(d: dict[str, Any]) -> int | None:
     y = d.get("year") or d.get("vehicleModelDate") or d.get("modelYear")
     return _coerce_int(y)
+
+
+def _pick_inventory_location(d: dict[str, Any]) -> str | None:
+    for key in ("location", "inventoryLocation", "accountName", "dealerName", "dealer_name"):
+        value = d.get(key)
+        if isinstance(value, dict):
+            value = value.get("name") or value.get("text")
+        if value:
+            return str(value).strip()
+    return None
+
+
+def _build_availability_status(
+    *,
+    status_text: str | None,
+    is_in_stock: bool | None,
+    is_in_transit: bool | None,
+    is_offsite: bool | None,
+    is_shared_inventory: bool | None,
+) -> str | None:
+    if is_in_transit:
+        return "In transit"
+    if is_offsite or is_shared_inventory:
+        return "Transfer or shared inventory"
+    if is_in_stock is True:
+        return "On lot"
+    if status_text:
+        norm = status_text.strip().lower()
+        if norm == "live":
+            return "Listed online"
+        return status_text
+    return None
 
 
 def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing | None:
@@ -344,6 +391,14 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
     if isinstance(trim, dict):
         trim = trim.get("name")
     trim_s = str(trim).strip() if trim else None
+    inventory_location = _pick_inventory_location(d)
+    is_offsite = _coerce_bool(d.get("offSite") or d.get("offsite"))
+    is_shared_inventory = _coerce_bool(d.get("sharedVehicle") or d.get("shared_inventory"))
+    is_in_transit = _coerce_bool(d.get("inTransit") or d.get("in_transit"))
+    is_in_stock = _coerce_bool(d.get("inStock") or d.get("in_stock"))
+    status_text = d.get("status")
+    if status_text:
+        status_text = str(status_text).replace("_", " ").strip().title()
 
     title_parts = [str(x) for x in [_pick_year(d), make_s, model_s, trim_s] if x]
     raw_title = " ".join(title_parts) if title_parts else None
@@ -359,6 +414,18 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         image_url=image_url,
         listing_url=listing_url,
         raw_title=raw_title,
+        inventory_location=inventory_location,
+        availability_status=_build_availability_status(
+            status_text=str(status_text) if status_text else None,
+            is_in_stock=is_in_stock,
+            is_in_transit=is_in_transit,
+            is_offsite=is_offsite,
+            is_shared_inventory=is_shared_inventory,
+        ),
+        is_offsite=is_offsite,
+        is_in_transit=is_in_transit,
+        is_in_stock=is_in_stock,
+        is_shared_inventory=is_shared_inventory,
     )
 
 
@@ -445,6 +512,16 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             or card.get("data-msrp")
             or card.get("data-dotagging-item-price")
         )
+        is_in_stock = _coerce_bool(card.get("data-instock"))
+        is_in_transit = _coerce_bool(card.get("data-intransit"))
+        inventory_location = card.get("data-dotagging-item-location")
+        availability_status = _build_availability_status(
+            status_text=None,
+            is_in_stock=is_in_stock,
+            is_in_transit=is_in_transit,
+            is_offsite=False,
+            is_shared_inventory=False,
+        )
 
         anchor = card.select_one("a[href]")
         listing_url = urljoin(page_url, anchor["href"]) if anchor and anchor.get("href") else None
@@ -477,6 +554,12 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
                 image_url=image_url,
                 listing_url=listing_url,
                 raw_title=str(raw_title).strip() if raw_title else None,
+                inventory_location=str(inventory_location).strip() if inventory_location else None,
+                availability_status=availability_status,
+                is_offsite=False,
+                is_in_transit=is_in_transit,
+                is_in_stock=is_in_stock,
+                is_shared_inventory=False,
             )
         )
 

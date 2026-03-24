@@ -29,6 +29,12 @@ class VehicleListing(BaseModel):
     image_url: str | None = Field(default=None, description="Absolute URL to the main image of the vehicle.")
     listing_url: str | None = Field(default=None, description="Absolute URL to the vehicle's detail page.")
     raw_title: str | None = Field(default=None, description="The raw title text of the listing.")
+    inventory_location: str | None = Field(default=None, description="Reported vehicle location or source lot, if available.")
+    availability_status: str | None = Field(default=None, description="Human-readable inventory availability such as in stock, in transit, or transfer.")
+    is_offsite: bool | None = Field(default=None, description="Whether the vehicle appears to be off-site or shared inventory.")
+    is_in_transit: bool | None = Field(default=None, description="Whether the vehicle is marked in transit.")
+    is_in_stock: bool | None = Field(default=None, description="Whether the vehicle is marked in stock/on lot.")
+    is_shared_inventory: bool | None = Field(default=None, description="Whether the vehicle is shared from another store/group inventory.")
 
 
 class ExtractionResult(BaseModel):
