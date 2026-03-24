@@ -7,8 +7,38 @@ import re
 from app.schemas import VehicleListing
 
 
+_USED_CONDITION_RE = re.compile(r"\b(used|pre[\s-]?owned|cpo|certified)\b", re.I)
+_NEW_CONDITION_RE = re.compile(r"\bnew\b", re.I)
+
+
 def normalize_model_text(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", text.strip().lower())
+
+
+def normalize_vehicle_condition(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if "usedcondition" in text:
+        return "used"
+    if "newcondition" in text:
+        return "new"
+    if _USED_CONDITION_RE.search(text):
+        return "used"
+    if _NEW_CONDITION_RE.search(text):
+        return "new"
+    return None
+
+
+def infer_vehicle_condition_from_page(page_url: str, html: str) -> str | None:
+    hay = f"{page_url}\n{html[:8000]}".lower()
+    if any(token in hay for token in ("used-inventory", "used-vehicles", "searchused", "pre-owned", "preowned")):
+        return "used"
+    if any(token in hay for token in ("new-inventory", "new-vehicles", "searchnew")):
+        return "new"
+    return None
 
 
 def model_filter_variants(model: str) -> list[str]:
@@ -71,3 +101,13 @@ def listing_matches_inventory_scope(
     if scope == "include_transit":
         return not bool(v.is_offsite) and not bool(v.is_shared_inventory)
     return True
+
+
+def listing_matches_vehicle_condition(
+    v: VehicleListing,
+    vehicle_condition: str,
+) -> bool:
+    condition = (vehicle_condition or "all").strip().lower()
+    if condition == "all":
+        return True
+    return v.vehicle_condition == condition

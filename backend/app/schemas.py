@@ -9,6 +9,10 @@ class SearchRequest(BaseModel):
     location: str = Field(..., min_length=2, description="City, ZIP, or address")
     make: str = Field(default="", description="Vehicle make filter, e.g. Toyota")
     model: str = Field(default="", description="Vehicle model filter, e.g. Camry")
+    vehicle_condition: Literal["all", "new", "used"] = Field(
+        default="all",
+        description="Whether to include all inventory, only new vehicles, or only used vehicles.",
+    )
     coverage_mode: Literal["standard", "expanded", "deep"] = Field(
         default="standard",
         description="How broadly to search for dealerships before scraping.",
@@ -45,6 +49,10 @@ class VehicleListing(BaseModel):
     trim: str | None = Field(default=None, description="Trim level of the vehicle.")
     price: float | None = Field(default=None, description="Price in USD as a number, no symbols.")
     mileage: int | None = Field(default=None, description="Mileage as an integer, no commas.")
+    vehicle_condition: Literal["new", "used"] | None = Field(
+        default=None,
+        description="Whether the listing is new or used when the page clearly indicates it.",
+    )
     vin: str | None = Field(default=None, description="17-character Vehicle Identification Number.")
     image_url: str | None = Field(default=None, description="Absolute URL to the main image of the vehicle.")
     listing_url: str | None = Field(default=None, description="Absolute URL to the vehicle's detail page.")

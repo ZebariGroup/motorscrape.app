@@ -33,6 +33,7 @@ export function SearchExperience() {
   const [location, setLocation] = useState("");
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
+  const [vehicleCondition, setVehicleCondition] = useState("all");
   const [coverageMode, setCoverageMode] = useState("standard");
   const [inventoryScope, setInventoryScope] = useState("all");
   const [maxDealerships, setMaxDealerships] = useState("8");
@@ -42,9 +43,9 @@ export function SearchExperience() {
   const [listings, setListings] = useState<AggregatedListing[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
-  const [tick, setTick] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [searchStartedAtMs, setSearchStartedAtMs] = useState<number | null>(null);
   const esRef = useRef<EventSource | null>(null);
-  const searchStartedAtRef = useRef<number | null>(null);
 
   const dealerList = useMemo(
     () => Object.values(dealers).sort((a, b) => a.index - b.index),
@@ -63,20 +64,20 @@ export function SearchExperience() {
 
   useEffect(() => {
     if (!running) return;
-    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [running]);
 
   const searchElapsedSec = useMemo(() => {
-    if (!running || searchStartedAtRef.current == null) return 0;
-    return Math.max(0, Math.floor((Date.now() - searchStartedAtRef.current) / 1000));
-  }, [running, tick]);
+    if (!running || searchStartedAtMs == null) return 0;
+    return Math.max(0, Math.floor((nowMs - searchStartedAtMs) / 1000));
+  }, [nowMs, running, searchStartedAtMs]);
 
   const stopStream = useCallback(() => {
     esRef.current?.close();
     esRef.current = null;
     setRunning(false);
-    searchStartedAtRef.current = null;
+    setSearchStartedAtMs(null);
   }, []);
 
   const startSearch = useCallback(() => {
@@ -85,14 +86,16 @@ export function SearchExperience() {
     setListings([]);
     setDealers({});
     setStatus(null);
-    setTick(0);
-    searchStartedAtRef.current = Date.now();
+    const startedAt = Date.now();
+    setNowMs(startedAt);
+    setSearchStartedAtMs(startedAt);
 
     const base = getApiBaseUrl();
     const params = new URLSearchParams({
       location: location.trim(),
       make: make.trim(),
       model: model.trim(),
+      vehicle_condition: vehicleCondition,
       coverage_mode: coverageMode,
       inventory_scope: inventoryScope,
       max_dealerships: maxDealerships,
@@ -199,7 +202,17 @@ export function SearchExperience() {
       setErrors((e) => [...e, "Connection to search stream lost or failed."]);
       stopStream();
     };
-  }, [location, make, model, stopStream]);
+  }, [
+    coverageMode,
+    inventoryScope,
+    location,
+    make,
+    maxDealerships,
+    maxPagesPerDealer,
+    model,
+    stopStream,
+    vehicleCondition,
+  ]);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-4 py-10 sm:px-6">
@@ -265,6 +278,19 @@ export function SearchExperience() {
               <option value="standard">Standard</option>
               <option value="expanded">Expanded</option>
               <option value="deep">Deep</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">Condition</span>
+            <select
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              value={vehicleCondition}
+              onChange={(e) => setVehicleCondition(e.target.value)}
+              disabled={running}
+            >
+              <option value="all">All</option>
+              <option value="new">New only</option>
+              <option value="used">Used only</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -372,7 +398,7 @@ export function SearchExperience() {
               dealerList.map((d) => {
                 const phaseSec =
                   d.phaseSince != null
-                    ? Math.max(0, Math.floor((Date.now() - d.phaseSince) / 1000))
+                    ? Math.max(0, Math.floor((nowMs - d.phaseSince) / 1000))
                     : 0;
                 const isBusy = d.status === "scraping" || d.status === "parsing";
                 return (
@@ -497,6 +523,8 @@ export function SearchExperience() {
                       <dd>{formatMoney(v.price)}</dd>
                       <dt className="font-medium text-zinc-500">Mileage</dt>
                       <dd>{v.mileage != null ? `${v.mileage.toLocaleString()} mi` : "—"}</dd>
+                      <dt className="font-medium text-zinc-500">Condition</dt>
+                      <dd>{v.vehicle_condition ?? "—"}</dd>
                       <dt className="font-medium text-zinc-500">VIN</dt>
                       <dd className="truncate">{v.vin ?? "—"}</dd>
                       <dt className="font-medium text-zinc-500">Dealer</dt>

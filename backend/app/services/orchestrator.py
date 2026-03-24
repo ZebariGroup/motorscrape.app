@@ -17,8 +17,10 @@ from app.config import settings
 from app.schemas import DealershipFound
 from app.services.inventory_discovery import discover_sitemap_inventory_urls
 from app.services.inventory_filters import (
+    infer_vehicle_condition_from_page,
     listing_matches_filters,
     listing_matches_inventory_scope,
+    listing_matches_vehicle_condition,
     model_filter_variants,
 )
 from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
@@ -63,33 +65,57 @@ def _html_mentions_make(html: str, make: str) -> bool:
     return mk in html.lower()
 
 
-def _find_inventory_url(html: str, base_url: str) -> str:
+def _find_inventory_url(
+    html: str,
+    base_url: str,
+    *,
+    vehicle_condition: str = "all",
+) -> str:
     """Heuristic to find the best 'inventory' link on a dealership homepage."""
     try:
         soup = BeautifulSoup(html, "lxml")
         best_url = base_url
         best_score = -1
+        condition = (vehicle_condition or "all").strip().lower()
 
         for a in soup.find_all("a", href=True):
             href = a['href'].lower()
             text = a.get_text(strip=True).lower()
             score = 0
 
-            # Prefer "new inventory" style pages over used/pre-owned links.
-            if "new-inventory" in href:
-                score += 40
-            if "searchnew" in href:
-                score += 35
-            if "inventory" in href and "new" in href:
-                score += 30
-            elif "inventory" in href or "inventory" in text:
+            if "inventory" in href or "inventory" in text:
                 score += 20
-            if "new" in href or "new" in text:
-                score += 10
-            if "used-inventory" in href:
-                score += 5
-            if "used" in href or "pre-owned" in text or "used" in text:
-                score -= 10
+            if condition == "new":
+                if "new-inventory" in href:
+                    score += 40
+                if "searchnew" in href:
+                    score += 35
+                if "inventory" in href and "new" in href:
+                    score += 30
+                if "new" in href or "new" in text:
+                    score += 10
+                if "used-inventory" in href:
+                    score -= 10
+                if "used" in href or "pre-owned" in text or "used" in text:
+                    score -= 15
+            elif condition == "used":
+                if "used-inventory" in href or "used-vehicles" in href:
+                    score += 40
+                if "searchused" in href:
+                    score += 35
+                if "pre-owned" in href or "pre-owned" in text:
+                    score += 25
+                if "used" in href or "used" in text:
+                    score += 20
+                if "new-inventory" in href:
+                    score -= 15
+                if "searchnew" in href or ("new" in href or "new" in text):
+                    score -= 10
+            else:
+                if "inventory" in href and "new" not in href and "used" not in href:
+                    score += 15
+                if "new-inventory" in href or "used-inventory" in href:
+                    score += 5
 
             # Penalize non-inventory links
             if any(x in href for x in ["service", "parts", "finance", "contact", "about", "specials", "privacy"]):
@@ -114,6 +140,7 @@ async def stream_search(
     make: str,
     model: str,
     *,
+    vehicle_condition: str = "all",
     coverage_mode: str = "standard",
     inventory_scope: str = "all",
     max_dealerships: int | None = None,
@@ -154,7 +181,8 @@ async def stream_search(
         {
             "message": (
                 f"Found {len(dealers)} dealerships. Scraping inventory… "
-                f"(requested {requested_dealerships}, coverage {coverage_mode})"
+                f"(requested {requested_dealerships}, coverage {coverage_mode}, "
+                f"condition {vehicle_condition})"
             ),
             "phase": "scrape",
         },
@@ -247,9 +275,14 @@ async def stream_search(
                 html,
                 website,
                 route,
-                fallback_url=_find_inventory_url(html, website),
+                fallback_url=_find_inventory_url(
+                    html,
+                    website,
+                    vehicle_condition=vehicle_condition,
+                ),
                 make=make,
                 model=model,
+                vehicle_condition=vehicle_condition,
             )
             if inv_url == website and domain in inv_url_cache:
                 cached = inv_url_cache[domain]
@@ -473,10 +506,20 @@ async def stream_search(
                             )
                         break
 
+                page_vehicle_condition = infer_vehicle_condition_from_page(current_url, current_html)
+                normalized_vehicles = [
+                    (
+                        v.model_copy(update={"vehicle_condition": page_vehicle_condition})
+                        if v.vehicle_condition is None and page_vehicle_condition is not None
+                        else v
+                    )
+                    for v in ext_result.vehicles
+                ]
                 filtered = [
                     v
-                    for v in ext_result.vehicles
+                    for v in normalized_vehicles
                     if listing_matches_filters(v, make, model)
+                    and listing_matches_vehicle_condition(v, vehicle_condition)
                     and listing_matches_inventory_scope(v, inventory_scope)
                 ]
                 vdicts = [v.model_dump(exclude_none=True) for v in filtered]
@@ -575,6 +618,7 @@ async def stream_search(
             "dealer_discovery_count": raw_dealer_count,
             "dealer_deduped_count": deduped_dealer_count,
             "coverage_mode": coverage_mode,
+            "vehicle_condition": vehicle_condition,
             "inventory_scope": inventory_scope,
             "max_dealerships": requested_dealerships,
             "max_pages_per_dealer": requested_pages,

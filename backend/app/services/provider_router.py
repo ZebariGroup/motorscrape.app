@@ -137,6 +137,7 @@ def resolve_inventory_url_for_provider(
     fallback_url: str,
     make: str = "",
     model: str = "",
+    vehicle_condition: str = "all",
 ) -> str:
     try:
         soup = BeautifulSoup(html, "lxml")
@@ -150,6 +151,7 @@ def resolve_inventory_url_for_provider(
     hints = tuple(h.lower() for h in (route.inventory_path_hints if route else ()))
     make_norm = _norm(make)
     model_norm = _norm(model)
+    condition = (vehicle_condition or "all").strip().lower()
 
     for a in soup.find_all("a", href=True):
         href = str(a["href"])
@@ -167,24 +169,43 @@ def resolve_inventory_url_for_provider(
         if model_norm and model_norm in combined_norm:
             score += 120
 
-        if "new-inventory" in href_lower:
-            score += 40
-        if "searchnew" in href_lower:
-            score += 35
         if "for-sale" in href_lower:
             score += 35
-        if "inventory" in href_lower and "new" in href_lower and model_norm:
-            score += 30
-        if "inventory" in href_lower and "new" in href_lower:
-            score += 30
-        elif "inventory" in href_lower or "inventory" in text:
+        if "inventory" in href_lower or "inventory" in text:
             score += 20
-        if "new" in href_lower or "new" in text:
-            score += 10
-        if "used-inventory" in href_lower:
-            score += 5
-        if "used" in href_lower or "pre-owned" in text or "used" in text:
-            score -= 10
+        if condition == "new":
+            if "new-inventory" in href_lower:
+                score += 40
+            if "searchnew" in href_lower:
+                score += 35
+            if "inventory" in href_lower and "new" in href_lower and model_norm:
+                score += 30
+            if "inventory" in href_lower and "new" in href_lower:
+                score += 30
+            if "new" in href_lower or "new" in text:
+                score += 10
+            if "used-inventory" in href_lower or "used-vehicles" in href_lower:
+                score -= 10
+            if "used" in href_lower or "pre-owned" in text or "used" in text:
+                score -= 15
+        elif condition == "used":
+            if "used-inventory" in href_lower or "used-vehicles" in href_lower:
+                score += 40
+            if "searchused" in href_lower:
+                score += 35
+            if "pre-owned" in href_lower or "pre-owned" in text:
+                score += 25
+            if "used" in href_lower or "used" in text:
+                score += 20
+            if "new-inventory" in href_lower:
+                score -= 15
+            if "searchnew" in href_lower or ("new" in href_lower or "new" in text):
+                score -= 10
+        else:
+            if "inventory" in href_lower and "new" not in href_lower and "used" not in href_lower:
+                score += 15
+            if "new-inventory" in href_lower or "used-inventory" in href_lower:
+                score += 5
         if any(x in href_lower for x in ["service", "parts", "finance", "contact", "about", "specials", "privacy"]):
             score -= 20
         if any(x in href_lower for x in ["research", "compare", "reviews", "schedule"]):

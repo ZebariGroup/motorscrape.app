@@ -16,7 +16,7 @@ from openai import AsyncOpenAI
 from app.config import settings
 from app.schemas import ExtractionResult, VehicleListing
 from app.services.dealer_platforms import provider_enriched_vehicle_dicts
-from app.services.inventory_filters import listing_matches_filters
+from app.services.inventory_filters import listing_matches_filters, normalize_vehicle_condition
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ Extraction rules:
 - Only real vehicles for sale (cars, trucks, SUVs). Skip service specials, parts, disclaimers, nav.
 - Prefer listing-specific URLs and images when present.
 - Do not invent VINs, prices, or stock numbers; use null if not clearly present.
+- Set `vehicle_condition` to `new` or `used` when clearly stated; otherwise use null.
 - If there is a clear next-page link for inventory, set `next_page_url` to its absolute URL.
 - Data may be provided as structured JSON extracted from the page. Parse it the same way.
 """
@@ -45,7 +46,8 @@ _VEHICLE_KEEP_KEYS = {
     "stock_no", "bodytype", "bodystyle", "colorexterior", "colorinterior",
     "transmission", "engine", "drivetrain", "vdpurl", "vdp_url",
     "imagespath", "images_path", "imageurl", "image_url",
-    "cylinders", "doors", "fueltype", "status",
+    "cylinders", "doors", "fueltype", "status", "condition",
+    "vehiclecondition", "newused", "inventorytype", "itemcondition",
 }
 
 _VEHICLE_FULL_REGEX = re.compile(
@@ -345,6 +347,23 @@ def _pick_inventory_location(d: dict[str, Any]) -> str | None:
     return None
 
 
+def _pick_vehicle_condition(d: dict[str, Any], *, raw_title: str | None = None) -> str | None:
+    for key in (
+        "vehicle_condition",
+        "vehicleCondition",
+        "condition",
+        "newUsed",
+        "new_used",
+        "inventoryType",
+        "inventory_type",
+        "itemCondition",
+    ):
+        normalized = normalize_vehicle_condition(d.get(key))
+        if normalized:
+            return normalized
+    return normalize_vehicle_condition(raw_title)
+
+
 def _build_availability_status(
     *,
     status_text: str | None,
@@ -462,6 +481,11 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
 
     title_parts = [str(x) for x in [_pick_year(d), make_s, model_s, trim_s] if x]
     raw_title = " ".join(title_parts) if title_parts else None
+    title_hint = d.get("title") or d.get("name") or d.get("vehicleTitle")
+    vehicle_condition = _pick_vehicle_condition(
+        d,
+        raw_title=raw_title or (str(title_hint).strip() if title_hint else None),
+    )
 
     return VehicleListing(
         year=_pick_year(d),
@@ -470,6 +494,7 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         trim=trim_s,
         price=_pick_price_from_dict(d),
         mileage=_coerce_int(miles),
+        vehicle_condition=vehicle_condition,
         vin=vin_s,
         image_url=image_url,
         listing_url=listing_url,
@@ -595,6 +620,12 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             or _text_or_none(card.select_one(".vehicle-card__title"))
             or _text_or_none(card.select_one(".vehicleTitle"))
         )
+        vehicle_condition = (
+            normalize_vehicle_condition(card.get("data-condition"))
+            or normalize_vehicle_condition(card.get("data-newused"))
+            or normalize_vehicle_condition(card.get("data-vehiclecondition"))
+            or normalize_vehicle_condition(raw_title)
+        )
 
         key = f"{vin or ''}|{listing_url or ''}|{raw_title or ''}"
         if key in seen:
@@ -612,6 +643,7 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
                 trim=str(trim).strip() if trim else None,
                 price=price,
                 mileage=mileage,
+                vehicle_condition=vehicle_condition,
                 vin=str(vin).strip() if vin else None,
                 image_url=image_url,
                 listing_url=listing_url,

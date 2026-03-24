@@ -1,5 +1,6 @@
 import logging
 from collections.abc import AsyncIterator
+from typing import Literal
 
 from fastapi import APIRouter, FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,7 @@ async def search_stream(
     location: str = Query(..., min_length=2),
     make: str = Query(""),
     model: str = Query(""),
+    vehicle_condition: Literal["all", "new", "used"] = Query("all"),
     coverage_mode: str = Query("standard"),
     inventory_scope: str = Query("all"),
     max_dealerships: int | None = Query(default=None, ge=1, le=30),
@@ -33,6 +35,7 @@ async def search_stream(
             location=location,
             make=make.strip(),
             model=model.strip(),
+            vehicle_condition=vehicle_condition,
             coverage_mode=coverage_mode,
             inventory_scope=inventory_scope,
             max_dealerships=max_dealerships,

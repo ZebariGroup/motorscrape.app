@@ -5,6 +5,7 @@ export type VehicleListing = {
   trim?: string;
   price?: number;
   mileage?: number;
+  vehicle_condition?: "new" | "used";
   vin?: string;
   image_url?: string;
   listing_url?: string;
