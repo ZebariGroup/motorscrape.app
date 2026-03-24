@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Literal
 from urllib.parse import urlencode
 from urllib.parse import urljoin
