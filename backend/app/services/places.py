@@ -54,6 +54,36 @@ def _name_matches_make(dealer_name: str, make: str) -> bool:
     return mk in nm or (mk_compact and mk_compact in nm_compact)
 
 
+async def _search_places_text(
+    client: httpx.AsyncClient,
+    key: str,
+    *,
+    text_query: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    body: dict[str, Any] = {
+        "textQuery": text_query,
+        "includedType": "car_dealer",
+        "strictTypeFiltering": True,
+        "pageSize": min(limit, 20),
+        "languageCode": "en",
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": key,
+        "X-Goog-FieldMask": SEARCH_FIELD_MASK,
+    }
+    r = await client.post(SEARCH_TEXT_URL, json=body, headers=headers)
+    if r.status_code != 200:
+        logger.warning("Places searchText HTTP %s for %r: %s", r.status_code, text_query, r.text[:500])
+        raise RuntimeError(
+            f"Google Places Text Search (New) failed: HTTP {r.status_code}. {_api_error_message(r.json() if r.content else {})}"
+        )
+    payload = r.json()
+    places = payload.get("places") or []
+    return [p for p in places if isinstance(p, dict)]
+
+
 def _normalize_dealer_website_url(website: str) -> str:
     """
     Strip common marketing/tracking params from dealership website URLs returned by
@@ -108,32 +138,44 @@ async def find_car_dealerships(
 
     make_q = make.strip()
     model_q = model.strip()
-    search_terms = " ".join(x for x in [make_q, model_q, "car dealership"] if x)
-    text_query = f"{search_terms} near {location}"
-    body: dict[str, Any] = {
-        "textQuery": text_query,
-        "includedType": "car_dealer",
-        "strictTypeFiltering": True,
-        "pageSize": min(limit, 20),
-        "languageCode": "en",
-    }
-
-    headers = {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": key,
-        "X-Goog-FieldMask": SEARCH_FIELD_MASK,
-    }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(SEARCH_TEXT_URL, json=body, headers=headers)
-        if r.status_code != 200:
-            logger.warning("Places searchText HTTP %s: %s", r.status_code, r.text[:500])
-            raise RuntimeError(
-                f"Google Places Text Search (New) failed: HTTP {r.status_code}. {_api_error_message(r.json() if r.content else {})}"
-            )
+        text_queries: list[str] = []
+        if make_q and model_q:
+            text_queries.append(f"{make_q} {model_q} car dealership near {location}")
+        elif make_q:
+            text_queries.append(f"{make_q} car dealership near {location}")
+        elif model_q:
+            text_queries.append(f"{model_q} car dealership near {location}")
+        else:
+            text_queries.append(f"car dealership near {location}")
 
-        payload = r.json()
-        places = payload.get("places") or []
+        # Places ranking can under-return franchise dealers for some low-volume models.
+        # Supplement narrowly with broader new-car franchise queries and merge results.
+        if make_q:
+            text_queries.append(f"new {make_q} near {location}")
+            text_queries.append(f"{make_q} showroom near {location}")
+
+        places: list[dict[str, Any]] = []
+        seen_place_resources: set[str] = set()
+        for text_query in text_queries:
+            try:
+                found = await _search_places_text(client, key, text_query=text_query, limit=limit)
+            except Exception:
+                if not places:
+                    raise
+                continue
+            for place in found:
+                place_resource = str(place.get("name") or "")
+                pid = str(place.get("id") or "")
+                dedupe_key = place_resource or pid
+                if not dedupe_key or dedupe_key in seen_place_resources:
+                    continue
+                seen_place_resources.add(dedupe_key)
+                places.append(place)
+            if len(places) >= limit:
+                break
+
         results: list[DealershipFound] = []
 
         for place in places[:limit]:
