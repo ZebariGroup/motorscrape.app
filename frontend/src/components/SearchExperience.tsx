@@ -34,6 +34,13 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, value));
 }
 
+function parseOptionalNumber(value: string) {
+  const normalized = value.replaceAll(",", "").trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function SearchExperience() {
   const [location, setLocation] = useState("");
   const [make, setMake] = useState("");
@@ -42,10 +49,13 @@ export function SearchExperience() {
   const [radiusMiles, setRadiusMiles] = useState("25");
   const [inventoryScope, setInventoryScope] = useState("all");
   const [maxDealerships, setMaxDealerships] = useState("8");
-  const [maxPagesPerDealer, setMaxPagesPerDealer] = useState("1");
   const [status, setStatus] = useState<string | null>(null);
   const [dealers, setDealers] = useState<Record<string, DealershipProgress>>({});
   const [listings, setListings] = useState<AggregatedListing[]>([]);
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [minMileage, setMinMileage] = useState("");
+  const [maxMileage, setMaxMileage] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -105,6 +115,43 @@ export function SearchExperience() {
     [listings.length, running],
   );
 
+  const parsedMinPrice = useMemo(() => parseOptionalNumber(minPrice), [minPrice]);
+  const parsedMaxPrice = useMemo(() => parseOptionalNumber(maxPrice), [maxPrice]);
+  const parsedMinMileage = useMemo(() => parseOptionalNumber(minMileage), [minMileage]);
+  const parsedMaxMileage = useMemo(() => parseOptionalNumber(maxMileage), [maxMileage]);
+
+  const filteredListings = useMemo(() => {
+    return listings.filter((listing) => {
+      if (parsedMinPrice != null && (listing.price == null || listing.price < parsedMinPrice)) {
+        return false;
+      }
+      if (parsedMaxPrice != null && (listing.price == null || listing.price > parsedMaxPrice)) {
+        return false;
+      }
+      if (
+        parsedMinMileage != null &&
+        (listing.mileage == null || listing.mileage < parsedMinMileage)
+      ) {
+        return false;
+      }
+      if (
+        parsedMaxMileage != null &&
+        (listing.mileage == null || listing.mileage > parsedMaxMileage)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [listings, parsedMaxMileage, parsedMaxPrice, parsedMinMileage, parsedMinPrice]);
+
+  const activeResultFilterCount = useMemo(
+    () =>
+      [parsedMinPrice, parsedMaxPrice, parsedMinMileage, parsedMaxMileage].filter(
+        (value) => value != null,
+      ).length,
+    [parsedMaxMileage, parsedMaxPrice, parsedMinMileage, parsedMinPrice],
+  );
+
   useEffect(() => {
     if (!running) return;
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -142,7 +189,6 @@ export function SearchExperience() {
       radius_miles: radiusMiles,
       inventory_scope: inventoryScope,
       max_dealerships: maxDealerships,
-      max_pages_per_dealer: maxPagesPerDealer,
     });
     const url = `${base}/search/stream?${params.toString()}`;
 
@@ -211,21 +257,18 @@ export function SearchExperience() {
       try {
         const data = JSON.parse(me.data) as {
           ok?: boolean;
-          fetch_metrics?: Record<string, number>;
           dealer_discovery_count?: number;
           dealer_deduped_count?: number;
           max_dealerships?: number;
         };
-        const fm = data.fetch_metrics;
-        if (fm && Object.keys(fm).length > 0) {
-          const parts = Object.entries(fm).map(([k, v]) => `${k}: ${v}`);
-          const dealerPart =
-            data.dealer_discovery_count != null && data.dealer_deduped_count != null
-              ? `dealers found: ${data.dealer_discovery_count}, unique: ${data.dealer_deduped_count}, searched: ${data.max_dealerships ?? "?"}`
+        const dealerPart =
+          data.dealer_discovery_count != null && data.dealer_deduped_count != null
+            ? `${data.dealer_deduped_count} dealerships searched`
+            : data.max_dealerships != null
+              ? `${data.max_dealerships} dealerships searched`
               : null;
-          setStatus(
-            `Search finished${dealerPart ? ` · ${dealerPart}` : ""} · ${parts.join(" · ")}`,
-          );
+        if (dealerPart) {
+          setStatus(`Search finished · ${dealerPart}`);
         } else {
           setStatus((s) => s ?? "Search finished.");
         }
@@ -250,7 +293,6 @@ export function SearchExperience() {
     location,
     make,
     maxDealerships,
-    maxPagesPerDealer,
     model,
     radiusMiles,
     stopStream,
@@ -381,20 +423,6 @@ export function SearchExperience() {
               <option value="24">24</option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-zinc-800 dark:text-zinc-200">Pages per dealer</span>
-            <select
-              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-              value={maxPagesPerDealer}
-              onChange={(e) => setMaxPagesPerDealer(e.target.value)}
-              disabled={running}
-            >
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="5">5</option>
-            </select>
-          </label>
         </div>
         <div className="mt-4 flex flex-col justify-end gap-2 sm:flex-row">
             <button
@@ -508,6 +536,84 @@ export function SearchExperience() {
               <li key={`${i}-${err}`}>{err}</li>
             ))}
           </ul>
+        ) : null}
+      </section>
+
+      <section className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                Result filters
+              </h2>
+              {activeResultFilterCount > 0 ? (
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                  {activeResultFilterCount} active
+                </span>
+              ) : null}
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Narrow the streamed inventory by price and miles without rerunning the search.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <label className="flex min-w-0 flex-col gap-1 text-xs">
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">Min price</span>
+              <input
+                inputMode="numeric"
+                placeholder="Any"
+                value={minPrice}
+                onChange={(e) => setMinPrice(e.target.value)}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1 text-xs">
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">Max price</span>
+              <input
+                inputMode="numeric"
+                placeholder="Any"
+                value={maxPrice}
+                onChange={(e) => setMaxPrice(e.target.value)}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1 text-xs">
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">Min miles</span>
+              <input
+                inputMode="numeric"
+                placeholder="Any"
+                value={minMileage}
+                onChange={(e) => setMinMileage(e.target.value)}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1 text-xs">
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">Max miles</span>
+              <input
+                inputMode="numeric"
+                placeholder="Any"
+                value={maxMileage}
+                onChange={(e) => setMaxMileage(e.target.value)}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+              />
+            </label>
+          </div>
+        </div>
+        {activeResultFilterCount > 0 ? (
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setMinPrice("");
+                setMaxPrice("");
+                setMinMileage("");
+                setMaxMileage("");
+              }}
+              className="text-xs font-medium text-zinc-600 underline-offset-2 hover:underline dark:text-zinc-400"
+            >
+              Clear filters
+            </button>
+          </div>
         ) : null}
       </section>
 
@@ -656,7 +762,10 @@ export function SearchExperience() {
         <section className="lg:col-span-2">
           <div className="mb-3 flex items-baseline justify-between gap-4">
             <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Inventory</h2>
-            <span className="text-sm text-zinc-500">{listings.length} vehicles</span>
+            <span className="text-sm text-zinc-500">
+              {filteredListings.length}
+              {filteredListings.length !== listings.length ? ` of ${listings.length}` : ""} vehicles
+            </span>
           </div>
           {listings.length === 0 ? (
             running ? (
@@ -695,9 +804,13 @@ export function SearchExperience() {
                 longer.
               </p>
             )
+          ) : filteredListings.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-300">
+              No vehicles match the current price and miles filters.
+            </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
-              {listings.map((v, idx) => (
+              {filteredListings.map((v, idx) => (
                 <article
                   key={`${v.dealership}-${v.vin ?? v.listing_url ?? v.raw_title ?? idx}`}
                   className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
