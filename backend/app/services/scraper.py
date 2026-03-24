@@ -57,6 +57,7 @@ async def _zenrows_fetch(url: str, timeout: httpx.Timeout) -> str:
         "apikey": settings.zenrows_api_key,
         "url": url,
         "js_render": "false",
+        "premium_proxy": "true",
     }
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         r = await client.get(api_url, params=params)

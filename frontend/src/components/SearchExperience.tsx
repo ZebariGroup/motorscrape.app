@@ -236,8 +236,16 @@ export function SearchExperience() {
                     >
                       {d.status}
                     </span>
-                    {d.fetch_method ? (
+                    {d.status === "scraping" && d.fetch_method ? (
                       <span className="text-zinc-500">via {d.fetch_method}</span>
+                    ) : null}
+                    {d.status === "parsing" ? (
+                      <span className="text-zinc-500">
+                        AI extraction…
+                        {d.fetch_method ? (
+                          <span className="text-zinc-400"> (page via {d.fetch_method})</span>
+                        ) : null}
+                      </span>
                     ) : null}
                     {d.listings_found != null ? (
                       <span className="text-zinc-500">{d.listings_found} listings</span>

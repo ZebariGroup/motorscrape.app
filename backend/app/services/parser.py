@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -54,6 +55,17 @@ def _clean_html(html: str, base_url: str) -> str:
     return str(soup)
 
 
+def _prepare_snippet_sync(html: str, base_url: str, max_chars: int) -> str:
+    """CPU-heavy: cap size before BeautifulSoup, clean, then truncate for the model."""
+    max_raw = max(max_chars * 3, 350_000)
+    if len(html) > max_raw:
+        head = max_raw // 2
+        tail = max_raw - head
+        html = html[:head] + "\n<!-- truncated middle -->\n" + html[-tail:]
+    cleaned = _clean_html(html, base_url)
+    return _truncate_html(cleaned, max_chars)
+
+
 async def extract_vehicles_from_html(
     *,
     page_url: str,
@@ -64,8 +76,9 @@ async def extract_vehicles_from_html(
     if not settings.openai_api_key:
         raise ValueError("OPENAI_API_KEY is not set")
 
-    cleaned = _clean_html(html, page_url)
-    snippet = _truncate_html(cleaned, settings.max_html_chars)
+    snippet = await asyncio.to_thread(
+        _prepare_snippet_sync, html, page_url, settings.max_html_chars
+    )
 
     user_msg = (
         f"Page URL: {page_url}\n"
@@ -76,7 +89,11 @@ async def extract_vehicles_from_html(
         f"HTML (possibly truncated):\n{snippet}"
     )
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key, max_retries=3)
+    client = AsyncOpenAI(
+        api_key=settings.openai_api_key,
+        max_retries=2,
+        timeout=settings.openai_timeout,
+    )
     response = await client.beta.chat.completions.parse(
         model="gpt-4o-2024-08-06",
         messages=[

@@ -26,6 +26,8 @@ class Settings(BaseSettings):
         ),
     )
     openai_api_key: str = ""
+    # Seconds; bounds slow/hung LLM calls so the search stream can finish
+    openai_timeout: float = 120.0
     zenrows_api_key: str = ""
     scrapingbee_api_key: str = ""
 
