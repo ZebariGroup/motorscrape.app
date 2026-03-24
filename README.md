@@ -22,19 +22,17 @@ This repo is set up for **[Vercel Services](https://vercel.com/docs/services)**:
 
    - `NEXT_PUBLIC_API_URL` — set in [`vercel.json`](vercel.json) to `/server` so the browser hits the FastAPI service; override only if you change `routePrefix` or split deployments.
 
-5. **Redeploy** after changing env vars.
+5. **Redeploy** after changing env vars (or push an empty commit) so new env values are picked up if needed.
 
-**CLI (Git + Vercel)**
+### Recommended: GitHub → Vercel (no CLI deploy)
+
+Once the Vercel project is **connected to this GitHub repo** ([Project → Settings → Git](https://vercel.com/docs/git)), **every `git push` triggers a deployment**. That is the workflow you want for version control: commit on a branch, push to GitHub, let Vercel build **Production** (usually from `main`) and **Preview** (other branches / PRs).
 
 ```bash
-git remote add origin https://github.com/ZebariGroup/motorscrape.app.git   # once
-git push -u origin main
-
-vercel link --yes --scope <your-team-slug>    # once, from repo root
-vercel deploy --prod --yes --scope <your-team-slug>
+git add -A && git commit -m "Your message" && git push origin main
 ```
 
-With [deployment protection](https://vercel.com/docs/deployment-protection), smoke-test the API using the logged-in CLI:
+Avoid routine **`vercel deploy`** from your laptop; it uploads a local tree and can diverge from what’s on GitHub. Use the CLI only for one-off tasks (e.g. `vercel link`, `vercel env add`, or `vercel curl` to test [deployment protection](https://vercel.com/docs/deployment-protection)):
 
 ```bash
 vercel curl /server/health --scope <your-team-slug> --yes
