@@ -19,6 +19,7 @@ export type DealershipProgress = {
   address?: string;
   status: "scraping" | "parsing" | "done" | "error";
   error?: string;
+  info?: string;
   fetch_method?: string;
   listings_found?: number;
 };

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Any
 from urllib.parse import urljoin
@@ -16,13 +15,20 @@ from app.schemas import ExtractionResult, VehicleListing
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are an expert at extracting vehicle inventory from messy dealership webpage HTML.
-Rules:
-- Extract EVERY SINGLE vehicle you can find on the page. Do not stop early.
-- Extract only real vehicles for sale (cars, trucks, SUVs). Skip service specials, parts, disclaimers, navigation.
-- Prefer listing-specific URLs and images when present in the snippet.
+SYSTEM_PROMPT = """You extract vehicle inventory from dealership webpage HTML.
+
+Filtering (highest priority):
+- The user message includes optional make and model filters.
+- If a model filter is non-empty: return ONLY vehicles of that model. Match common variants
+  (e.g. F-150, F150, F 150 are the same model). Do NOT return other models from the same make.
+- If a make filter is non-empty but model is empty: return vehicles of that make only.
+- If both filters are empty: extract all real vehicles for sale on the page.
+
+Extraction rules:
+- Only real vehicles for sale (cars, trucks, SUVs). Skip service specials, parts, disclaimers, nav.
+- Prefer listing-specific URLs and images when present.
 - Do not invent VINs, prices, or stock numbers; use null if not clearly present.
-- If there is a clear "Next Page" or "->" pagination link, extract its absolute URL into `next_page_url`.
+- If there is a clear next-page link for inventory, set `next_page_url` to its absolute URL.
 """
 
 
@@ -82,8 +88,7 @@ async def extract_vehicles_from_html(
 
     user_msg = (
         f"Page URL: {page_url}\n"
-        f"User filters (include only vehicles that plausibly match both when non-empty; "
-        f"if filter is empty, do not filter on that dimension):\n"
+        f"User filters (strict — empty means no filter on that field):\n"
         f"  make: {make_filter or '(any)'}\n"
         f"  model: {model_filter or '(any)'}\n\n"
         f"HTML (possibly truncated):\n{snippet}"

@@ -251,6 +251,9 @@ export function SearchExperience() {
                       <span className="text-zinc-500">{d.listings_found} listings</span>
                     ) : null}
                   </div>
+                  {d.info ? (
+                    <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{d.info}</p>
+                  ) : null}
                   {d.error ? <p className="mt-2 text-xs text-red-600">{d.error}</p> : null}
                   {d.website ? (
                     <a

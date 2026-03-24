@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import urljoin
@@ -12,12 +13,54 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 from app.config import settings
-from app.schemas import DealershipFound
+from app.schemas import DealershipFound, VehicleListing
 from app.services.parser import extract_vehicles_from_html
 from app.services.places import find_car_dealerships
 from app.services.scraper import fetch_page_html
 
 logger = logging.getLogger(__name__)
+
+
+def _model_filter_variants(model: str) -> list[str]:
+    """Substrings to match user model input in HTML or listing text (F-150 / F150 / F 150)."""
+    raw = model.strip().lower()
+    if not raw:
+        return []
+    variants: set[str] = {raw}
+    alnum = re.sub(r"[^a-z0-9]", "", raw)
+    if alnum:
+        variants.add(alnum)
+    m = re.match(r"^([a-z]+)(\d[\w]*)$", alnum)
+    if m:
+        prefix, rest = m.group(1), m.group(2)
+        variants.add(f"{prefix}-{rest}")
+        variants.add(f"{prefix} {rest}")
+    return sorted(variants, key=len, reverse=True)
+
+
+def _html_mentions_model(html: str, model: str) -> bool:
+    if not model.strip():
+        return True
+    hay = html.lower()
+    return any(v in hay for v in _model_filter_variants(model))
+
+
+def _listing_matches_filters(v: VehicleListing, make_f: str, model_f: str) -> bool:
+    make_f = make_f.strip().lower()
+    model_f = model_f.strip()
+    if not make_f and not model_f:
+        return True
+    blob = " ".join(
+        filter(None, [v.make or "", v.model or "", v.trim or "", v.raw_title or ""])
+    ).lower()
+    if make_f and make_f not in blob:
+        return False
+    if model_f:
+        vars_ = _model_filter_variants(model_f)
+        if vars_ and not any(x in blob for x in vars_):
+            return False
+    return True
+
 
 def _find_inventory_url(html: str, base_url: str) -> str:
     """Heuristic to find the best 'inventory' link on a dealership homepage."""
@@ -153,6 +196,7 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
             pages_scraped = 0
             max_pages = max(1, settings.max_pages_per_dealer)
             total_vehicles = 0
+            skip_info: str | None = None
 
             while current_url and pages_scraped < max_pages:
                 if pages_scraped > 0:
@@ -179,6 +223,17 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                     except Exception as e:
                         logger.warning("Pagination scrape failed for %s: %s", current_url, e)
                         break
+
+                if model.strip() and not _html_mentions_model(html, model):
+                    logger.info(
+                        "Skipping LLM for %s: no model mention (%r) in HTML",
+                        current_url,
+                        model.strip(),
+                    )
+                    skip_info = (
+                        f'No "{model.strip()}" found on this page; skipped AI extraction.'
+                    )
+                    break
 
                 chunks.append(
                     _sse_pack(
@@ -240,7 +295,10 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                         )
                     break
 
-                vdicts = [v.model_dump(exclude_none=True) for v in ext_result.vehicles]
+                filtered = [
+                    v for v in ext_result.vehicles if _listing_matches_filters(v, make, model)
+                ]
+                vdicts = [v.model_dump(exclude_none=True) for v in filtered]
                 if vdicts:
                     total_vehicles += len(vdicts)
                     chunks.append(
@@ -261,19 +319,17 @@ async def stream_search(location: str, make: str, model: str) -> AsyncIterator[s
                 if not vdicts:
                     break  # Stop pagination if no vehicles found
 
-            chunks.append(
-                _sse_pack(
-                    "dealership",
-                    {
-                        "index": index,
-                        "total": len(dealers),
-                        "name": d.name,
-                        "website": website,
-                        "status": "done",
-                        "listings_found": total_vehicles,
-                    },
-                )
-            )
+            done_payload: dict[str, Any] = {
+                "index": index,
+                "total": len(dealers),
+                "name": d.name,
+                "website": website,
+                "status": "done",
+                "listings_found": total_vehicles,
+            }
+            if skip_info:
+                done_payload["info"] = skip_info
+            chunks.append(_sse_pack("dealership", done_payload))
         return chunks
 
     async def process_one_with_timeout(index: int, d: DealershipFound) -> list[str]:

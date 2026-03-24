@@ -43,8 +43,8 @@ class Settings(BaseSettings):
     dealership_timeout: float = 150.0
     # Max pages to follow per dealership inventory.
     max_pages_per_dealer: int = 2
-    # Max HTML chars sent to the LLM per page.
-    max_html_chars: int = 100_000
+    # Max HTML chars sent to the LLM per page (smaller = cheaper/faster).
+    max_html_chars: int = 60_000
     # HTTP timeout for each scraper call (seconds).
     scrape_timeout: float = 20.0
 
