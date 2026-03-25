@@ -49,6 +49,8 @@ class VehicleListing(BaseModel):
     make: str | None = Field(default=None, description="Make of the vehicle, e.g. Toyota.")
     model: str | None = Field(default=None, description="Model of the vehicle, e.g. Camry.")
     trim: str | None = Field(default=None, description="Trim level of the vehicle.")
+    body_style: str | None = Field(default=None, description="Body style such as SUV, Sedan, or Truck.")
+    exterior_color: str | None = Field(default=None, description="Exterior color of the vehicle when available.")
     price: float | None = Field(default=None, description="Price in USD as a number, no symbols.")
     mileage: int | None = Field(default=None, description="Mileage as an integer, no commas.")
     vehicle_condition: Literal["new", "used"] | None = Field(

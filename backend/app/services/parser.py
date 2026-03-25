@@ -38,7 +38,7 @@ Extraction rules:
 - Data may be provided as structured JSON extracted from the page. Parse it the same way.
 """
 
-_INVENTORY_KEYS = {"make", "model", "vin", "stockno", "stock_no", "bodystyle", "bodytype"}
+_INVENTORY_KEYS = {"make", "model", "vin", "stock", "stockno", "stock_no", "bodystyle", "bodytype"}
 
 _VEHICLE_KEEP_KEYS = {
     "make", "model", "trim", "year", "miles", "mileage", "price",
@@ -74,6 +74,10 @@ _HYUNDAI_SEARCH_TITLE_RE = re.compile(
     r"^(?P<year>20\d{2}|19\d{2})\s+(?P<make>[A-Za-z]+)\s+(?P<model>[A-Z0-9-]+)\s+(?P<trim>.+?)\s+Save:",
     re.I,
 )
+_SPACE_VEHICLES_JSON_RE = re.compile(
+    r"space_vehicles_json\s*=\s*JSON\.parse\(\s*\"(?P<body>(?:\\.|[^\"])*)\"\s*\)",
+    re.S,
+)
 
 
 def _truncate(text: str, max_chars: int) -> str:
@@ -103,6 +107,13 @@ def _extract_json_inventory(html: str, soup: BeautifulSoup) -> list[dict]:
         try:
             blob = json.loads(raw, strict=False)
         except (json.JSONDecodeError, ValueError):
+            for match in _SPACE_VEHICLES_JSON_RE.finditer(raw):
+                try:
+                    decoded = json.loads(f"\"{match.group('body')}\"")
+                    blob = json.loads(decoded, strict=False)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                _collect_vehicle_arrays(blob, json_records)
             continue
 
         _collect_vehicle_arrays(blob, json_records)
@@ -558,8 +569,14 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         make = make.get("name")
     if isinstance(model, dict):
         model = model.get("name")
-    make_s = str(make).strip() if make else None
-    model_s = str(model).strip() if model else None
+    title_hint = d.get("title") or d.get("name") or d.get("vehicleTitle")
+    if isinstance(title_hint, list):
+        raw_title = " ".join(str(x).strip() for x in title_hint if str(x).strip()) or None
+    else:
+        raw_title = str(title_hint).strip() if title_hint else None
+    title_fields = _parse_title_fields(raw_title)
+    make_s = str(make).strip() if make else (str(title_fields.get("make")).strip() if title_fields.get("make") else None)
+    model_s = str(model).strip() if model else (str(title_fields.get("model")).strip() if title_fields.get("model") else None)
     vin_s = str(vin).strip() if vin else None
     if not make_s and not model_s and not vin_s:
         return None
@@ -601,6 +618,24 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         trim = trim.get("name")
     trim_s = str(trim).strip() if trim else None
     inventory_location = _pick_inventory_location(d)
+    body_style = (
+        d.get("bodyStyle")
+        or d.get("bodytype")
+        or d.get("bodyType")
+        or d.get("bodystyle")
+    )
+    if isinstance(body_style, dict):
+        body_style = body_style.get("name")
+    body_style_s = str(body_style).strip() if body_style else None
+    exterior_color = (
+        d.get("colorExterior")
+        or d.get("exteriorColor")
+        or d.get("ext_color")
+        or d.get("color")
+    )
+    if isinstance(exterior_color, dict):
+        exterior_color = exterior_color.get("name")
+    exterior_color_s = str(exterior_color).strip() if exterior_color else None
     is_offsite = _coerce_bool(d.get("offSite") or d.get("offsite"))
     is_shared_inventory = _coerce_bool(d.get("sharedVehicle") or d.get("shared_inventory"))
     is_in_transit = _coerce_bool(d.get("inTransit") or d.get("in_transit"))
@@ -609,11 +644,6 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
     if status_text:
         status_text = str(status_text).replace("_", " ").strip().title()
 
-    title_hint = d.get("title") or d.get("name") or d.get("vehicleTitle")
-    if isinstance(title_hint, list):
-        raw_title = " ".join(str(x).strip() for x in title_hint if str(x).strip()) or None
-    else:
-        raw_title = str(title_hint).strip() if title_hint else None
     if not raw_title:
         title_parts = [str(x) for x in [_pick_year(d), make_s, model_s, trim_s] if x]
         raw_title = " ".join(title_parts) if title_parts else None
@@ -625,10 +655,12 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
     )
 
     return VehicleListing(
-        year=_pick_year(d),
+        year=_pick_year(d) or _coerce_int(title_fields.get("year")),
         make=make_s,
         model=model_s,
-        trim=trim_s,
+        trim=trim_s or (str(title_fields.get("trim")).strip() if title_fields.get("trim") else None),
+        body_style=body_style_s,
+        exterior_color=exterior_color_s,
         price=_pick_price_from_dict(d),
         mileage=_coerce_int(miles),
         vehicle_condition=vehicle_condition,

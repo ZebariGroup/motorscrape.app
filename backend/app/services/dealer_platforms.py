@@ -268,10 +268,17 @@ def _list_item_name_to_vehicle_fields(name: str) -> dict[str, Any]:
 
 
 def _schema_list_item_to_vehicle_dict(item: dict[str, Any]) -> dict[str, Any] | None:
-    name = item.get("name")
-    identifier = item.get("identifier")
-    url = item.get("url")
-    image = item.get("image")
+    nested = item.get("item") if isinstance(item.get("item"), dict) else {}
+    name = item.get("name") or nested.get("name")
+    identifier = (
+        item.get("identifier")
+        or nested.get("identifier")
+        or nested.get("sku")
+        or nested.get("vehicleIdentificationNumber")
+    )
+    url = item.get("url") or nested.get("url")
+    image = item.get("image") or nested.get("image")
+    offers = nested.get("offers") if isinstance(nested.get("offers"), dict) else {}
     if not any([name, identifier, url, image]):
         return None
     out = _list_item_name_to_vehicle_fields(str(name or ""))
@@ -279,8 +286,20 @@ def _schema_list_item_to_vehicle_dict(item: dict[str, Any]) -> dict[str, Any] | 
         out["vin"] = str(identifier)
     if url:
         out["vdpUrl"] = str(url)
+    elif offers.get("url"):
+        out["vdpUrl"] = str(offers["url"])
     if image:
         out["image_url"] = str(image)
+    if offers.get("price") not in (None, ""):
+        out["price"] = offers.get("price")
+    if nested.get("brand"):
+        out["make"] = nested.get("brand")
+    if nested.get("vehicleModelDate"):
+        out["year"] = nested.get("vehicleModelDate")
+    if nested.get("model") and "model" not in out:
+        out["model"] = nested.get("model")
+    if nested.get("vehicleConfiguration"):
+        out["trim"] = nested.get("vehicleConfiguration")
     return out if out else None
 
 

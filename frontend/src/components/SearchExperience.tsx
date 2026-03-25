@@ -56,6 +56,9 @@ export function SearchExperience() {
   const [priceFilterMax, setPriceFilterMax] = useState<number | null>(null);
   const [mileageFilterMin, setMileageFilterMin] = useState<number | null>(null);
   const [mileageFilterMax, setMileageFilterMax] = useState<number | null>(null);
+  const [yearFilter, setYearFilter] = useState("");
+  const [bodyStyleFilter, setBodyStyleFilter] = useState("");
+  const [colorFilter, setColorFilter] = useState("");
   const [filtersExpanded, setFiltersExpanded] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
@@ -132,6 +135,38 @@ export function SearchExperience() {
     };
   }, [listings]);
 
+  const yearOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(listings.map((listing) => listing.year).filter((year): year is number => year != null)),
+      ).sort((a, b) => b - a),
+    [listings],
+  );
+
+  const bodyStyleOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          listings
+            .map((listing) => listing.body_style?.trim())
+            .filter((bodyStyle): bodyStyle is string => Boolean(bodyStyle)),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [listings],
+  );
+
+  const colorOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          listings
+            .map((listing) => listing.exterior_color?.trim())
+            .filter((color): color is string => Boolean(color)),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [listings],
+  );
+
   const effectivePriceMin = useMemo(() => {
     if (!priceBounds) return null;
     return clampNumber(
@@ -170,6 +205,15 @@ export function SearchExperience() {
 
   const filteredListings = useMemo(() => {
     return listings.filter((listing) => {
+      if (yearFilter && String(listing.year ?? "") !== yearFilter) {
+        return false;
+      }
+      if (bodyStyleFilter && listing.body_style !== bodyStyleFilter) {
+        return false;
+      }
+      if (colorFilter && listing.exterior_color !== colorFilter) {
+        return false;
+      }
       if (effectivePriceMin != null && (listing.price == null || listing.price < effectivePriceMin)) {
         return false;
       }
@@ -210,14 +254,26 @@ export function SearchExperience() {
     ) {
       count += 1;
     }
+    if (yearFilter) {
+      count += 1;
+    }
+    if (bodyStyleFilter) {
+      count += 1;
+    }
+    if (colorFilter) {
+      count += 1;
+    }
     return count;
   }, [
+    bodyStyleFilter,
+    colorFilter,
     effectiveMileageMax,
     effectiveMileageMin,
     effectivePriceMax,
     effectivePriceMin,
     mileageBounds,
     priceBounds,
+    yearFilter,
   ]);
 
   useEffect(() => {
@@ -581,6 +637,53 @@ export function SearchExperience() {
             {filtersExpanded ? (
               <div className="border-t border-zinc-200 px-4 py-4 dark:border-zinc-800">
                 <div className="space-y-5">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <label className="flex flex-col gap-1 text-xs">
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">Year</span>
+                      <select
+                        value={yearFilter}
+                        onChange={(e) => setYearFilter(e.target.value)}
+                        className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                      >
+                        <option value="">All years</option>
+                        {yearOptions.map((year) => (
+                          <option key={year} value={String(year)}>
+                            {year}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs">
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">Style</span>
+                      <select
+                        value={bodyStyleFilter}
+                        onChange={(e) => setBodyStyleFilter(e.target.value)}
+                        className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                      >
+                        <option value="">All styles</option>
+                        {bodyStyleOptions.map((bodyStyle) => (
+                          <option key={bodyStyle} value={bodyStyle}>
+                            {bodyStyle}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs">
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">Color</span>
+                      <select
+                        value={colorFilter}
+                        onChange={(e) => setColorFilter(e.target.value)}
+                        className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                      >
+                        <option value="">All colors</option>
+                        {colorOptions.map((color) => (
+                          <option key={color} value={color}>
+                            {color}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-medium text-zinc-700 dark:text-zinc-300">Price</span>
@@ -697,6 +800,9 @@ export function SearchExperience() {
                         setPriceFilterMax(null);
                         setMileageFilterMin(null);
                         setMileageFilterMax(null);
+                        setYearFilter("");
+                        setBodyStyleFilter("");
+                        setColorFilter("");
                       }}
                       className="text-xs font-medium text-zinc-600 underline-offset-2 hover:underline dark:text-zinc-400"
                     >
@@ -894,7 +1000,7 @@ export function SearchExperience() {
             )
           ) : filteredListings.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-300">
-              No vehicles match the current price and miles filters.
+              No vehicles match the current result filters.
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">

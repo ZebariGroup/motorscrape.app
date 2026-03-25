@@ -124,12 +124,52 @@ def _family_inventory_path_score(url: str, condition: str) -> int:
     if condition == "new":
         if path.endswith("/inventory/new"):
             return 90
+        if "/inventory/new/" in path:
+            return -40
         if "/inventory/new-" in path:
             return -40
     if condition == "used":
         if path.endswith("/inventory/used"):
             return 90
+        if "/inventory/used/" in path:
+            return -40
         if "/inventory/used-" in path:
+            return -40
+    return 0
+
+
+def _team_velocity_inventory_path_score(url: str, condition: str) -> int:
+    path = urlsplit(url).path.lower().rstrip("/")
+    if condition == "new":
+        if path.endswith("/inventory/new"):
+            return 90
+        if "/inventory/new/" in path:
+            return -40
+    if condition == "used":
+        if path.endswith("/inventory/used"):
+            return 90
+        if "/inventory/used/" in path:
+            return -40
+    return 0
+
+
+def _hyundai_inventory_path_score(url: str, condition: str) -> int:
+    parts = urlsplit(url)
+    path = parts.path.lower().rstrip("/")
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    if condition == "new":
+        if path == "/cars/new":
+            return 100
+        if path == "/cars" and query.get("condition", "").lower() == "new" and "make" not in query:
+            return 90
+        if query.get("condition", "").lower() == "new" and query.get("make"):
+            return -40
+    if condition == "used":
+        if path == "/cars/used":
+            return 100
+        if path == "/cars" and query.get("condition", "").lower() == "used" and "make" not in query:
+            return 90
+        if query.get("condition", "").lower() == "used" and query.get("make"):
             return -40
     return 0
 
@@ -318,6 +358,10 @@ def resolve_inventory_url_for_provider(
             score += _dealer_inspire_path_score(href, condition)
         if route and route.platform_id == "honda_acura_inventory" and not model_norm:
             score += _family_inventory_path_score(href, condition)
+        if route and route.platform_id == "team_velocity" and not model_norm:
+            score += _team_velocity_inventory_path_score(href, condition)
+        if route and route.platform_id == "hyundai_inventory_search" and not model_norm:
+            score += _hyundai_inventory_path_score(href, condition)
         if condition == "new":
             if "new-inventory" in href_lower:
                 score += 40
@@ -359,6 +403,13 @@ def resolve_inventory_url_for_provider(
         if score > best_score and score > 0:
             best_score = score
             best_url = urljoin(base_url, href)
+
+    if route and not model_norm and route.platform_id in {"nissan_infiniti_inventory", "hyundai_inventory_search"}:
+        generic_base = _normalize_inventory_candidate_url(
+            (route.inventory_url_hint if route else None) or fallback_url
+        )
+        if generic_base:
+            best_url = generic_base
 
     if model_norm and route:
         generic_base = _normalize_inventory_candidate_url(

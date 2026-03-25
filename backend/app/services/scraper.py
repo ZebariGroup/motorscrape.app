@@ -25,6 +25,7 @@ _EXTRA_API_RES = (
     re.compile(r'"inventoryApiUrl"\s*:\s*"(?P<url>[^"]+)"', re.I),
     re.compile(r'"inventory_url"\s*:\s*"(?P<url>[^"]+)"', re.I),
     re.compile(r'"inventoryEndpoint"\s*:\s*"(?P<url>[^"]+)"', re.I),
+    re.compile(r"vehicle_data_url\s*=\s*['\"](?P<url>[^'\"]+)['\"]", re.I),
 )
 _WS_INV_FETCH_RE = re.compile(
     r'fetch\("(?P<url>/api/widget/ws-inv-data/getInventory)".*?body:decodeURI\("(?P<body>.*?)"\)',
@@ -97,41 +98,53 @@ async def fetch_page_html(
         if metrics is not None:
             metrics[key] = metrics.get(key, 0) + 1
 
+    def _retry_waits(base_wait_ms: int) -> tuple[int, ...]:
+        waits = [max(0, base_wait_ms)]
+        if page_kind == "inventory":
+            waits.append(max(base_wait_ms * 2, base_wait_ms + 3000, 6000))
+        out: list[int] = []
+        for wait in waits:
+            if wait not in out:
+                out.append(wait)
+        return tuple(out)
+
     if prefer_render and page_kind == "inventory":
         if settings.zenrows_api_key:
-            try:
-                html = await _zenrows_fetch(
-                    url,
-                    timeout,
-                    js_render=True,
-                    wait_ms=settings.zenrows_wait_ms,
-                )
-                html = await _maybe_append_inventory_api_data(url, html, timeout)
-                if _direct_html_sufficient(html, page_kind=page_kind):
-                    _m("zenrows_rendered_ok")
-                    return html, "zenrows_rendered"
-                _m("zenrows_rendered_insufficient")
-            except Exception as e:
-                sanitized = str(e).replace(settings.zenrows_api_key, "***")
-                logger.warning("ZenRows preferred rendered fetch failed for %s: %s", url, sanitized)
-                failures.append(f"zenrows_rendered_preferred: {sanitized}")
+            for wait_ms in _retry_waits(settings.zenrows_wait_ms):
+                try:
+                    html = await _zenrows_fetch(
+                        url,
+                        timeout,
+                        js_render=True,
+                        wait_ms=wait_ms,
+                    )
+                    html = await _maybe_append_inventory_api_data(url, html, timeout)
+                    if _direct_html_sufficient(html, page_kind=page_kind):
+                        _m("zenrows_rendered_ok")
+                        return html, "zenrows_rendered"
+                    _m("zenrows_rendered_insufficient")
+                except Exception as e:
+                    sanitized = str(e).replace(settings.zenrows_api_key, "***")
+                    logger.warning("ZenRows preferred rendered fetch failed for %s: %s", url, sanitized)
+                    failures.append(f"zenrows_rendered_preferred: {sanitized}")
 
         if settings.scrapingbee_api_key:
-            try:
-                html = await _scrapingbee_fetch(
-                    url,
-                    timeout,
-                    render_js=True,
-                    wait_ms=settings.scrapingbee_wait_ms,
-                )
-                html = await _maybe_append_inventory_api_data(url, html, timeout)
-                if _direct_html_sufficient(html, page_kind=page_kind):
-                    _m("scrapingbee_rendered_ok")
-                    return html, "scrapingbee_rendered"
-                _m("scrapingbee_rendered_insufficient")
-            except Exception as e:
-                logger.warning("ScrapingBee preferred rendered fetch failed for %s: %s", url, e)
-                failures.append(f"scrapingbee_rendered_preferred: {e}")
+            for wait_ms in _retry_waits(settings.scrapingbee_wait_ms):
+                try:
+                    html = await _scrapingbee_fetch(
+                        url,
+                        timeout,
+                        render_js=True,
+                        wait_ms=wait_ms,
+                    )
+                    html = await _maybe_append_inventory_api_data(url, html, timeout)
+                    if _direct_html_sufficient(html, page_kind=page_kind):
+                        _m("scrapingbee_rendered_ok")
+                        return html, "scrapingbee_rendered"
+                    _m("scrapingbee_rendered_insufficient")
+                except Exception as e:
+                    logger.warning("ScrapingBee preferred rendered fetch failed for %s: %s", url, e)
+                    failures.append(f"scrapingbee_rendered_preferred: {e}")
 
     # 1) Direct first (cheapest)
     try:
@@ -160,20 +173,23 @@ async def fetch_page_html(
             logger.warning("ZenRows static fetch failed for %s: %s", url, sanitized)
             failures.append(f"zenrows_static: {sanitized}")
 
-        try:
-            html = await _zenrows_fetch(
-                url,
-                timeout,
-                js_render=True,
-                wait_ms=settings.zenrows_wait_ms,
-            )
-            html = await _maybe_append_inventory_api_data(url, html, timeout)
-            _m("zenrows_rendered_ok")
-            return html, "zenrows_rendered"
-        except Exception as e:
-            sanitized = str(e).replace(settings.zenrows_api_key, "***")
-            logger.warning("ZenRows rendered fetch failed for %s: %s", url, sanitized)
-            failures.append(f"zenrows_rendered: {sanitized}")
+        for wait_ms in _retry_waits(settings.zenrows_wait_ms):
+            try:
+                html = await _zenrows_fetch(
+                    url,
+                    timeout,
+                    js_render=True,
+                    wait_ms=wait_ms,
+                )
+                html = await _maybe_append_inventory_api_data(url, html, timeout)
+                if _direct_html_sufficient(html, page_kind=page_kind):
+                    _m("zenrows_rendered_ok")
+                    return html, "zenrows_rendered"
+                _m("zenrows_rendered_insufficient")
+            except Exception as e:
+                sanitized = str(e).replace(settings.zenrows_api_key, "***")
+                logger.warning("ZenRows rendered fetch failed for %s: %s", url, sanitized)
+                failures.append(f"zenrows_rendered: {sanitized}")
 
     # 3) ScrapingBee: static then rendered
     if settings.scrapingbee_api_key:
@@ -187,19 +203,22 @@ async def fetch_page_html(
             logger.warning("ScrapingBee static fetch failed for %s: %s", url, e)
             failures.append(f"scrapingbee_static: {e}")
 
-        try:
-            html = await _scrapingbee_fetch(
-                url,
-                timeout,
-                render_js=True,
-                wait_ms=settings.scrapingbee_wait_ms,
-            )
-            html = await _maybe_append_inventory_api_data(url, html, timeout)
-            _m("scrapingbee_rendered_ok")
-            return html, "scrapingbee_rendered"
-        except Exception as e:
-            logger.warning("ScrapingBee rendered fetch failed for %s: %s", url, e)
-            failures.append(f"scrapingbee_rendered: {e}")
+        for wait_ms in _retry_waits(settings.scrapingbee_wait_ms):
+            try:
+                html = await _scrapingbee_fetch(
+                    url,
+                    timeout,
+                    render_js=True,
+                    wait_ms=wait_ms,
+                )
+                html = await _maybe_append_inventory_api_data(url, html, timeout)
+                if _direct_html_sufficient(html, page_kind=page_kind):
+                    _m("scrapingbee_rendered_ok")
+                    return html, "scrapingbee_rendered"
+                _m("scrapingbee_rendered_insufficient")
+            except Exception as e:
+                logger.warning("ScrapingBee rendered fetch failed for %s: %s", url, e)
+                failures.append(f"scrapingbee_rendered: {e}")
 
     # 4) If we had a direct body that was "insufficient", return it rather than failing completely
     try:

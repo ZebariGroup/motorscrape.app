@@ -8,7 +8,7 @@ import logging
 from collections.abc import AsyncIterator
 from collections import defaultdict
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -131,6 +131,92 @@ def _find_inventory_url(
     except Exception as e:
         logger.warning("Failed to parse inventory URL: %s", e)
         return base_url
+
+
+def _dealer_inspire_model_inventory_urls(
+    html: str,
+    base_url: str,
+    *,
+    vehicle_condition: str,
+) -> list[str]:
+    if (vehicle_condition or "").strip().lower() != "new":
+        return []
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for a in soup.find_all("a", href=True):
+        abs_url = urljoin(base_url, str(a["href"]))
+        path = urlsplit(abs_url).path.rstrip("/").lower()
+        if not path.startswith("/new-vehicles/"):
+            continue
+        if path in {"/new-vehicles", "/new-vehicles/new-vehicle-specials"}:
+            continue
+        if path.count("/") != 2:
+            continue
+        if abs_url in seen:
+            continue
+        seen.add(abs_url)
+        out.append(abs_url)
+    return out
+
+
+def _team_velocity_model_inventory_urls(
+    html: str,
+    base_url: str,
+    *,
+    vehicle_condition: str,
+) -> list[str]:
+    condition = (vehicle_condition or "").strip().lower()
+    if condition not in {"new", "used"}:
+        return []
+    target_root = f"/inventory/{condition}"
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return []
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for a in soup.find_all("a", href=True):
+        abs_url = urljoin(base_url, str(a["href"]))
+        path = urlsplit(abs_url).path.rstrip("/").lower()
+        if not path.startswith(target_root + "/"):
+            continue
+        if abs_url in seen:
+            continue
+        seen.add(abs_url)
+        out.append(abs_url)
+    return out
+
+
+def _listing_emit_key(v: Any) -> str:
+    return "|".join(
+        [
+            str(getattr(v, "vin", "") or "").strip().lower(),
+            str(getattr(v, "listing_url", "") or "").strip().lower(),
+            str(getattr(v, "raw_title", "") or "").strip().lower(),
+        ]
+    )
+
+
+def _looks_like_model_index_batch(vdicts: list[dict[str, Any]], current_url: str) -> bool:
+    path = urlsplit(current_url).path.rstrip("/").lower()
+    if path != "/new-vehicles" or not vdicts:
+        return False
+    strong = False
+    for row in vdicts:
+        listing_url = str(row.get("listing_url") or "").strip().lower()
+        if row.get("vin") or row.get("price") not in (None, ""):
+            strong = True
+            break
+        if "/inventory/" in listing_url or "/vehicle/" in listing_url or "/detail/" in listing_url:
+            strong = True
+            break
+    return not strong
 
 
 def _sse_pack(event_type: str, data: dict[str, Any]) -> str:
@@ -405,16 +491,58 @@ async def stream_search(
             current_url = inv_url
             pages_scraped = 0
             max_pages = (
-                max(requested_pages, 4)
+                max(
+                    requested_pages,
+                    8
+                    if route
+                    and route.platform_id in {"dealer_inspire", "team_velocity", "nissan_infiniti_inventory"}
+                    and not model.strip()
+                    and vehicle_condition == "new"
+                    else 4,
+                )
                 if route and route.platform_id in {
                     "nissan_infiniti_inventory",
                     "honda_acura_inventory",
                     "kia_inventory",
+                    "dealer_inspire",
+                    "team_velocity",
                 }
                 else requested_pages
             )
             total_vehicles = 0
             skip_info: str | None = None
+            queued_urls: set[str] = {current_url} if current_url else set()
+            pending_urls: list[str] = []
+            emitted_listing_keys: set[str] = set()
+            dealer_inspire_fallback_urls = (
+                _dealer_inspire_model_inventory_urls(
+                    current_html,
+                    current_url or website,
+                    vehicle_condition=vehicle_condition,
+                )
+                if route
+                and route.platform_id == "dealer_inspire"
+                and not model.strip()
+                and vehicle_condition == "new"
+                and current_url
+                and urlsplit(current_url).path.rstrip("/").lower() == "/new-vehicles"
+                else []
+            )
+            team_velocity_fallback_urls = (
+                _team_velocity_model_inventory_urls(
+                    current_html,
+                    current_url or website,
+                    vehicle_condition=vehicle_condition,
+                )
+                if route
+                and route.platform_id in {"team_velocity", "nissan_infiniti_inventory"}
+                and not model.strip()
+                and vehicle_condition in {"new", "used"}
+                and current_url
+                and urlsplit(current_url).path.rstrip("/").lower()
+                == f"/inventory/{vehicle_condition}"
+                else []
+            )
 
             while current_url and pages_scraped < max_pages:
                 if pages_scraped > 0:
@@ -571,7 +699,26 @@ async def stream_search(
                     and listing_matches_vehicle_condition(v, vehicle_condition)
                     and listing_matches_inventory_scope(v, inventory_scope)
                 ]
-                vdicts = [v.model_dump(exclude_none=True) for v in filtered]
+                deduped_filtered = []
+                for v in filtered:
+                    key = _listing_emit_key(v)
+                    if key in emitted_listing_keys:
+                        continue
+                    emitted_listing_keys.add(key)
+                    deduped_filtered.append(v)
+                vdicts = [v.model_dump(exclude_none=True) for v in deduped_filtered]
+                if (
+                    route
+                    and route.platform_id == "dealer_inspire"
+                    and not model.strip()
+                    and vehicle_condition == "new"
+                    and _looks_like_model_index_batch(vdicts, current_url)
+                ):
+                    for extra_url in dealer_inspire_fallback_urls:
+                        if extra_url not in queued_urls:
+                            queued_urls.add(extra_url)
+                            pending_urls.append(extra_url)
+                    vdicts = []
                 if vdicts:
                     if domain and pages_scraped == 0:
                         inv_url_cache[domain] = current_url
@@ -596,10 +743,40 @@ async def stream_search(
                         )
                     )
 
-                current_url = ext_result.next_page_url
+                next_url = ext_result.next_page_url
+                if (
+                    route
+                    and route.platform_id == "dealer_inspire"
+                    and not model.strip()
+                    and vehicle_condition == "new"
+                    and "?_p=" in current_url
+                    and not vdicts
+                ):
+                    for extra_url in dealer_inspire_fallback_urls:
+                        if extra_url not in queued_urls:
+                            queued_urls.add(extra_url)
+                            pending_urls.append(extra_url)
+                if (
+                    route
+                    and route.platform_id in {"team_velocity", "nissan_infiniti_inventory"}
+                    and not model.strip()
+                    and current_url
+                    and urlsplit(current_url).path.rstrip("/").lower()
+                    == f"/inventory/{vehicle_condition}"
+                ):
+                    for extra_url in team_velocity_fallback_urls:
+                        if extra_url not in queued_urls:
+                            queued_urls.add(extra_url)
+                            pending_urls.append(extra_url)
+                    next_url = None
+                if next_url and next_url not in queued_urls:
+                    queued_urls.add(next_url)
+                    pending_urls.append(next_url)
+
+                current_url = pending_urls.pop(0) if pending_urls else None
                 pages_scraped += 1
 
-                if not vdicts:
+                if not vdicts and current_url is None:
                     break  # Stop pagination if no vehicles found
 
             done_payload: dict[str, Any] = {

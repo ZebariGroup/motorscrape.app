@@ -3,6 +3,8 @@ export type VehicleListing = {
   make?: string;
   model?: string;
   trim?: string;
+  body_style?: string;
+  exterior_color?: string;
   price?: number;
   mileage?: number;
   vehicle_condition?: "new" | "used";
