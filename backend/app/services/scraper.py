@@ -165,25 +165,64 @@ async def fetch_page_html(
                 out.append(wait)
         return tuple(out)
 
+    async def _try_zenrows(
+        *,
+        js_render: bool,
+        wait_ms: int = 0,
+        metric_prefix: str,
+        failure_label: str,
+    ) -> str | None:
+        try:
+            html = await _zenrows_fetch(
+                url,
+                timeout,
+                js_render=js_render,
+                wait_ms=wait_ms,
+            )
+            html = await _maybe_append_inventory_api_data(url, html, timeout)
+            if _direct_html_sufficient(html, page_kind=page_kind):
+                _m(f"{metric_prefix}_ok")
+                return html
+            _m(f"{metric_prefix}_insufficient")
+        except Exception as e:
+            sanitized = str(e).replace(settings.zenrows_api_key, "***")
+            logger.warning("ZenRows %s failed for %s: %s", failure_label, url, sanitized)
+            failures.append(f"{failure_label}: {sanitized}")
+            return None
+
+        if not _should_retry_zenrows_with_premium_proxy(html, page_kind=page_kind):
+            return None
+
+        try:
+            premium_html = await _zenrows_fetch(
+                url,
+                timeout,
+                js_render=js_render,
+                wait_ms=wait_ms,
+                premium_proxy=True,
+            )
+            premium_html = await _maybe_append_inventory_api_data(url, premium_html, timeout)
+            if _direct_html_sufficient(premium_html, page_kind=page_kind):
+                _m(f"{metric_prefix}_premium_ok")
+                return premium_html
+            _m(f"{metric_prefix}_premium_insufficient")
+        except Exception as e:
+            sanitized = str(e).replace(settings.zenrows_api_key, "***")
+            logger.warning("ZenRows %s with premium proxy failed for %s: %s", failure_label, url, sanitized)
+            failures.append(f"{failure_label}_premium: {sanitized}")
+        return None
+
     if prefer_render and page_kind == "inventory":
         if settings.zenrows_api_key:
             for wait_ms in _retry_waits(settings.zenrows_wait_ms):
-                try:
-                    html = await _zenrows_fetch(
-                        url,
-                        timeout,
-                        js_render=True,
-                        wait_ms=wait_ms,
-                    )
-                    html = await _maybe_append_inventory_api_data(url, html, timeout)
-                    if _direct_html_sufficient(html, page_kind=page_kind):
-                        _m("zenrows_rendered_ok")
-                        return html, "zenrows_rendered"
-                    _m("zenrows_rendered_insufficient")
-                except Exception as e:
-                    sanitized = str(e).replace(settings.zenrows_api_key, "***")
-                    logger.warning("ZenRows preferred rendered fetch failed for %s: %s", url, sanitized)
-                    failures.append(f"zenrows_rendered_preferred: {sanitized}")
+                html = await _try_zenrows(
+                    js_render=True,
+                    wait_ms=wait_ms,
+                    metric_prefix="zenrows_rendered",
+                    failure_label="zenrows_rendered_preferred",
+                )
+                if html is not None:
+                    return html, "zenrows_rendered"
 
         if settings.scrapingbee_api_key:
             for wait_ms in _retry_waits(settings.scrapingbee_wait_ms):
@@ -210,6 +249,8 @@ async def fetch_page_html(
         if _direct_html_sufficient(html, page_kind=page_kind):
             _m("direct_ok")
             return html, "direct"
+        if _should_prefer_zenrows_render(html, page_kind=page_kind):
+            prefer_render = True
         logger.info("Direct fetch insufficient for %s (%s), escalating to managed scrapers", url, page_kind)
         _m("direct_insufficient")
     except Exception as e:
@@ -219,34 +260,24 @@ async def fetch_page_html(
 
     # 2) ZenRows: static then rendered
     if settings.zenrows_api_key:
-        try:
-            html = await _zenrows_fetch(url, timeout, js_render=False)
-            html = await _maybe_append_inventory_api_data(url, html, timeout)
-            if _direct_html_sufficient(html, page_kind=page_kind):
-                _m("zenrows_static_ok")
+        if not prefer_render:
+            html = await _try_zenrows(
+                js_render=False,
+                metric_prefix="zenrows_static",
+                failure_label="zenrows_static",
+            )
+            if html is not None:
                 return html, "zenrows_static"
-        except Exception as e:
-            sanitized = str(e).replace(settings.zenrows_api_key, "***")
-            logger.warning("ZenRows static fetch failed for %s: %s", url, sanitized)
-            failures.append(f"zenrows_static: {sanitized}")
 
         for wait_ms in _retry_waits(settings.zenrows_wait_ms):
-            try:
-                html = await _zenrows_fetch(
-                    url,
-                    timeout,
-                    js_render=True,
-                    wait_ms=wait_ms,
-                )
-                html = await _maybe_append_inventory_api_data(url, html, timeout)
-                if _direct_html_sufficient(html, page_kind=page_kind):
-                    _m("zenrows_rendered_ok")
-                    return html, "zenrows_rendered"
-                _m("zenrows_rendered_insufficient")
-            except Exception as e:
-                sanitized = str(e).replace(settings.zenrows_api_key, "***")
-                logger.warning("ZenRows rendered fetch failed for %s: %s", url, sanitized)
-                failures.append(f"zenrows_rendered: {sanitized}")
+            html = await _try_zenrows(
+                js_render=True,
+                wait_ms=wait_ms,
+                metric_prefix="zenrows_rendered",
+                failure_label="zenrows_rendered",
+            )
+            if html is not None:
+                return html, "zenrows_rendered"
 
     # 3) ScrapingBee: static then rendered
     if settings.scrapingbee_api_key:
@@ -323,6 +354,28 @@ def _looks_like_empty_inventory_shell(html: str) -> bool:
     return True
 
 
+def _should_prefer_zenrows_render(html: str, *, page_kind: PageKind) -> bool:
+    if page_kind != "inventory":
+        return False
+    return (
+        _looks_like_block_page(html)
+        or _looks_like_placeholder_inventory(html)
+        or _looks_like_empty_inventory_shell(html)
+    )
+
+
+def _should_retry_zenrows_with_premium_proxy(html: str, *, page_kind: PageKind) -> bool:
+    if settings.zenrows_premium_proxy:
+        return False
+    return _looks_like_block_page(html) or (
+        page_kind == "inventory"
+        and (
+            _looks_like_placeholder_inventory(html)
+            or _looks_like_empty_inventory_shell(html)
+        )
+    )
+
+
 def _direct_html_sufficient(html: str, *, page_kind: PageKind) -> bool:
     if _looks_like_block_page(html):
         return False
@@ -365,6 +418,7 @@ async def _zenrows_fetch(
     *,
     js_render: bool,
     wait_ms: int = 0,
+    premium_proxy: bool = False,
 ) -> str:
     """https://docs.zenrows.com/universal-scraper-api"""
     api_url = "https://api.zenrows.com/v1/"
@@ -375,7 +429,7 @@ async def _zenrows_fetch(
     }
     if js_render and wait_ms > 0:
         params["wait"] = str(wait_ms)
-    if settings.zenrows_premium_proxy:
+    if settings.zenrows_premium_proxy or premium_proxy:
         params["premium_proxy"] = "true"
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         r = await client.get(api_url, params=params)
