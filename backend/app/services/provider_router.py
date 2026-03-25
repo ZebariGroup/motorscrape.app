@@ -346,7 +346,12 @@ def resolve_inventory_url_for_provider(
                     base_host = host.removeprefix("express.")
                     if base_host and not base_host.startswith("express."):
                         www_host = f"www.{base_host}"
-                        path = "/new-inventory/index.htm" if condition == "new" else "/used-inventory/index.htm" if condition == "used" else "/inventory/index.htm"
+                        if condition == "new":
+                            path = "/new-inventory/index.htm"
+                        elif condition == "used":
+                            path = "/used-inventory/index.htm"
+                        else:
+                            path = "/inventory/index.htm"
                         return urlunsplit((parts.scheme, www_host, path, "", ""))
             except Exception:
                 pass
@@ -410,9 +415,24 @@ def resolve_inventory_url_for_provider(
                 score -= 60
             if any(token in href_lower for token in ("model=", "modelandtrim=", "year=")):
                 score -= 100
+            if make_norm in {
+                _norm("Chevrolet"),
+                _norm("GMC"),
+                _norm("Buick"),
+                _norm("Cadillac"),
+                _norm("Ford"),
+                _norm("Lincoln"),
+            } and any(token in href_lower for token in ("bodytype=", "bodystyle=")):
+                score -= 85
         if route and route.platform_id == "dealer_inspire" and not model_norm:
             score += _dealer_inspire_path_score(href, condition)
         if route and route.platform_id == "honda_acura_inventory" and not model_norm:
+            score += _family_inventory_path_score(href, condition)
+        if route and route.platform_id in {
+            "ford_family_inventory",
+            "gm_family_inventory",
+            "toyota_lexus_oem_inventory",
+        } and not model_norm:
             score += _family_inventory_path_score(href, condition)
         if route and route.platform_id == "team_velocity" and not model_norm:
             score += _team_velocity_inventory_path_score(href, condition)
@@ -509,6 +529,14 @@ def resolve_inventory_url_for_provider(
         elif route.platform_id == "honda_acura_inventory":
             base = _normalize_inventory_candidate_url(best_url if best_score > 0 else generic_base)
             best_url = _build_family_inventory_path(base, make, model)
+        elif route.platform_id in {"ford_family_inventory", "gm_family_inventory"}:
+            base = _normalize_inventory_candidate_url(best_url if best_score > 0 else generic_base)
+            best_url = _build_family_inventory_path(base, make, model)
+        elif route.platform_id == "toyota_lexus_oem_inventory":
+            base = _normalize_inventory_candidate_url(best_url if best_score > 0 else generic_base)
+            best_url = _build_family_inventory_path(base, make, model)
+            best_url = _drop_query_keys(best_url, {"gvBodyStyle", "make", "search"})
+            best_url = _with_query_params(best_url, {"model": model})
         elif route.platform_id == "dealer_on" and best_score < 100 and generic_base:
             updates = {"Make": make, "Model": model}
             if _looks_like_dealer_on_srp(generic_base):

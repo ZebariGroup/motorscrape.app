@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { dealerSiteKey } from "@/lib/inventoryFormat";
 import type { DealershipProgress } from "@/types/inventory";
 
 type Props = {
@@ -8,9 +9,18 @@ type Props = {
   running: boolean;
   loadingDealerCards: unknown[];
   nowMs: number;
+  pinnedDealerWebsite: string | null;
+  onTogglePinnedDealer: (website: string) => void;
 };
 
-export function DealerProgressList({ dealerList, running, loadingDealerCards, nowMs }: Props) {
+export function DealerProgressList({
+  dealerList,
+  running,
+  loadingDealerCards,
+  nowMs,
+  pinnedDealerWebsite,
+  onTogglePinnedDealer,
+}: Props) {
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
@@ -35,6 +45,11 @@ export function DealerProgressList({ dealerList, running, loadingDealerCards, no
             {dealerList.length === 0 && !running
               ? "No dealerships yet."
               : `${doneCount} of ${dealerList.length} processed`}
+            {dealerList.length > 0 ? (
+              <span className="mt-1 block text-[11px] text-zinc-400 dark:text-zinc-500">
+                Tap a dealer to show their vehicles first in inventory.
+              </span>
+            ) : null}
           </p>
         </div>
         <span className="text-lg text-zinc-400">{expanded ? "−" : "+"}</span>
@@ -77,73 +92,110 @@ export function DealerProgressList({ dealerList, running, loadingDealerCards, no
               const phaseSec =
                 d.phaseSince != null ? Math.max(0, Math.floor((nowMs - d.phaseSince) / 1000)) : 0;
               const isBusy = d.status === "scraping" || d.status === "parsing";
+              const canPin = Boolean(d.website?.trim());
+              const isPinned = Boolean(
+                canPin &&
+                  pinnedDealerWebsite &&
+                  dealerSiteKey(d.website!) === dealerSiteKey(pinnedDealerWebsite),
+              );
               return (
-                <li
-                  key={d.website + d.index}
-                  className={`relative overflow-hidden rounded-xl border bg-white p-4 text-sm transition-all dark:bg-zinc-950 ${
-                    isBusy
-                      ? "border-amber-200 shadow-sm shadow-amber-100/50 dark:border-amber-900/50 dark:shadow-none"
-                      : "border-zinc-200 dark:border-zinc-800"
-                  }`}
-                >
-                  {isBusy ? (
-                    <>
-                      <div
-                        className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400/70 to-transparent animate-pulse"
-                        aria-hidden
-                      />
-                      <div
-                        className="pointer-events-none absolute inset-y-0 left-0 w-20 -translate-x-full bg-gradient-to-r from-transparent via-emerald-200/40 to-transparent motion-safe:animate-[shimmer_2.4s_infinite] dark:via-emerald-400/10"
-                        aria-hidden
-                      />
-                    </>
-                  ) : null}
-                  <div className="font-medium text-zinc-900 dark:text-zinc-50">{d.name}</div>
-                  {d.address ? <div className="mt-1 text-xs text-zinc-500">{d.address}</div> : null}
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                    <span
-                      className={
-                        d.status === "done"
-                          ? "rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-                          : d.status === "error"
-                            ? "rounded-full bg-red-50 px-2 py-0.5 font-medium text-red-800 dark:bg-red-950 dark:text-red-200"
-                            : "rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-900 motion-safe:animate-pulse dark:bg-amber-950 dark:text-amber-100"
-                      }
-                    >
-                      {d.status}
-                    </span>
-                    {d.status === "scraping" && d.fetch_method ? (
-                      <span className="text-zinc-500">via {d.fetch_method}</span>
+                <li key={d.website + d.index}>
+                  <div
+                    role={canPin ? "button" : undefined}
+                    tabIndex={canPin ? 0 : undefined}
+                    aria-pressed={canPin ? isPinned : undefined}
+                    onClick={
+                      canPin
+                        ? () => {
+                            onTogglePinnedDealer(d.website!);
+                          }
+                        : undefined
+                    }
+                    onKeyDown={
+                      canPin
+                        ? (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              onTogglePinnedDealer(d.website!);
+                            }
+                          }
+                        : undefined
+                    }
+                    className={`relative overflow-hidden rounded-xl border bg-white p-4 text-sm transition-all dark:bg-zinc-950 ${
+                      canPin ? "cursor-pointer hover:border-emerald-300/80 dark:hover:border-emerald-700/50" : ""
+                    } ${
+                      isPinned
+                        ? "border-emerald-500 ring-2 ring-emerald-500/35 dark:border-emerald-500"
+                        : isBusy
+                          ? "border-amber-200 shadow-sm shadow-amber-100/50 dark:border-amber-900/50 dark:shadow-none"
+                          : "border-zinc-200 dark:border-zinc-800"
+                    }`}
+                  >
+                    {isBusy ? (
+                      <>
+                        <div
+                          className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400/70 to-transparent animate-pulse"
+                          aria-hidden
+                        />
+                        <div
+                          className="pointer-events-none absolute inset-y-0 left-0 w-20 -translate-x-full bg-gradient-to-r from-transparent via-emerald-200/40 to-transparent motion-safe:animate-[shimmer_2.4s_infinite] dark:via-emerald-400/10"
+                          aria-hidden
+                        />
+                      </>
                     ) : null}
-                    {d.status === "parsing" ? (
-                      <span className="text-zinc-500">
-                        AI extraction… {phaseSec}s
-                        {d.fetch_method ? (
-                          <span className="text-zinc-400"> (page via {d.fetch_method})</span>
-                        ) : null}
+                    {isPinned ? (
+                      <p className="mb-2 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                        Showing this dealer first — tap again to clear
+                      </p>
+                    ) : null}
+                    <div className="font-medium text-zinc-900 dark:text-zinc-50">{d.name}</div>
+                    {d.address ? <div className="mt-1 text-xs text-zinc-500">{d.address}</div> : null}
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                      <span
+                        className={
+                          d.status === "done"
+                            ? "rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                            : d.status === "error"
+                              ? "rounded-full bg-red-50 px-2 py-0.5 font-medium text-red-800 dark:bg-red-950 dark:text-red-200"
+                              : "rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-900 motion-safe:animate-pulse dark:bg-amber-950 dark:text-amber-100"
+                        }
+                      >
+                        {d.status}
                       </span>
+                      {d.status === "scraping" && d.fetch_method ? (
+                        <span className="text-zinc-500">via {d.fetch_method}</span>
+                      ) : null}
+                      {d.status === "parsing" ? (
+                        <span className="text-zinc-500">
+                          AI extraction… {phaseSec}s
+                          {d.fetch_method ? (
+                            <span className="text-zinc-400"> (page via {d.fetch_method})</span>
+                          ) : null}
+                        </span>
+                      ) : null}
+                      {d.status === "scraping" ? (
+                        <span className="text-zinc-500">Fetching… {phaseSec}s</span>
+                      ) : null}
+                      {d.listings_found != null ? (
+                        <span className="text-zinc-500">{d.listings_found} listings</span>
+                      ) : null}
+                    </div>
+                    {d.info ? (
+                      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{d.info}</p>
                     ) : null}
-                    {d.status === "scraping" ? (
-                      <span className="text-zinc-500">Fetching… {phaseSec}s</span>
-                    ) : null}
-                    {d.listings_found != null ? (
-                      <span className="text-zinc-500">{d.listings_found} listings</span>
+                    {d.error ? <p className="mt-2 text-xs text-red-600">{d.error}</p> : null}
+                    {d.website ? (
+                      <a
+                        href={d.website}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-2 inline-block text-xs font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
+                      >
+                        Open site
+                      </a>
                     ) : null}
                   </div>
-                  {d.info ? (
-                    <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{d.info}</p>
-                  ) : null}
-                  {d.error ? <p className="mt-2 text-xs text-red-600">{d.error}</p> : null}
-                  {d.website ? (
-                    <a
-                      href={d.website}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 inline-block text-xs font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
-                    >
-                      Open site
-                    </a>
-                  ) : null}
                 </li>
               );
             })}

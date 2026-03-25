@@ -3,10 +3,72 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getApiBaseUrl } from "@/lib/config";
-import { clampNumber, clampPercent } from "@/lib/inventoryFormat";
+import { clampNumber, clampPercent, dealerSiteKey } from "@/lib/inventoryFormat";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import { getModelsForMake } from "@/lib/vehicleCatalog";
 import type { DealershipProgress, VehicleListing } from "@/types/inventory";
+
+/** Client-side result ordering (applied after filters). */
+export type ListingSortOrder = "price_asc" | "price_desc" | "mileage_asc" | "year_desc";
+
+function listingSortTieBreak(a: AggregatedListing, b: AggregatedListing) {
+  const ka = `${a.vin ?? ""}|${a.listing_url ?? ""}|${a.raw_title ?? ""}|${a.dealership ?? ""}`;
+  const kb = `${b.vin ?? ""}|${b.listing_url ?? ""}|${b.raw_title ?? ""}|${b.dealership ?? ""}`;
+  return ka.localeCompare(kb);
+}
+
+function sortAggregatedListings(list: AggregatedListing[], order: ListingSortOrder): AggregatedListing[] {
+  const out = [...list];
+  out.sort((a, b) => {
+    switch (order) {
+      case "price_asc": {
+        const av = a.price != null && !Number.isNaN(a.price) ? a.price : Number.POSITIVE_INFINITY;
+        const bv = b.price != null && !Number.isNaN(b.price) ? b.price : Number.POSITIVE_INFINITY;
+        if (av !== bv) return av - bv;
+        return listingSortTieBreak(a, b);
+      }
+      case "price_desc": {
+        const av = a.price != null && !Number.isNaN(a.price) ? a.price : Number.NEGATIVE_INFINITY;
+        const bv = b.price != null && !Number.isNaN(b.price) ? b.price : Number.NEGATIVE_INFINITY;
+        if (av !== bv) return bv - av;
+        return listingSortTieBreak(a, b);
+      }
+      case "mileage_asc": {
+        const av =
+          a.mileage != null && !Number.isNaN(a.mileage) ? a.mileage : Number.POSITIVE_INFINITY;
+        const bv =
+          b.mileage != null && !Number.isNaN(b.mileage) ? b.mileage : Number.POSITIVE_INFINITY;
+        if (av !== bv) return av - bv;
+        return listingSortTieBreak(a, b);
+      }
+      case "year_desc": {
+        const av = a.year != null && !Number.isNaN(a.year) ? a.year : Number.NEGATIVE_INFINITY;
+        const bv = b.year != null && !Number.isNaN(b.year) ? b.year : Number.NEGATIVE_INFINITY;
+        if (av !== bv) return bv - av;
+        return listingSortTieBreak(a, b);
+      }
+      default:
+        return listingSortTieBreak(a, b);
+    }
+  });
+  return out;
+}
+
+/** Keep global sort order, but move all vehicles from the pinned dealership to the top. */
+function listingsWithPinnedDealerFirst(list: AggregatedListing[], pinnedSite: string | null): AggregatedListing[] {
+  const key = pinnedSite ? dealerSiteKey(pinnedSite) : "";
+  if (!key) return list;
+  const fromPinned: AggregatedListing[] = [];
+  const rest: AggregatedListing[] = [];
+  for (const item of list) {
+    if (dealerSiteKey(item.dealership_website) === key) {
+      fromPinned.push(item);
+    } else {
+      rest.push(item);
+    }
+  }
+  return [...fromPinned, ...rest];
+}
 
 export function useSearchStream() {
   const [location, setLocation] = useState("");
@@ -25,6 +87,8 @@ export function useSearchStream() {
   const [bodyStyleFilter, setBodyStyleFilter] = useState("");
   const [colorFilter, setColorFilter] = useState("");
   const [filtersExpanded, setFiltersExpanded] = useState(true);
+  const [sortOrder, setSortOrder] = useState<ListingSortOrder>("year_desc");
+  const [pinnedDealerWebsite, setPinnedDealerWebsite] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -140,7 +204,7 @@ export function useSearchStream() {
   }, [effectivePriceMin, priceBounds, priceFilterMax]);
 
   const filteredListings = useMemo(() => {
-    return listings.filter((listing) => {
+    const filtered = listings.filter((listing) => {
       if (yearFilter && String(listing.year ?? "") !== yearFilter) {
         return false;
       }
@@ -158,14 +222,22 @@ export function useSearchStream() {
       }
       return true;
     });
+    return listingsWithPinnedDealerFirst(sortAggregatedListings(filtered, sortOrder), pinnedDealerWebsite);
   }, [
     bodyStyleFilter,
     colorFilter,
     effectivePriceMax,
     effectivePriceMin,
     listings,
+    pinnedDealerWebsite,
+    sortOrder,
     yearFilter,
   ]);
+
+  const togglePinnedDealer = useCallback((website: string) => {
+    if (!website.trim()) return;
+    setPinnedDealerWebsite((prev) => (dealerSiteKey(prev ?? "") === dealerSiteKey(website) ? null : website));
+  }, []);
 
   const activeResultFilterCount = useMemo(() => {
     let count = 0;
@@ -220,6 +292,7 @@ export function useSearchStream() {
     setErrors([]);
     setListings([]);
     setDealers({});
+    setPinnedDealerWebsite(null);
     setStatus(null);
     const startedAt = Date.now();
     setNowMs(startedAt);
@@ -376,11 +449,15 @@ export function useSearchStream() {
       completedDealerPercent,
       doneDealerCount,
       nowMs,
+      pinnedDealerWebsite,
+      togglePinnedDealer,
     },
     listings: {
       listings,
       filteredListings,
       loadingInventoryCards,
+      sortOrder,
+      setSortOrder,
     },
     filters: {
       filtersExpanded,

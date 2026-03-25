@@ -138,6 +138,51 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         extraction_mode="structured_html",
     ),
     PlatformDefinition(
+        platform_id="ford_family_inventory",
+        markers=(
+            "ford",
+            "lincoln",
+            "si-vehicle-box",
+            "unlockctadiscountdata",
+            "/viewdetails/",
+            "inventory_listing",
+        ),
+        inventory_path_hints=("inventory/new", "inventory/used", "new-", "used-", "certified", "pre-owned"),
+        extraction_mode="structured_html",
+        requires_render=True,
+    ),
+    PlatformDefinition(
+        platform_id="gm_family_inventory",
+        markers=(
+            "chevrolet",
+            "chevy",
+            "gmc",
+            "buick",
+            "cadillac",
+            "si-vehicle-box",
+            "unlockctadiscountdata",
+            "/viewdetails/",
+            "inventory_listing",
+        ),
+        inventory_path_hints=("inventory/new", "inventory/used", "new-", "used-", "certified", "pre-owned"),
+        extraction_mode="structured_html",
+    ),
+    PlatformDefinition(
+        platform_id="toyota_lexus_oem_inventory",
+        markers=(
+            "toyota",
+            "lexus",
+            "si-vehicle-box",
+            "unlockctadiscountdata",
+            "/viewdetails/",
+            "inventory_listing",
+            "ws-inv-data",
+            "ddc.widgetdata",
+        ),
+        inventory_path_hints=("new-inventory", "used-inventory", "inventory/new", "inventory/used", "inventory/index.htm"),
+        extraction_mode="structured_api",
+    ),
+    PlatformDefinition(
         platform_id="hyundai_inventory_search",
         markers=(
             "hyundai",
@@ -170,6 +215,15 @@ def _family_stack_allowed_for_url(platform_id: str, page_url: str) -> bool:
         return any(token in host or token in target for token in ("nissan", "infiniti"))
     if platform_id == "honda_acura_inventory":
         return any(token in host or token in target for token in ("honda", "acura"))
+    if platform_id == "ford_family_inventory":
+        return any(token in host or token in target for token in ("ford", "lincoln"))
+    if platform_id == "gm_family_inventory":
+        return any(
+            token in host or token in target
+            for token in ("chevrolet", "chevy", "gmc", "buick", "cadillac")
+        )
+    if platform_id == "toyota_lexus_oem_inventory":
+        return any(token in host or token in target for token in ("toyota", "lexus"))
     if platform_id == "hyundai_inventory_search":
         return "hyundai" in host or "hyundai" in target
     if platform_id == "kia_inventory":

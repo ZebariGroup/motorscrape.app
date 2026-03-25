@@ -32,6 +32,13 @@ _DDC_WIDGET_PROPS_RE = re.compile(
     r'DDC\.WidgetData\[[^\]]+\]\.props\s*=\s*\{(?P<body>.*?)\n\}\s*</script>',
     re.S,
 )
+# Looser pairing for Toyota/Lexus-style Dealer.com SPAs: API URL + params may sit outside WidgetData blocks.
+_DDC_WIDGET_INVENTORY_PAIR_RE = re.compile(
+    r'"(?:inventoryApiURL|inventoryApiUrl)"\s*:\s*"(?P<url>[^"]+)"'
+    r"[\s\S]{0,900}?"
+    r'"(?:params|widgetParams|inventoryParams)"\s*:\s*"(?P<params>[^"]*)"',
+    re.I,
+)
 _INVENTORY_HINTS = (
     "vehicle-card-title",
     "vehicle-card",
@@ -438,6 +445,16 @@ def _extract_inventory_post_requests(html: str, base_url: str) -> list[tuple[str
 
 def _extract_inventory_get_requests(html: str, base_url: str) -> list[tuple[str, dict[str, str]]]:
     requests: list[tuple[str, dict[str, str]]] = []
+    for match in _DDC_WIDGET_INVENTORY_PAIR_RE.finditer(html):
+        raw = match.group("url").replace("\\/", "/")
+        abs_url = urljoin(base_url, raw)
+        raw_params = match.group("params").replace("\\u0026", "&")
+        query: dict[str, str] = {k: v for k, v in parse_qsl(raw_params, keep_blank_values=True) if k}
+        if raw_params:
+            query["params"] = raw_params
+        req = (abs_url, query)
+        if req not in requests:
+            requests.append(req)
     for match in _DDC_WIDGET_PROPS_RE.finditer(html):
         body = match.group("body")
         api_match = _INVENTORY_URL_RE.search(body)

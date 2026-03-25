@@ -1,4 +1,5 @@
-from app.services.provider_router import resolve_inventory_url_for_provider, ProviderRoute
+from app.services.provider_router import ProviderRoute, resolve_inventory_url_for_provider
+
 
 def test_resolve_inventory_url_for_provider_fixes_express_urls():
     route = ProviderRoute(

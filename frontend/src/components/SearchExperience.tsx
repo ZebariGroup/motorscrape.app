@@ -76,6 +76,8 @@ export function SearchExperience() {
             running={search.running}
             loadingDealerCards={dealers.loadingDealerCards}
             nowMs={dealers.nowMs}
+            pinnedDealerWebsite={dealers.pinnedDealerWebsite}
+            onTogglePinnedDealer={dealers.togglePinnedDealer}
           />
         </section>
 
@@ -84,6 +86,8 @@ export function SearchExperience() {
           filteredListings={listings.filteredListings}
           running={search.running}
           loadingInventoryCards={listings.loadingInventoryCards}
+          sortOrder={listings.sortOrder}
+          onSortOrderChange={listings.setSortOrder}
         />
       </div>
 

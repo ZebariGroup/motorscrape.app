@@ -40,6 +40,15 @@ from app.services.scraper import PageKind, fetch_page_html
 logger = logging.getLogger(__name__)
 _STREAM_LISTING_BATCH_SIZE = 8
 
+# Inventory-page family stacks that should override generic website platforms (DealerOn / Inspire / DDC).
+_INVENTORY_FAMILY_PLATFORM_IDS = frozenset(
+    {
+        "ford_family_inventory",
+        "gm_family_inventory",
+        "toyota_lexus_oem_inventory",
+    }
+)
+
 
 def _dedupe_dealers_by_domain(dealers: list[DealershipFound]) -> list[DealershipFound]:
     seen: set[str] = set()
@@ -541,6 +550,10 @@ async def stream_search(
                 route is None
                 or inventory_profile.confidence >= route.confidence
                 or route.platform_id in {"team_velocity", "fusionzone", "purecars", "jazel"}
+                or (
+                    route.platform_id in {"dealer_on", "dealer_inspire", "dealer_dot_com"}
+                    and inventory_profile.platform_id in _INVENTORY_FAMILY_PLATFORM_IDS
+                )
             ):
                 route = ProviderRoute(
                     platform_id=inventory_profile.platform_id,
@@ -579,6 +592,9 @@ async def stream_search(
                     "team_velocity",
                     "dealer_dot_com",
                     "dealer_on",
+                    "ford_family_inventory",
+                    "gm_family_inventory",
+                    "toyota_lexus_oem_inventory",
                 }
                 else requested_pages
             )

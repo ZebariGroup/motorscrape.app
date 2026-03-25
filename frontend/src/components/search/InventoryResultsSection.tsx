@@ -3,12 +3,15 @@
 import { useState } from "react";
 import { formatMoney, locationBadge } from "@/lib/inventoryFormat";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
+import type { ListingSortOrder } from "@/hooks/useSearchStream";
 
 type Props = {
   listings: AggregatedListing[];
   filteredListings: AggregatedListing[];
   running: boolean;
   loadingInventoryCards: unknown[];
+  sortOrder: ListingSortOrder;
+  onSortOrderChange: (order: ListingSortOrder) => void;
 };
 
 export function InventoryResultsSection({
@@ -16,17 +19,36 @@ export function InventoryResultsSection({
   filteredListings,
   running,
   loadingInventoryCards,
+  sortOrder,
+  onSortOrderChange,
 }: Props) {
   const [selectedListing, setSelectedListing] = useState<AggregatedListing | null>(null);
 
   return (
     <section className="lg:col-span-2">
-      <div className="mb-3 flex items-baseline justify-between gap-4">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Inventory</h2>
-        <span className="text-sm text-zinc-500">
-          {filteredListings.length}
-          {filteredListings.length !== listings.length ? ` of ${listings.length}` : ""} vehicles
-        </span>
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-baseline justify-between gap-4 sm:justify-start sm:gap-6">
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Inventory</h2>
+          <span className="text-sm text-zinc-500">
+            {filteredListings.length}
+            {filteredListings.length !== listings.length ? ` of ${listings.length}` : ""} vehicles
+          </span>
+        </div>
+        {listings.length > 0 ? (
+          <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+            <span className="shrink-0 font-medium text-zinc-700 dark:text-zinc-300">Sort by</span>
+            <select
+              value={sortOrder}
+              onChange={(e) => onSortOrderChange(e.target.value as ListingSortOrder)}
+              className="min-w-[11rem] rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-zinc-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+            >
+              <option value="year_desc">Year (newest)</option>
+              <option value="price_asc">Price (low to high)</option>
+              <option value="price_desc">Price (high to low)</option>
+              <option value="mileage_asc">Mileage (low to high)</option>
+            </select>
+          </label>
+        ) : null}
       </div>
       {listings.length === 0 ? (
         running ? (

@@ -66,5 +66,10 @@ class Settings(BaseSettings):
     platform_cache_ttl_hours: int = 24 * 14
     platform_cache_failure_threshold: int = 3
 
+    # Vercel KV / Upstash REST — when both are set, platform detection cache uses Redis instead of SQLite.
+    # https://vercel.com/docs/storage/vercel-kv (same REST shape as Upstash)
+    kv_rest_api_url: str = ""
+    kv_rest_api_token: str = ""
+
 
 settings = Settings()
