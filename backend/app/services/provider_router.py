@@ -44,7 +44,15 @@ def _with_query_params(url: str, updates: dict[str, str]) -> str:
 
 def _normalize_inventory_candidate_url(url: str) -> str:
     if ".htm&" in url and "?" not in url:
-        return url.replace(".htm&", ".htm?", 1)
+        url = url.replace(".htm&", ".htm?", 1)
+    
+    # Ensure OneAudi Falcon /inventory/new URLs have a trailing slash, 
+    # otherwise some of their CDN edge nodes return 404 instead of 301
+    parts = urlsplit(url)
+    path_lower = parts.path.lower()
+    if path_lower.endswith("/inventory/new") or path_lower.endswith("/inventory/used"):
+        url = urlunsplit((parts.scheme, parts.netloc, parts.path + "/", parts.query, parts.fragment))
+        
     return url
 
 
