@@ -54,8 +54,6 @@ export function SearchExperience() {
   const [listings, setListings] = useState<AggregatedListing[]>([]);
   const [priceFilterMin, setPriceFilterMin] = useState<number | null>(null);
   const [priceFilterMax, setPriceFilterMax] = useState<number | null>(null);
-  const [mileageFilterMin, setMileageFilterMin] = useState<number | null>(null);
-  const [mileageFilterMax, setMileageFilterMax] = useState<number | null>(null);
   const [yearFilter, setYearFilter] = useState("");
   const [bodyStyleFilter, setBodyStyleFilter] = useState("");
   const [colorFilter, setColorFilter] = useState("");
@@ -124,17 +122,6 @@ export function SearchExperience() {
     };
   }, [listings]);
 
-  const mileageBounds = useMemo(() => {
-    const values = listings
-      .map((listing) => listing.mileage)
-      .filter((value): value is number => value != null && !Number.isNaN(value));
-    if (values.length === 0) return null;
-    return {
-      min: Math.min(...values),
-      max: Math.max(...values),
-    };
-  }, [listings]);
-
   const yearOptions = useMemo(
     () =>
       Array.from(
@@ -185,24 +172,6 @@ export function SearchExperience() {
     );
   }, [effectivePriceMin, priceBounds, priceFilterMax]);
 
-  const effectiveMileageMin = useMemo(() => {
-    if (!mileageBounds) return null;
-    return clampNumber(
-      mileageFilterMin ?? mileageBounds.min,
-      mileageBounds.min,
-      mileageFilterMax ?? mileageBounds.max,
-    );
-  }, [mileageBounds, mileageFilterMax, mileageFilterMin]);
-
-  const effectiveMileageMax = useMemo(() => {
-    if (!mileageBounds) return null;
-    return clampNumber(
-      mileageFilterMax ?? mileageBounds.max,
-      effectiveMileageMin ?? mileageBounds.min,
-      mileageBounds.max,
-    );
-  }, [effectiveMileageMin, mileageBounds, mileageFilterMax]);
-
   const filteredListings = useMemo(() => {
     return listings.filter((listing) => {
       if (yearFilter && String(listing.year ?? "") !== yearFilter) {
@@ -220,21 +189,16 @@ export function SearchExperience() {
       if (effectivePriceMax != null && (listing.price == null || listing.price > effectivePriceMax)) {
         return false;
       }
-      if (
-        effectiveMileageMin != null &&
-        (listing.mileage == null || listing.mileage < effectiveMileageMin)
-      ) {
-        return false;
-      }
-      if (
-        effectiveMileageMax != null &&
-        (listing.mileage == null || listing.mileage > effectiveMileageMax)
-      ) {
-        return false;
-      }
       return true;
     });
-  }, [effectiveMileageMax, effectiveMileageMin, effectivePriceMax, effectivePriceMin, listings]);
+  }, [
+    bodyStyleFilter,
+    colorFilter,
+    effectivePriceMax,
+    effectivePriceMin,
+    listings,
+    yearFilter,
+  ]);
 
   const activeResultFilterCount = useMemo(() => {
     let count = 0;
@@ -247,14 +211,8 @@ export function SearchExperience() {
       count += 1;
     }
     if (
-      mileageBounds &&
-      effectiveMileageMin != null &&
-      effectiveMileageMax != null &&
-      (effectiveMileageMin > mileageBounds.min || effectiveMileageMax < mileageBounds.max)
+      yearFilter
     ) {
-      count += 1;
-    }
-    if (yearFilter) {
       count += 1;
     }
     if (bodyStyleFilter) {
@@ -267,11 +225,8 @@ export function SearchExperience() {
   }, [
     bodyStyleFilter,
     colorFilter,
-    effectiveMileageMax,
-    effectiveMileageMin,
     effectivePriceMax,
     effectivePriceMin,
-    mileageBounds,
     priceBounds,
     yearFilter,
   ]);
@@ -423,11 +378,14 @@ export function SearchExperience() {
           Motorscrape
         </p>
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl dark:text-zinc-50">
-          Local dealership inventory, one search
+          Local dealership inventory, one place
         </h1>
         <p className="max-w-2xl text-zinc-600 dark:text-zinc-400">
+          We crawl so you can drive.
+        </p>
+        <p className="max-w-2xl text-zinc-600 dark:text-zinc-400">
           Enter where you are shopping and what you want. We discover nearby dealerships, fetch
-          their sites (with managed anti-bot when configured), and extract listings in real time.
+          their sites, and extract listings in real time.
         </p>
       </header>
 
@@ -629,7 +587,7 @@ export function SearchExperience() {
                   ) : null}
                 </div>
                 <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Narrow the streamed inventory by price and miles.
+                  Narrow the streamed inventory by year, style, color, and price.
                 </p>
               </div>
               <span className="text-lg text-zinc-400">{filtersExpanded ? "−" : "+"}</span>
@@ -736,70 +694,12 @@ export function SearchExperience() {
                       </div>
                     )}
                   </div>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-zinc-700 dark:text-zinc-300">Miles</span>
-                      <span className="text-zinc-500 dark:text-zinc-400">
-                        {mileageBounds &&
-                        effectiveMileageMin != null &&
-                        effectiveMileageMax != null
-                          ? `${effectiveMileageMin.toLocaleString()} to ${effectiveMileageMax.toLocaleString()} mi`
-                          : "No mileage data yet"}
-                      </span>
-                    </div>
-                    {mileageBounds &&
-                    effectiveMileageMin != null &&
-                    effectiveMileageMax != null ? (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="range"
-                            aria-label="Minimum mileage"
-                            min={mileageBounds.min}
-                            max={mileageBounds.max}
-                            step={sliderStep(mileageBounds.min, mileageBounds.max, 100)}
-                            value={effectiveMileageMin}
-                            onChange={(e) =>
-                              setMileageFilterMin(
-                                Math.min(Number(e.target.value), effectiveMileageMax),
-                              )
-                            }
-                            className="min-w-0 flex-1 accent-emerald-600"
-                          />
-                          <input
-                            type="range"
-                            aria-label="Maximum mileage"
-                            min={mileageBounds.min}
-                            max={mileageBounds.max}
-                            step={sliderStep(mileageBounds.min, mileageBounds.max, 100)}
-                            value={effectiveMileageMax}
-                            onChange={(e) =>
-                              setMileageFilterMax(
-                                Math.max(Number(e.target.value), effectiveMileageMin),
-                              )
-                            }
-                            className="min-w-0 flex-1 accent-emerald-600"
-                          />
-                        </div>
-                        <div className="flex justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
-                          <span>{mileageBounds.min.toLocaleString()} mi</span>
-                          <span>{mileageBounds.max.toLocaleString()} mi</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-900/70 dark:text-zinc-400">
-                        Drag bars appear once mileage data is available.
-                      </div>
-                    )}
-                  </div>
                   <div className="flex justify-end">
                     <button
                       type="button"
                       onClick={() => {
                         setPriceFilterMin(null);
                         setPriceFilterMax(null);
-                        setMileageFilterMin(null);
-                        setMileageFilterMax(null);
                         setYearFilter("");
                         setBodyStyleFilter("");
                         setColorFilter("");

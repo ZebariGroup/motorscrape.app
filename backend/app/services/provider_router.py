@@ -433,6 +433,20 @@ def resolve_inventory_url_for_provider(
         if generic_base:
             best_url = generic_base
 
+    if route and not model_norm and route.platform_id == "dealer_dot_com":
+        generic_base = _normalize_inventory_candidate_url(
+            (route.inventory_url_hint if route else None) or fallback_url
+        )
+        if generic_base:
+            best_url = _drop_query_keys(generic_base, {"gvBodyStyle", "make", "model", "search"})
+
+    if route and not model_norm and route.platform_id == "dealer_on":
+        generic_base = _normalize_inventory_candidate_url(
+            (route.inventory_url_hint if route else None) or fallback_url
+        )
+        if generic_base and make_norm:
+            best_url = _with_query_params(generic_base, {"Make": make})
+
     if model_norm and route:
         generic_base = _normalize_inventory_candidate_url(
             (route.inventory_url_hint if route else None) or fallback_url

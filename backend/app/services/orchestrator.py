@@ -14,7 +14,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
-from app.schemas import DealershipFound
+from app.schemas import DealershipFound, VehicleListing
 from app.services.inventory_discovery import discover_sitemap_inventory_urls
 from app.services.inventory_filters import (
     infer_vehicle_condition_from_page,
@@ -38,6 +38,7 @@ from app.services.providers import extract_with_provider
 from app.services.scraper import PageKind, fetch_page_html
 
 logger = logging.getLogger(__name__)
+_STREAM_LISTING_BATCH_SIZE = 8
 
 
 def _dedupe_dealers_by_domain(dealers: list[DealershipFound]) -> list[DealershipFound]:
@@ -219,8 +220,72 @@ def _looks_like_model_index_batch(vdicts: list[dict[str, Any]], current_url: str
     return not strong
 
 
+def _needs_vdp_enrichment(vehicles: list[VehicleListing]) -> bool:
+    if not vehicles:
+        return False
+    missing_details = 0
+    for v in vehicles:
+        if (
+            v.price is None
+            and v.mileage is None
+            and not v.availability_status
+            and not v.inventory_location
+            and bool(v.listing_url)
+        ):
+            missing_details += 1
+    return missing_details >= max(1, len(vehicles) // 2)
+
+
+def _merge_vehicle_detail(base: VehicleListing, enriched: VehicleListing) -> VehicleListing:
+    base_data = base.model_dump()
+    enriched_data = enriched.model_dump()
+    merged = dict(base_data)
+    for key, value in enriched_data.items():
+        if value in (None, "", [], {}):
+            continue
+        current = merged.get(key)
+        if current in (None, "", [], {}):
+            merged[key] = value
+    return VehicleListing(**merged)
+
+
+async def _enrich_vehicle_from_vdp(v: VehicleListing) -> VehicleListing:
+    if not v.listing_url:
+        return v
+    try:
+        html, _ = await fetch_page_html(v.listing_url, page_kind="inventory", prefer_render=False)
+        ext = try_extract_vehicles_without_llm(
+            page_url=v.listing_url,
+            html=html,
+            make_filter=v.make or "",
+            model_filter="",
+        )
+    except Exception:
+        return v
+    if not ext:
+        return v
+    candidates = ext.vehicles
+    if v.vin:
+        for candidate in candidates:
+            if candidate.vin and candidate.vin.upper() == v.vin.upper():
+                return _merge_vehicle_detail(v, candidate)
+    if v.listing_url:
+        for candidate in candidates:
+            if candidate.listing_url and candidate.listing_url.rstrip("/") == v.listing_url.rstrip("/"):
+                return _merge_vehicle_detail(v, candidate)
+    if candidates:
+        return _merge_vehicle_detail(v, candidates[0])
+    return v
+
+
 def _sse_pack(event_type: str, data: dict[str, Any]) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+def _chunk_listings(rows: list[dict[str, Any]], size: int = _STREAM_LISTING_BATCH_SIZE) -> list[list[dict[str, Any]]]:
+    if size <= 0 or len(rows) <= size:
+        return [rows]
+    return [rows[i : i + size] for i in range(0, len(rows), size)]
 
 
 async def stream_search(
@@ -616,6 +681,9 @@ async def stream_search(
                         )
                         break
 
+                if route and route.platform_id == "dealer_on" and current_method == "direct":
+                    route.requires_render = False
+
                 chunks.append(
                     _sse_pack(
                         "dealership",
@@ -699,6 +767,11 @@ async def stream_search(
                     and listing_matches_vehicle_condition(v, vehicle_condition)
                     and listing_matches_inventory_scope(v, inventory_scope)
                 ]
+                if route and route.platform_id == "dealer_on" and _needs_vdp_enrichment(filtered):
+                    enriched_prefix = await asyncio.gather(
+                        *[_enrich_vehicle_from_vdp(v) for v in filtered[:12]]
+                    )
+                    filtered = list(enriched_prefix) + filtered[12:]
                 deduped_filtered = []
                 for v in filtered:
                     key = _listing_emit_key(v)
@@ -730,18 +803,19 @@ async def stream_search(
                             requires_render=("rendered" in current_method) or route.requires_render,
                         )
                     total_vehicles += len(vdicts)
-                    chunks.append(
-                        _sse_pack(
-                            "vehicles",
-                            {
-                                "dealership": d.name,
-                                "website": website,
-                                "current_url": current_url,
-                                "count": len(vdicts),
-                                "listings": vdicts,
-                            },
+                    for listing_chunk in _chunk_listings(vdicts):
+                        chunks.append(
+                            _sse_pack(
+                                "vehicles",
+                                {
+                                    "dealership": d.name,
+                                    "website": website,
+                                    "current_url": current_url,
+                                    "count": len(listing_chunk),
+                                    "listings": listing_chunk,
+                                },
+                            )
                         )
-                    )
 
                 next_url = ext_result.next_page_url
                 if (

@@ -13,8 +13,44 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Motorscrape — local dealership inventory",
-  description: "Search by location and vehicle; aggregate inventory from nearby dealership websites.",
+  metadataBase: new URL("https://www.motorscrape.com"),
+  title: {
+    default: "Motorscrape | Local Dealership Inventory, One Place",
+    template: "%s | Motorscrape",
+  },
+  description:
+    "Local dealership inventory, one place. Search nearby dealer websites for real vehicle inventory across brands and stores in one streamlined experience.",
+  keywords: [
+    "dealer inventory search",
+    "local dealership inventory",
+    "car inventory search",
+    "new car inventory",
+    "used car inventory",
+    "dealer website inventory",
+    "Motorscrape",
+  ],
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: "Motorscrape | Local Dealership Inventory, One Place",
+    description:
+      "We crawl so you can drive. Search nearby dealer websites for real vehicle inventory in one place.",
+    url: "https://www.motorscrape.com",
+    siteName: "Motorscrape",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Motorscrape | Local Dealership Inventory, One Place",
+    description:
+      "We crawl so you can drive. Search nearby dealer websites for real vehicle inventory in one place.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({
