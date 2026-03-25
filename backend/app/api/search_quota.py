@@ -61,14 +61,18 @@ def evaluate_search_start(ctx: AccessContext, store: Any | None = None) -> Searc
         return SearchQuotaDecision(False, "Account not found.", False)
 
     if tier in (TierId.STANDARD.value, TierId.PREMIUM.value):
-        if user.stripe_metered_item_id:
-            return SearchQuotaDecision(True, "", True)
-        return SearchQuotaDecision(
-            False,
-            "Monthly included searches are used up. Add metered billing (complete Standard/Premium checkout with usage) "
-            "or upgrade.",
-            False,
-        )
+        if tier == TierId.STANDARD.value:
+            return SearchQuotaDecision(
+                False,
+                "Monthly included searches are used up. Upgrade to Premium for higher limits.",
+                False,
+            )
+        else:
+            return SearchQuotaDecision(
+                False,
+                "Monthly included searches are used up. Contact support for Enterprise limits.",
+                False,
+            )
 
     # free tier
     return SearchQuotaDecision(

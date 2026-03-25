@@ -173,14 +173,6 @@ export default function AccountPage() {
               <p className="mt-2 text-sm text-zinc-700 dark:text-zinc-300">
                 Included searches: {me.usage.included_used} / {me.usage.included_limit}
               </p>
-              {me.usage.overage_used > 0 ? (
-                <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
-                  Billed overage searches (this period): {me.usage.overage_used}
-                </p>
-              ) : null}
-              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                Metered billing with Stripe: {me.stripe_metered_item_id ? "on" : "not linked — complete checkout with a metered price"}
-              </p>
             </section>
 
             <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
@@ -198,19 +190,17 @@ export default function AccountPage() {
                   <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                     <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Standard</h3>
                     <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-                      <li>• 50 included searches / month</li>
-                      <li>• $0.50 per overage search</li>
-                      <li>• Up to 100 mile radius</li>
+                      <li>• 350 included searches / month</li>
+                      <li>• Up to 30 mile radius</li>
                       <li>• Search up to 10 dealerships at once</li>
                     </ul>
                   </div>
                   <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                     <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Premium</h3>
                     <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-                      <li>• 250 included searches / month</li>
-                      <li>• $0.40 per overage search</li>
+                      <li>• 750 included searches / month</li>
                       <li>• Nationwide search radius</li>
-                      <li>• Search up to 30 dealerships at once</li>
+                      <li>• Search up to 20 dealerships at once</li>
                       <li>• Access to premium inventory scope</li>
                     </ul>
                   </div>

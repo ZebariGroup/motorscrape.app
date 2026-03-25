@@ -35,12 +35,10 @@ def _pick_prices(tier: str) -> tuple[str, str | None]:
     t = tier.lower()
     if t == TierId.STANDARD.value:
         base = (settings.stripe_price_standard_base or "").strip()
-        metered = (settings.stripe_price_standard_metered or "").strip() or None
-        return base, metered
+        return base, None
     if t == TierId.PREMIUM.value:
         base = (settings.stripe_price_premium_base or "").strip()
-        metered = (settings.stripe_price_premium_metered or "").strip() or None
-        return base, metered
+        return base, None
     raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid tier.")
 
 
@@ -180,13 +178,6 @@ def _tier_from_price_ids(sub_items: list[dict[str, Any]], stripe: Any) -> str | 
 
 
 def _metered_item_id(sub: dict[str, Any], stripe: Any) -> str | None:
-    std_m = (settings.stripe_price_standard_metered or "").strip()
-    prem_m = (settings.stripe_price_premium_metered or "").strip()
-    items = sub.get("items", {}).get("data", [])
-    for item in items:
-        pid = item.get("price", {}).get("id")
-        if pid and pid in {std_m, prem_m}:
-            return item.get("id")
     return None
 
 

@@ -66,9 +66,9 @@ FREE_LIMITS = TierLimits(
 STANDARD_LIMITS = TierLimits(
     max_dealerships=10,
     max_pages_per_dealer=4,
-    max_radius_miles=150,
+    max_radius_miles=30,
     max_concurrent_searches=2,
-    included_searches_per_month=120,
+    included_searches_per_month=350,
     anonymous_lifetime_searches=0,
     minute_rate_limit=10,
     csv_export=True,
@@ -76,11 +76,11 @@ STANDARD_LIMITS = TierLimits(
 )
 
 PREMIUM_LIMITS = TierLimits(
-    max_dealerships=18,
+    max_dealerships=20,
     max_pages_per_dealer=6,
     max_radius_miles=250,
     max_concurrent_searches=3,
-    included_searches_per_month=450,
+    included_searches_per_month=750,
     anonymous_lifetime_searches=0,
     minute_rate_limit=20,
     csv_export=True,
