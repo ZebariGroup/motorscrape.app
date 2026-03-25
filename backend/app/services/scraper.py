@@ -179,6 +179,7 @@ async def fetch_page_html(
     page_kind: PageKind = "inventory",
     prefer_render: bool = False,
     metrics: dict[str, int] | None = None,
+    platform_id: str | None = None,
 ) -> tuple[str, str]:
     """
     Return (html, method_used).
@@ -216,7 +217,7 @@ async def fetch_page_html(
 
     if prefer_render and page_kind == "inventory":
         # OneAudi Falcon (and similar): try local browser before paid JS render APIs.
-        js_instructions = zenrows_inventory_js_instructions_for_url(url)
+        js_instructions = zenrows_inventory_js_instructions_for_url(url, platform_id=platform_id)
 
         pw_early = await _playwright_pass(
             url,
@@ -308,7 +309,7 @@ async def fetch_page_html(
                 return html, "zenrows_static"
 
         for wait_ms in _retry_waits(settings.zenrows_wait_ms):
-            js_instructions = zenrows_inventory_js_instructions_for_url(url)
+            js_instructions = zenrows_inventory_js_instructions_for_url(url, platform_id=platform_id)
 
             html = await zenrows_try_once(
                 url=url,

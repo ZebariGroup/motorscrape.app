@@ -36,22 +36,14 @@ class PlatformDefinition:
 # ZenRows `js_instructions` for infinite-scroll SRPs (e.g. OneAudi Falcon) — host-based, not hard-coded in scraper.
 _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS = """[
     {"wait": 2000},
-    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-    {"wait": 1000},
-    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-    {"wait": 2000},
-    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-    {"wait": 1000},
-    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-    {"wait": 2000},
-    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-    {"wait": 1000},
-    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-    {"wait": 2000},
-    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-    {"wait": 1000},
-    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-    {"wait": 2000}
+    {"evaluate": "window.scrollTo(0, document.body.scrollHeight); Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click();"},
+    {"wait": 1500},
+    {"evaluate": "window.scrollTo(0, document.body.scrollHeight); Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click();"},
+    {"wait": 1500},
+    {"evaluate": "window.scrollTo(0, document.body.scrollHeight); Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click();"},
+    {"wait": 1500},
+    {"evaluate": "window.scrollTo(0, document.body.scrollHeight); Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click();"},
+    {"wait": 1500}
 ]"""
 
 _ONEAUDI_FALCON_INVENTORY_HOST_FRAGMENTS: frozenset[str] = frozenset(
@@ -66,8 +58,10 @@ _ONEAUDI_FALCON_INVENTORY_HOST_FRAGMENTS: frozenset[str] = frozenset(
 )
 
 
-def zenrows_inventory_js_instructions_for_url(url: str) -> str | None:
+def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None = None) -> str | None:
     """Return platform-specific ZenRows JS instructions for inventory URLs, if any."""
+    if platform_id == "oneaudi_falcon":
+        return _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS.strip()
     if not url:
         return None
     u = url.lower()

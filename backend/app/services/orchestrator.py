@@ -484,6 +484,7 @@ async def stream_search(
             page_kind: PageKind,
             *,
             prefer_render: bool = False,
+            platform_id: str | None = None,
         ) -> tuple[str, str]:
             host_key = normalize_dealer_domain(url) or domain or "unknown"
             async with _domain_fetch_limiter(host_key):
@@ -492,6 +493,7 @@ async def stream_search(
                     page_kind=page_kind,
                     prefer_render=prefer_render,
                     metrics=None,
+                    platform_id=platform_id,
                 )
             fetch_methods_used.append(method)
             async with metrics_lock:
@@ -663,7 +665,12 @@ async def stream_search(
                 )
                 try:
                     current_html, current_method = await asyncio.wait_for(
-                        _fetch(inv_url, "inventory", prefer_render=bool(route and route.requires_render)),
+                        _fetch(
+                            inv_url,
+                            "inventory",
+                            prefer_render=bool(route and route.requires_render),
+                            platform_id=route.platform_id if route else None,
+                        ),
                         timeout=fetch_timeout,
                     )
                 except asyncio.TimeoutError:
@@ -709,7 +716,12 @@ async def stream_search(
             elif route and route.requires_render:
                 try:
                     current_html, current_method = await asyncio.wait_for(
-                        _fetch(inv_url or base_url, "inventory", prefer_render=True),
+                        _fetch(
+                            inv_url or base_url,
+                            "inventory",
+                            prefer_render=True,
+                            platform_id=route.platform_id,
+                        ),
                         timeout=fetch_timeout,
                     )
                 except Exception as e:
@@ -816,6 +828,7 @@ async def stream_search(
                                     rendered_inv_url,
                                     "inventory",
                                     prefer_render=route.requires_render,
+                                    platform_id=route.platform_id,
                                 ),
                                 timeout=fetch_timeout,
                             )
@@ -944,6 +957,7 @@ async def stream_search(
                                 current_url,
                                 "inventory",
                                 prefer_render=bool(route and route.requires_render),
+                                platform_id=route.platform_id if route else None,
                             ),
                             timeout=fetch_timeout,
                         )
