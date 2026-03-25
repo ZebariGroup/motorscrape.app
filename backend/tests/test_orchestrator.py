@@ -6,7 +6,31 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.schemas import DealershipFound
-from app.services.orchestrator import stream_search
+from app.services.orchestrator import (
+    _guess_franchise_inventory_srp_url,
+    _prefer_https_website_url,
+    stream_search,
+)
+
+
+def test_prefer_https_website_url() -> None:
+    assert _prefer_https_website_url("http://example.com/") == "https://example.com/"
+    assert _prefer_https_website_url("https://x.test") == "https://x.test"
+    assert _prefer_https_website_url("  http://a.b  ") == "https://a.b"
+
+
+def test_guess_franchise_inventory_srp_url() -> None:
+    assert (
+        _guess_franchise_inventory_srp_url("http://dealer.example/", "new")
+        == "https://www.dealer.example/inventory/new"
+    )
+    assert (
+        _guess_franchise_inventory_srp_url("https://www.dealer.example", "used")
+        == "https://www.dealer.example/inventory/used"
+    )
+    assert _guess_franchise_inventory_srp_url("https://www.dealer.example", "all") == (
+        "https://www.dealer.example/inventory/new"
+    )
 
 
 @pytest.mark.asyncio

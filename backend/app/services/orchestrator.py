@@ -8,7 +8,7 @@ import logging
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -35,7 +35,7 @@ from app.services.provider_router import (
     resolve_inventory_url_for_provider,
 )
 from app.services.providers import extract_with_provider
-from app.services.scraper import PageKind, fetch_page_html
+from app.services.scraper import PageKind, _looks_like_block_page, fetch_page_html
 
 logger = logging.getLogger(__name__)
 _STREAM_LISTING_BATCH_SIZE = 8
@@ -75,6 +75,36 @@ def _html_mentions_make(html: str, make: str) -> bool:
     if not mk:
         return True
     return mk in html.lower()
+
+
+def _prefer_https_website_url(url: str) -> str:
+    u = (url or "").strip()
+    if u.lower().startswith("http://"):
+        return f"https://{u[7:]}"
+    return u
+
+
+def _guess_franchise_inventory_srp_url(website: str, vehicle_condition: str) -> str | None:
+    """
+    When homepage HTML is a bot shell (no usable <a> inventory links), many OEM-style
+    dealers still serve SRPs at /inventory/new or /inventory/used on https://www.
+    """
+    try:
+        parts = urlsplit((website or "").strip())
+        if not parts.scheme or not parts.netloc:
+            return None
+        host = parts.netloc.lower().split("@")[-1].split(":")[0]
+        if not host:
+            return None
+        www_host = host if host.startswith("www.") else f"www.{host}"
+        cond = (vehicle_condition or "all").strip().lower()
+        if cond == "used":
+            path = "/inventory/used"
+        else:
+            path = "/inventory/new"
+        return urlunsplit(("https", www_host, path, "", ""))
+    except Exception:
+        return None
 
 
 def _find_inventory_url(
@@ -366,7 +396,7 @@ async def stream_search(
 
     async def process_one(index: int, d: DealershipFound) -> list[str]:
         chunks: list[str] = []
-        website = d.website or ""
+        website = _prefer_https_website_url((d.website or "").strip())
         domain = normalize_dealer_domain(website)
         fetch_methods_used: list[str] = []
 
@@ -550,6 +580,49 @@ async def stream_search(
                     )
                 except Exception as e:
                     logger.debug("Preferred rendered refetch skipped for %s: %s", inv_url or website, e)
+
+            # Bot-challenge homepages often have no inventory <a> tags, so inv_url stays the homepage.
+            # Try a common franchise SRP with JS rendering before giving up on platform detection.
+            if (
+                inv_url
+                and _prefer_https_website_url(inv_url).rstrip("/")
+                == _prefer_https_website_url(website).rstrip("/")
+                and _looks_like_block_page(current_html)
+            ):
+                guess_inv = _guess_franchise_inventory_srp_url(website, vehicle_condition)
+                if guess_inv and guess_inv.rstrip("/") != _prefer_https_website_url(website).rstrip(
+                    "/"
+                ):
+                    chunks.append(
+                        _sse_pack(
+                            "dealership",
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "current_url": guess_inv,
+                                "status": "scraping",
+                            },
+                        )
+                    )
+                    try:
+                        rescue_html, rescue_method = await asyncio.wait_for(
+                            _fetch(guess_inv, "inventory", prefer_render=True),
+                            timeout=fetch_timeout,
+                        )
+                        if not _looks_like_block_page(rescue_html):
+                            current_html = rescue_html
+                            current_method = rescue_method
+                            inv_url = guess_inv
+                            logger.info(
+                                "Recovered inventory after challenge homepage using guessed SRP %s",
+                                guess_inv,
+                            )
+                    except asyncio.TimeoutError:
+                        logger.warning("Guessed SRP inventory fetch timed out for %s", guess_inv)
+                    except Exception as e:
+                        logger.warning("Guessed SRP inventory fetch failed for %s: %s", guess_inv, e)
 
             inventory_profile = detect_platform_profile(current_html, page_url=inv_url or website)
             if inventory_profile and (
