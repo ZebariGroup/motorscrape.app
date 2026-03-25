@@ -141,12 +141,44 @@ export function SearchFormSection({
                   type="button"
                   className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-400 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 dark:hover:text-emerald-400"
                   title="Use my current location"
-                  onClick={() => {
+                  onClick={async () => {
                     if (navigator.geolocation) {
-                      navigator.geolocation.getCurrentPosition(
-                        (pos) => setLocation(`${pos.coords.latitude}, ${pos.coords.longitude}`),
-                        () => alert("Unable to retrieve your location. Please check your browser permissions.")
-                      );
+                      try {
+                        // Show a temporary loading state in the input if possible, or just wait
+                        navigator.geolocation.getCurrentPosition(
+                          async (pos) => {
+                            const lat = pos.coords.latitude;
+                            const lng = pos.coords.longitude;
+                            try {
+                              // Reverse geocode using a free public API (Nominatim) to get a readable city/zip
+                              const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+                              const data = await res.json();
+                              if (data && data.address) {
+                                const city = data.address.city || data.address.town || data.address.village || data.address.suburb;
+                                const state = data.address.state;
+                                const zip = data.address.postcode;
+                                
+                                if (zip) {
+                                  setLocation(zip);
+                                } else if (city && state) {
+                                  setLocation(`${city}, ${state}`);
+                                } else {
+                                  // Fallback to coordinates if reverse geocoding fails to yield a good string
+                                  setLocation(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+                                }
+                              } else {
+                                setLocation(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+                              }
+                            } catch (e) {
+                              // Fallback to coordinates if the fetch fails
+                              setLocation(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+                            }
+                          },
+                          () => alert("Unable to retrieve your location. Please check your browser permissions.")
+                        );
+                      } catch (e) {
+                        alert("Geolocation is not supported by your browser.");
+                      }
                     }
                   }}
                 >
