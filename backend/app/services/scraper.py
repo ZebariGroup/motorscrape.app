@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -191,11 +192,12 @@ async def fetch_page_html(
             _m(f"{metric_prefix}_insufficient")
             needs_premium = _should_retry_zenrows_with_premium_proxy(html, page_kind=page_kind)
         except Exception as e:
-            sanitized = str(e).replace(settings.zenrows_api_key, "***")
+            err_str = e.__class__.__name__ if not str(e) else str(e)
+            sanitized = err_str.replace(settings.zenrows_api_key, "***")
             logger.warning("ZenRows %s failed for %s: %s", failure_label, url, sanitized)
             failures.append(f"{failure_label}: {sanitized}")
-            # If it's a 403 or 404, it might be a WAF block, so try premium proxy
-            if "403" in str(e) or "404" in str(e) or "429" in str(e):
+            # If it's a 403, 404, 422, or 429, it might be a WAF block, so try premium proxy
+            if "403" in err_str or "404" in err_str or "422" in err_str or "429" in err_str:
                 needs_premium = True
 
         if not needs_premium or settings.zenrows_premium_proxy:
@@ -216,7 +218,8 @@ async def fetch_page_html(
                 return premium_html
             _m(f"{metric_prefix}_premium_insufficient")
         except Exception as e:
-            sanitized = str(e).replace(settings.zenrows_api_key, "***")
+            err_str = e.__class__.__name__ if not str(e) else str(e)
+            sanitized = err_str.replace(settings.zenrows_api_key, "***")
             logger.warning("ZenRows %s with premium proxy failed for %s: %s", failure_label, url, sanitized)
             failures.append(f"{failure_label}_premium: {sanitized}")
         return None
@@ -275,8 +278,9 @@ async def fetch_page_html(
                         return html, "scrapingbee_rendered"
                     _m("scrapingbee_rendered_insufficient")
                 except Exception as e:
-                    logger.warning("ScrapingBee preferred rendered fetch failed for %s: %s", url, e)
-                    failures.append(f"scrapingbee_rendered_preferred: {e}")
+                    err_str = e.__class__.__name__ if not str(e) else str(e)
+                    logger.warning("ScrapingBee preferred rendered fetch failed for %s: %s", url, err_str)
+                    failures.append(f"scrapingbee_rendered_preferred: {err_str}")
 
     # 1) Direct first (cheapest)
     try:
@@ -290,8 +294,9 @@ async def fetch_page_html(
         logger.info("Direct fetch insufficient for %s (%s), escalating to managed scrapers", url, page_kind)
         _m("direct_insufficient")
     except Exception as e:
-        failures.append(f"direct: {e}")
-        logger.debug("Direct fetch failed for %s: %s", url, e)
+        err_str = e.__class__.__name__ if not str(e) else str(e)
+        failures.append(f"direct: {err_str}")
+        logger.debug("Direct fetch failed for %s: %s", url, err_str)
         _m("direct_failed")
 
     # 2) ZenRows: static then rendered
@@ -348,8 +353,9 @@ async def fetch_page_html(
                 _m("scrapingbee_static_ok")
                 return html, "scrapingbee_static"
         except Exception as e:
-            logger.warning("ScrapingBee static fetch failed for %s: %s", url, e)
-            failures.append(f"scrapingbee_static: {e}")
+            err_str = e.__class__.__name__ if not str(e) else str(e)
+            logger.warning("ScrapingBee static fetch failed for %s: %s", url, err_str)
+            failures.append(f"scrapingbee_static: {err_str}")
 
         for wait_ms in _retry_waits(settings.scrapingbee_wait_ms):
             try:
@@ -365,8 +371,9 @@ async def fetch_page_html(
                     return html, "scrapingbee_rendered"
                 _m("scrapingbee_rendered_insufficient")
             except Exception as e:
-                logger.warning("ScrapingBee rendered fetch failed for %s: %s", url, e)
-                failures.append(f"scrapingbee_rendered: {e}")
+                err_str = e.__class__.__name__ if not str(e) else str(e)
+                logger.warning("ScrapingBee rendered fetch failed for %s: %s", url, err_str)
+                failures.append(f"scrapingbee_rendered: {err_str}")
 
     # 4) If we had a direct body that was "insufficient", return it rather than failing completely
     try:
@@ -375,7 +382,8 @@ async def fetch_page_html(
         _m("direct_fallback_ok")
         return html, "direct_fallback"
     except Exception as e:
-        failures.append(f"direct_retry: {e}")
+        err_str = e.__class__.__name__ if not str(e) else str(e)
+        failures.append(f"direct_retry: {err_str}")
 
     detail = " | ".join(failures)
     raise RuntimeError(f"All fetch methods failed for {url}: {detail}") from None
