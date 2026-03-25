@@ -53,7 +53,7 @@ def create_checkout(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sign in to subscribe.")
     base, metered = _pick_prices(body.tier)
     if not base:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Stripe price IDs are not configured.")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"Stripe price IDs are not configured for {body.tier}.")
     stripe = _stripe()
     store = get_account_store(settings.accounts_db_path)
     user = store.get_user_by_id(ctx.user_id)
