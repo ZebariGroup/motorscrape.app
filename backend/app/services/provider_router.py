@@ -102,6 +102,27 @@ def _dealer_on_condition_matches(url: str, condition: str) -> bool:
     return _looks_like_dealer_on_srp(url)
 
 
+def _dealer_on_path_score(url: str, condition: str) -> int:
+    parts = urlsplit(url)
+    path = parts.path.lower()
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    if condition == "new":
+        if path.endswith("/searchnew.aspx") and not query:
+            return 120
+        if path.endswith("/searchnew.aspx") and query.get("make") and "model" not in query and "modelandtrim" not in query:
+            return 90
+        if any(key in query for key in ("model", "modelandtrim", "bodytype", "year")):
+            return -80
+    if condition == "used":
+        if path.endswith("/searchused.aspx") and not query:
+            return 120
+        if path.endswith("/searchused.aspx") and query.get("make") and "model" not in query and "modelandtrim" not in query:
+            return 90
+        if any(key in query for key in ("model", "modelandtrim", "bodytype", "year")):
+            return -80
+    return 0
+
+
 def _dealer_inspire_path_score(url: str, condition: str) -> int:
     path = urlsplit(url).path.lower().rstrip("/")
     if not path:
@@ -348,6 +369,7 @@ def resolve_inventory_url_for_provider(
         if "inventory" in href_lower or "inventory" in text:
             score += 20
         if route and route.platform_id == "dealer_on" and not model_norm:
+            score += _dealer_on_path_score(href, condition)
             if _dealer_on_condition_matches(href, condition):
                 score += 80
             if "?q=" in href_lower:
