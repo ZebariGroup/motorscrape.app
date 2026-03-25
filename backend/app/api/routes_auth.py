@@ -88,6 +88,17 @@ def logout(response: Response) -> dict[str, bool]:
     return {"ok": True}
 
 
+class UpdatePasswordBody(BaseModel):
+    new_password: str = Field(min_length=8, max_length=128)
+
+@router.post("/update-password")
+def update_password(body: UpdatePasswordBody, ctx: Annotated[AccessContext, Depends(get_access_context)]) -> dict[str, bool]:
+    if not ctx.user_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated.")
+    store = get_account_store(settings.accounts_db_path)
+    store.update_password(ctx.user_id, body.new_password)
+    return {"ok": True}
+
 @router.get("/me")
 def me(ctx: Annotated[AccessContext, Depends(get_access_context)]) -> dict[str, Any]:
     if ctx.user_id is None:
@@ -116,6 +127,7 @@ def me(ctx: Annotated[AccessContext, Depends(get_access_context)]) -> dict[str, 
             "csv_export": lim.csv_export,
             "inventory_scope_premium": lim.inventory_scope_premium,
         },
+        "stripe_customer_id": user.stripe_customer_id,
         "stripe_metered_item_id": bool(user.stripe_metered_item_id),
     }
 

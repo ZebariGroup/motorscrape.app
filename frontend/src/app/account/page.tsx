@@ -9,11 +9,12 @@ import { resolveApiUrl } from "@/lib/apiBase";
 import type { AccessSummary } from "@/types/access";
 
 type MeResponse = {
-  id: number;
+  id: string;
   email: string;
   tier: string;
   usage: { period: string; included_used: number; overage_used: number; included_limit: number };
   limits: AccessSummary["limits"];
+  stripe_customer_id: string | null;
   stripe_metered_item_id: boolean;
 };
 
@@ -22,6 +23,10 @@ export default function AccountPage() {
   const [access, setAccess] = useState<AccessSummary | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
+  const [isManagingBilling, setIsManagingBilling] = useState(false);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const loadAccess = useCallback(() => {
     fetch(resolveApiUrl("/auth/access-summary"), { credentials: "include" })
@@ -59,19 +64,74 @@ export default function AccountPage() {
 
   const checkout = async (tier: "standard" | "premium") => {
     setBillingError(null);
-    const r = await fetch(resolveApiUrl("/billing/checkout"), {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tier }),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      setBillingError(typeof j.detail === "string" ? j.detail : "Checkout unavailable.");
-      return;
+    setIsManagingBilling(true);
+    try {
+      const r = await fetch(resolveApiUrl("/billing/checkout"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tier }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setBillingError(typeof j.detail === "string" ? j.detail : "Checkout unavailable.");
+        setIsManagingBilling(false);
+        return;
+      }
+      const { url } = await r.json();
+      if (url) window.location.href = url as string;
+    } catch {
+      setBillingError("Network error. Please try again.");
+      setIsManagingBilling(false);
     }
-    const { url } = await r.json();
-    if (url) window.location.href = url as string;
+  };
+
+  const manageBilling = async () => {
+    setBillingError(null);
+    setIsManagingBilling(true);
+    try {
+      const r = await fetch(resolveApiUrl("/billing/portal"), {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setBillingError(typeof j.detail === "string" ? j.detail : "Billing portal unavailable.");
+        setIsManagingBilling(false);
+        return;
+      }
+      const { url } = await r.json();
+      if (url) window.location.href = url as string;
+    } catch {
+      setBillingError("Network error. Please try again.");
+      setIsManagingBilling(false);
+    }
+  };
+
+  const updatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword.length < 8) return;
+    setIsUpdatingPassword(true);
+    setPasswordMessage(null);
+    try {
+      const r = await fetch(resolveApiUrl("/auth/update-password"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_password: newPassword }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setPasswordMessage({ type: "error", text: typeof j.detail === "string" ? j.detail : "Failed to update password." });
+      } else {
+        setPasswordMessage({ type: "success", text: "Password updated successfully." });
+        setNewPassword("");
+      }
+    } catch {
+      setPasswordMessage({ type: "error", text: "Network error. Please try again." });
+    } finally {
+      setIsUpdatingPassword(false);
+    }
   };
 
   return (
@@ -125,29 +185,78 @@ export default function AccountPage() {
 
             <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                Upgrade
+                Billing & Plan
               </h2>
               <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-                Subscribe via Stripe Checkout (configure price IDs in the API environment). Enterprise and custom licensing
-                are contracted separately — see docs in the repo.
+                {me.stripe_customer_id
+                  ? "Manage your active subscription, payment methods, and billing history."
+                  : "Subscribe via Stripe Checkout to unlock higher limits and premium features. Enterprise and custom licensing are contracted separately."}
               </p>
               {billingError ? <p className="mt-2 text-sm text-red-600">{billingError}</p> : null}
               <div className="mt-4 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => void checkout("standard")}
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-                >
-                  Standard
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void checkout("premium")}
-                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 dark:border-zinc-600 dark:text-zinc-50"
-                >
-                  Premium
-                </button>
+                {me.stripe_customer_id ? (
+                  <button
+                    type="button"
+                    onClick={() => void manageBilling()}
+                    disabled={isManagingBilling}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isManagingBilling ? "Opening portal..." : "Manage Billing"}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void checkout("standard")}
+                      disabled={isManagingBilling}
+                      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isManagingBilling ? "Loading..." : "Upgrade to Standard"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void checkout("premium")}
+                      disabled={isManagingBilling}
+                      className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isManagingBilling ? "Loading..." : "Upgrade to Premium"}
+                    </button>
+                  </>
+                )}
               </div>
+            </section>
+
+            <section className="rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Security
+              </h2>
+              <form onSubmit={updatePassword} className="mt-4 flex max-w-sm flex-col gap-3">
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium text-zinc-800 dark:text-zinc-200">New Password</span>
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  />
+                </label>
+                {passwordMessage ? (
+                  <p className={`text-sm ${passwordMessage.type === "error" ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                    {passwordMessage.text}
+                  </p>
+                ) : null}
+                <div>
+                  <button
+                    type="submit"
+                    disabled={isUpdatingPassword || newPassword.length < 8}
+                    className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                  >
+                    {isUpdatingPassword ? "Updating..." : "Update Password"}
+                  </button>
+                </div>
+              </form>
             </section>
           </div>
         )}

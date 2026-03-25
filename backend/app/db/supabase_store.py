@@ -61,6 +61,9 @@ class SupabaseAccountStore:
             return None
         return None
 
+    def update_password(self, user_id: str, new_password: str) -> None:
+        self.client.auth.admin.update_user_by_id(user_id, {"password": new_password})
+
     def set_tier(
         self,
         user_id: str,

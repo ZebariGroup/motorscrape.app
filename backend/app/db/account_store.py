@@ -145,6 +145,12 @@ class AccountStore:
             return None
         return self.get_user_by_id(int(row["id"]))
 
+    def update_password(self, user_id: int | str, new_password: str) -> None:
+        ph = _pwd.hash(new_password)
+        with self._conn() as c:
+            c.execute("UPDATE users SET password_hash = ? WHERE id = ?", (ph, user_id))
+            c.commit()
+
     def set_tier(
         self,
         user_id: int | str,

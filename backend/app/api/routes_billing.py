@@ -78,6 +78,24 @@ def create_checkout(
     return {"url": session["url"]}
 
 
+@router.post("/portal")
+def create_portal_session(
+    ctx: Annotated[AccessContext, Depends(get_access_context)],
+) -> dict[str, str]:
+    if ctx.user_id is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sign in to manage billing.")
+    store = get_account_store(settings.accounts_db_path)
+    user = store.get_user_by_id(ctx.user_id)
+    if user is None or not user.stripe_customer_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No active billing account.")
+    stripe = _stripe()
+    web = (settings.public_web_url or "https://www.motorscrape.com").rstrip("/")
+    session = stripe.billing_portal.Session.create(
+        customer=user.stripe_customer_id,
+        return_url=f"{web}/account",
+    )
+    return {"url": session.url}
+
 @router.post("/webhook")
 async def stripe_webhook(request: Request) -> dict[str, bool]:
     wh_secret = (settings.stripe_webhook_secret or "").strip()

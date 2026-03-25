@@ -69,17 +69,6 @@ export function SearchExperience() {
     [scopePremium, form.inventoryScope, form.setInventoryScope],
   );
 
-  const anonHint =
-    access && !access.authenticated && access.anonymous
-      ? `Free searches left (no account): ${access.anonymous.searches_remaining} of ${access.anonymous.signup_required_after}`
-      : null;
-
-  const usageHint =
-    access?.authenticated && access.usage
-      ? `Plan ${access.tier} · ${access.usage.included_used}/${access.usage.included_limit} included searches this month` +
-        (access.usage.overage_used ? ` · ${access.usage.overage_used} overage` : "")
-      : null;
-
   return (
     <>
       <SiteHeader access={access} />

@@ -15,6 +15,8 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [access, setAccess] = useState<AccessSummary | null>(null);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const loadAccess = () => {
     fetch(resolveApiUrl("/auth/access-summary"), { credentials: "include" })
       .then((r) => r.json())
@@ -29,19 +31,26 @@ export default function LoginPage() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const r = await fetch(resolveApiUrl("/auth/login"), {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      setError(typeof j.detail === "string" ? j.detail : "Login failed.");
-      return;
+    setIsSubmitting(true);
+    try {
+      const r = await fetch(resolveApiUrl("/auth/login"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setError(typeof j.detail === "string" ? j.detail : "Login failed.");
+        setIsSubmitting(false);
+        return;
+      }
+      router.push("/");
+      router.refresh();
+    } catch {
+      setError("Network error. Please try again.");
+      setIsSubmitting(false);
     }
-    router.push("/");
-    router.refresh();
   };
 
   return (
@@ -81,9 +90,10 @@ export default function LoginPage() {
           {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
           <button
             type="submit"
-            className="rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500"
+            disabled={isSubmitting}
+            className="rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Log in
+            {isSubmitting ? "Logging in..." : "Log in"}
           </button>
         </form>
       </main>
