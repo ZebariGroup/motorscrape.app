@@ -99,7 +99,10 @@ export function SearchExperience() {
           setMaxDealerships={form.setMaxDealerships}
           onSearch={search.startSearch}
           onStop={search.stopStream}
-          canSearch={form.location.trim().length >= 2}
+          canSearch={
+            form.location.trim().length >= 2 &&
+            (access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom" || form.model.trim().length > 0)
+          }
           status={search.status}
           errors={search.errors}
           discoveredDealerPercent={dealers.discoveredDealerPercent}
@@ -111,6 +114,7 @@ export function SearchExperience() {
           maxDealersCap={maxDealersCap}
           maxRadiusMilesCap={maxRadiusCap}
           inventoryScopePremium={scopePremium}
+          allowAnyModel={access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom"}
         />
 
         <div className="grid gap-8 lg:grid-cols-3">

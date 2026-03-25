@@ -75,21 +75,26 @@ def listing_matches_filters(v: VehicleListing, make_f: str, model_f: str) -> boo
     if make_f and make_f not in blob:
         return False
     if model_f:
-        vars_ = model_filter_variants(model_f)
-        norm_vars = {normalize_model_text(x) for x in vars_ if x}
-        if v.model:
-            model_norm = normalize_model_text(v.model)
-            # Treat shorter model queries as family searches:
-            # "F-150" should include "F-150 Lightning", but
-            # "F-150 Lightning" should not include plain "F-150".
-            if (
-                model_norm
-                and norm_vars
-                and not any(model_norm == q or model_norm.startswith(q) for q in norm_vars)
-            ):
-                return False
-        elif vars_ and not any(x in blob for x in vars_):
+        models = [m.strip() for m in model_f.split(",") if m.strip()]
+        if not models:
+            return True
+            
+        matched_any_model = False
+        for m_str in models:
+            vars_ = model_filter_variants(m_str)
+            norm_vars = {normalize_model_text(x) for x in vars_ if x}
+            if v.model:
+                model_norm = normalize_model_text(v.model)
+                if model_norm and norm_vars and any(model_norm == q or model_norm.startswith(q) for q in norm_vars):
+                    matched_any_model = True
+                    break
+            elif vars_ and any(x in blob for x in vars_):
+                matched_any_model = True
+                break
+                
+        if not matched_any_model:
             return False
+            
     return True
 
 

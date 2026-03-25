@@ -83,7 +83,11 @@ def _html_mentions_model(html: str, model: str) -> bool:
     if not model.strip():
         return True
     hay = html.lower()
-    return any(v in hay for v in model_filter_variants(model))
+    models = [m.strip() for m in model.split(",") if m.strip()]
+    for m in models:
+        if any(v in hay for v in model_filter_variants(m)):
+            return True
+    return False
 
 
 def _html_mentions_make(html: str, make: str) -> bool:

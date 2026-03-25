@@ -61,9 +61,6 @@ export function ResultFiltersPanel({
               </span>
             ) : null}
           </div>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            Narrow the streamed inventory by year, style, color, and price.
-          </p>
         </div>
         <span className="text-lg text-zinc-400">{filtersExpanded ? "−" : "+"}</span>
       </button>

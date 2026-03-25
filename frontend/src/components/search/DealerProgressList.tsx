@@ -226,6 +226,9 @@ export function DealerProgressList({
           </ul>
         </div>
       ) : null}
+      <p className="mt-4 text-xs text-zinc-500 dark:text-zinc-400">
+        Disclaimer: Prices, availability, and vehicle details are extracted directly from dealership websites and may not always be accurate or up to date. Please verify all information with the dealer.
+      </p>
     </div>
   );
 }
