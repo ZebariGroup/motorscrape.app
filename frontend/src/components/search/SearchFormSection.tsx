@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { VEHICLE_MAKES } from "@/lib/vehicleCatalog";
 
 type Props = {
@@ -64,6 +64,54 @@ export function SearchFormSection({
 }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isFormExpanded, setIsFormExpanded] = useState(true);
+  const [myLocationLoading, setMyLocationLoading] = useState(false);
+  const [myLocationError, setMyLocationError] = useState<string | null>(null);
+
+  const requestMyLocation = useCallback(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setMyLocationError("Location is not available in this browser.");
+      return;
+    }
+    setMyLocationLoading(true);
+    setMyLocationError(null);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const params = new URLSearchParams({
+            lat: String(pos.coords.latitude),
+            lon: String(pos.coords.longitude),
+          });
+          const res = await fetch(`/api/reverse-geocode?${params.toString()}`);
+          const data = (await res.json()) as { label?: string; error?: string };
+          if (!res.ok) {
+            throw new Error(typeof data.error === "string" ? data.error : "Could not resolve address");
+          }
+          if (typeof data.label === "string" && data.label.trim().length >= 2) {
+            setLocation(data.label.trim());
+          } else {
+            throw new Error("Could not resolve address");
+          }
+        } catch (e) {
+          setMyLocationError(e instanceof Error ? e.message : "Could not resolve address");
+        } finally {
+          setMyLocationLoading(false);
+        }
+      },
+      (err) => {
+        setMyLocationLoading(false);
+        if (err.code === err.PERMISSION_DENIED) {
+          setMyLocationError("Location permission denied. Allow access in your browser settings.");
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          setMyLocationError("Current position unavailable.");
+        } else if (err.code === err.TIMEOUT) {
+          setMyLocationError("Location request timed out.");
+        } else {
+          setMyLocationError(err.message || "Could not get location.");
+        }
+      },
+      { enableHighAccuracy: false, maximumAge: 300_000, timeout: 20_000 },
+    );
+  }, [setLocation]);
 
   const handleSearch = () => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
@@ -101,16 +149,38 @@ export function SearchFormSection({
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="col-span-full sm:col-span-1 lg:col-span-1 flex flex-col gap-1 text-sm">
+            <div className="col-span-full sm:col-span-1 lg:col-span-1 flex flex-col gap-1 text-sm">
               <span className="font-medium text-zinc-800 dark:text-zinc-200">Location</span>
-              <input
-                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                placeholder="City or ZIP"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                disabled={running}
-              />
-            </label>
+              <div className="flex gap-2">
+                <input
+                  className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  placeholder="City or ZIP"
+                  value={location}
+                  onChange={(e) => {
+                    setMyLocationError(null);
+                    setLocation(e.target.value);
+                  }}
+                  disabled={running}
+                  autoComplete="postal-code"
+                  inputMode="text"
+                />
+                <button
+                  type="button"
+                  onClick={requestMyLocation}
+                  disabled={running || myLocationLoading}
+                  className="shrink-0 rounded-lg border border-zinc-300 bg-zinc-50 px-2.5 py-2 text-xs font-semibold text-zinc-800 outline-none ring-emerald-500/40 transition hover:bg-zinc-100 focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 sm:px-3 sm:text-sm"
+                  aria-label="Use my current location"
+                  title="Use GPS to fill city or ZIP"
+                >
+                  {myLocationLoading ? "…" : "My location"}
+                </button>
+              </div>
+              {myLocationError ? (
+                <p className="text-xs text-red-600 dark:text-red-400" role="status">
+                  {myLocationError}
+                </p>
+              ) : null}
+            </div>
             <div className="col-span-full sm:col-span-1 lg:col-span-2 grid grid-cols-2 gap-4">
               <label className="flex flex-col gap-1 text-sm">
                 <span className="font-medium text-zinc-800 dark:text-zinc-200">Make</span>
