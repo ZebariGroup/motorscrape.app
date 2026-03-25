@@ -35,6 +35,13 @@ class PlatformDefinition:
 
 _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
     PlatformDefinition(
+        platform_id="oneaudi_falcon",
+        markers=("oneaudi-falcon", "audi.com", "vtpimages.audi.com"),
+        inventory_path_hints=("new-inventory", "used-inventory", "inventory", "new"),
+        extraction_mode="hybrid",
+        requires_render=True,
+    ),
+    PlatformDefinition(
         platform_id="dealer_dot_com",
         markers=(
             "dealer.com",

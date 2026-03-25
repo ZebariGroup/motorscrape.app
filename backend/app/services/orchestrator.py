@@ -163,6 +163,18 @@ def _find_inventory_url(
             if any(x in href for x in ["service", "parts", "finance", "contact", "about", "specials", "privacy"]):
                 score -= 20
 
+            # Heavily penalize external links that aren't subdomains
+            from urllib.parse import urlparse
+            try:
+                parsed_href = urlparse(a['href'])
+                if parsed_href.netloc:
+                    base_netloc = urlparse(base_url).netloc
+                    # If it's a completely different domain (not just a subdomain)
+                    if not parsed_href.netloc.endswith(base_netloc.replace("www.", "")):
+                        score -= 50
+            except Exception:
+                pass
+
             if score > best_score and score > 0:
                 best_score = score
                 best_url = urljoin(base_url, a['href'])

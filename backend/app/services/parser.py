@@ -848,6 +848,7 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
         ".inventory-vehicle-block",
         ".vehicle-box",
         ".vehicle-specials",
+        "[data-vehicle-vin]",
     )
     for card in soup.select(", ".join(selectors)):
         classes = set(card.get("class") or [])
@@ -858,14 +859,15 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
         card_text = card.get_text(" ", strip=True)
         vin = (
             card.get("data-vin")
+            or card.get("data-vehicle-vin")
             or card.get("data-dotagging-item-id")
             or payload.get("vin")
             or _extract_vin_from_text(card_text)
         )
-        make = card.get("data-make") or card.get("data-dotagging-item-make") or payload.get("make")
-        model = card.get("data-model") or card.get("data-dotagging-item-model") or payload.get("model")
-        year = _coerce_int(card.get("data-year") or card.get("data-dotagging-item-year") or payload.get("year"))
-        trim = card.get("data-trim") or card.get("data-dotagging-item-variant") or payload.get("trim")
+        make = card.get("data-make") or card.get("data-vehicle-make") or card.get("data-dotagging-item-make") or payload.get("make")
+        model = card.get("data-model") or card.get("data-vehicle-model-name") or card.get("data-dotagging-item-model") or payload.get("model")
+        year = _coerce_int(card.get("data-year") or card.get("data-vehicle-model-year") or card.get("data-dotagging-item-year") or payload.get("year"))
+        trim = card.get("data-trim") or card.get("data-vehicle-trim") or card.get("data-dotagging-item-variant") or payload.get("trim")
         mileage = _coerce_int(
             card.get("data-odometer")
             or card.get("data-dotagging-item-odometer")
@@ -874,6 +876,7 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
         )
         price = _coerce_float(
             card.get("data-price")
+            or card.get("data-vehicle-price")
             or card.get("data-msrp")
             or card.get("data-dotagging-item-price")
             or payload.get("price")

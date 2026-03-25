@@ -499,6 +499,16 @@ def resolve_inventory_url_for_provider(
         if any(x in href_lower for x in ["research", "compare", "reviews", "schedule"]):
             score -= 25
 
+        # Heavily penalize external links that aren't subdomains
+        try:
+            parsed_href = urlsplit(href)
+            if parsed_href.netloc:
+                base_netloc = urlsplit(base_url).netloc
+                if not parsed_href.netloc.endswith(base_netloc.replace("www.", "")):
+                    score -= 50
+        except Exception:
+            pass
+
         if score > best_score and score > 0:
             best_score = score
             best_url = urljoin(base_url, href)

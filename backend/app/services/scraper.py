@@ -172,6 +172,7 @@ async def fetch_page_html(
         wait_ms: int = 0,
         metric_prefix: str,
         failure_label: str,
+        js_instructions: str | None = None,
     ) -> str | None:
         html = None
         needs_premium = False
@@ -181,6 +182,7 @@ async def fetch_page_html(
                 timeout,
                 js_render=js_render,
                 wait_ms=wait_ms,
+                js_instructions=js_instructions,
             )
             html = await _maybe_append_inventory_api_data(url, html, timeout)
             if _direct_html_sufficient(html, page_kind=page_kind):
@@ -206,6 +208,7 @@ async def fetch_page_html(
                 js_render=js_render,
                 wait_ms=wait_ms,
                 premium_proxy=True,
+                js_instructions=js_instructions,
             )
             premium_html = await _maybe_append_inventory_api_data(url, premium_html, timeout)
             if _direct_html_sufficient(premium_html, page_kind=page_kind):
@@ -219,6 +222,32 @@ async def fetch_page_html(
         return None
 
     if prefer_render and page_kind == "inventory":
+        # If it's OneAudi Falcon, we need to click the "Load more vehicles" button multiple times
+        # to get all vehicles on the page, since pagination doesn't work via URL.
+        js_instructions = None
+        if "audi.com" in url or "audinovi.com" in url or "audirochesterhills.com" in url or "audiannarbor.com" in url or "audilansing.com" in url or "audiwindsor.com" in url:
+            # We can't know for sure it's OneAudi without fetching, but if it's an Audi site,
+            # it's safe to try clicking the load more button.
+            js_instructions = """[
+                {"wait": 2000},
+                {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+                {"wait": 1000},
+                {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+                {"wait": 2000},
+                {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+                {"wait": 1000},
+                {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+                {"wait": 2000},
+                {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+                {"wait": 1000},
+                {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+                {"wait": 2000},
+                {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+                {"wait": 1000},
+                {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+                {"wait": 2000}
+            ]"""
+
         if settings.zenrows_api_key:
             for wait_ms in _retry_waits(settings.zenrows_wait_ms):
                 html = await _try_zenrows(
@@ -226,6 +255,7 @@ async def fetch_page_html(
                     wait_ms=wait_ms,
                     metric_prefix="zenrows_rendered",
                     failure_label="zenrows_rendered_preferred",
+                    js_instructions=js_instructions,
                 )
                 if html is not None:
                     return html, "zenrows_rendered"
@@ -276,11 +306,35 @@ async def fetch_page_html(
                 return html, "zenrows_static"
 
         for wait_ms in _retry_waits(settings.zenrows_wait_ms):
+            # Same logic for fallback rendered fetch
+            js_instructions = None
+            if "audi.com" in url or "audinovi.com" in url or "audirochesterhills.com" in url or "audiannarbor.com" in url or "audilansing.com" in url or "audiwindsor.com" in url:
+                js_instructions = """[
+                    {"wait": 2000},
+                    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+                    {"wait": 1000},
+                    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+                    {"wait": 2000},
+                    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+                    {"wait": 1000},
+                    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+                    {"wait": 2000},
+                    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+                    {"wait": 1000},
+                    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+                    {"wait": 2000},
+                    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+                    {"wait": 1000},
+                    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+                    {"wait": 2000}
+                ]"""
+
             html = await _try_zenrows(
                 js_render=True,
                 wait_ms=wait_ms,
                 metric_prefix="zenrows_rendered",
                 failure_label="zenrows_rendered",
+                js_instructions=js_instructions,
             )
             if html is not None:
                 return html, "zenrows_rendered"
@@ -429,6 +483,7 @@ async def _zenrows_fetch(
     js_render: bool,
     wait_ms: int = 0,
     premium_proxy: bool = False,
+    js_instructions: str | None = None,
 ) -> str:
     """https://docs.zenrows.com/universal-scraper-api"""
     api_url = "https://api.zenrows.com/v1/"
@@ -439,6 +494,8 @@ async def _zenrows_fetch(
     }
     if js_render and wait_ms > 0:
         params["wait"] = str(wait_ms)
+    if js_render and js_instructions:
+        params["js_instructions"] = js_instructions
     if settings.zenrows_premium_proxy or premium_proxy:
         params["premium_proxy"] = "true"
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
