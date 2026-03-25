@@ -64,7 +64,7 @@ def create_checkout(
     if metered:
         line_items.append({"price": metered})
 
-    web = (settings.public_web_url or "http://localhost:3000").rstrip("/")
+    web = (settings.public_web_url or "https://www.motorscrape.com").rstrip("/")
     session = stripe.checkout.Session.create(
         mode="subscription",
         success_url=f"{web}/account?checkout=success",
