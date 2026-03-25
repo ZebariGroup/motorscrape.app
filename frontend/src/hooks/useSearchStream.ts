@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { getApiBaseUrl } from "@/lib/config";
+import { resolveApiUrl } from "@/lib/apiBase";
 import { clampNumber, clampPercent, dealerSiteKey } from "@/lib/inventoryFormat";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import { getModelsForMake } from "@/lib/vehicleCatalog";
@@ -70,7 +70,16 @@ function listingsWithPinnedDealerFirst(list: AggregatedListing[], pinnedSite: st
   return [...fromPinned, ...rest];
 }
 
-export function useSearchStream() {
+export type UseSearchStreamOptions = {
+  /** Called after the terminal `done` SSE event (e.g. refresh usage counters). */
+  onStreamFinished?: () => void;
+};
+
+export function useSearchStream(options?: UseSearchStreamOptions) {
+  const onFinishedRef = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => {
+    onFinishedRef.current = options?.onStreamFinished;
+  }, [options?.onStreamFinished]);
   const [location, setLocation] = useState("");
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
@@ -270,7 +279,8 @@ export function useSearchStream() {
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // Collapse filters on small viewports on first mount (UX preference).
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional initial UI state from viewport
       setFiltersExpanded(false);
     }
   }, []);
@@ -297,7 +307,7 @@ export function useSearchStream() {
     const startedAt = Date.now();
     setNowMs(startedAt);
 
-    const base = getApiBaseUrl();
+    const streamUrl = resolveApiUrl("/search/stream");
     const params = new URLSearchParams({
       location: location.trim(),
       make: make.trim(),
@@ -307,7 +317,7 @@ export function useSearchStream() {
       inventory_scope: inventoryScope,
       max_dealerships: maxDealerships,
     });
-    const url = `${base}/search/stream?${params.toString()}`;
+    const url = `${streamUrl}?${params.toString()}`;
 
     setRunning(true);
     const es = new EventSource(url);
@@ -393,6 +403,7 @@ export function useSearchStream() {
         setStatus((s) => s ?? "Search finished.");
       }
       stopStream();
+      onFinishedRef.current?.();
     };
 
     es.addEventListener("status", onStatus);

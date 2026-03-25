@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
+import time
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from typing import Any
@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 from app.config import settings
 from app.schemas import DealershipFound, VehicleListing
 from app.services.dealer_platforms import detect_platform_profile
+from app.services.economics import build_search_economics, log_economics_line
 from app.services.inventory_discovery import discover_sitemap_inventory_urls
 from app.services.inventory_filters import (
     infer_vehicle_condition_from_page,
@@ -41,6 +42,7 @@ from app.services.provider_router import (
 )
 from app.services.providers import extract_with_provider
 from app.services.scraper import PageKind, _looks_like_block_page, fetch_page_html
+from app.sse import sse_pack
 
 logger = logging.getLogger(__name__)
 _STREAM_LISTING_BATCH_SIZE = 8
@@ -343,10 +345,6 @@ async def _enrich_vehicle_from_vdp(v: VehicleListing) -> VehicleListing:
     return v
 
 
-def _sse_pack(event_type: str, data: dict[str, Any]) -> str:
-    return f"event: {event_type}\ndata: {json.dumps(data, default=str)}\n\n"
-
-
 def _chunk_listings(rows: list[dict[str, Any]], size: int = _STREAM_LISTING_BATCH_SIZE) -> list[list[dict[str, Any]]]:
     if size <= 0 or len(rows) <= size:
         return [rows]
@@ -363,11 +361,12 @@ async def stream_search(
     inventory_scope: str = "all",
     max_dealerships: int | None = None,
     max_pages_per_dealer: int | None = None,
+    outcome_holder: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     """
     Yield SSE-formatted strings: status, dealership, vehicles, error, done.
     """
-    yield _sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
+    yield sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
     requested_dealerships = max(1, min(max_dealerships or settings.max_dealerships, 30))
     requested_pages = max(
         1,
@@ -376,6 +375,34 @@ async def stream_search(
             settings.search_max_pages_per_dealer_cap,
         ),
     )
+    t0 = time.perf_counter()
+    fetch_metrics: dict[str, int] = defaultdict(int)
+    extraction_metrics: dict[str, int] = defaultdict(int)
+
+    def finalize_done(base: dict[str, Any], *, ok: bool) -> dict[str, Any]:
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+        md = int(base.get("max_dealerships", requested_dealerships))
+        mp = int(base.get("max_pages_per_dealer", requested_pages))
+        rm = int(base.get("radius_miles", radius_miles))
+        vc = str(base.get("vehicle_condition", vehicle_condition))
+        invs = str(base.get("inventory_scope", inventory_scope))
+        economics = build_search_economics(
+            fetch_metrics=dict(fetch_metrics),
+            extraction_metrics=dict(extraction_metrics),
+            requested_dealerships=md,
+            requested_pages=mp,
+            radius_miles=rm,
+            duration_ms=duration_ms,
+            vehicle_condition=vc,
+            inventory_scope=invs,
+            ok=ok,
+        )
+        payload = {**base, "duration_ms": duration_ms, "economics": economics}
+        if outcome_holder is not None:
+            outcome_holder.clear()
+            outcome_holder.update(payload)
+        log_economics_line(logger, economics, user_hint="")
+        return payload
 
     try:
         dealers = await find_car_dealerships(
@@ -387,8 +414,8 @@ async def stream_search(
         )
     except Exception as e:
         logger.exception("Places search failed")
-        yield _sse_pack("search_error", {"message": str(e), "phase": "places"})
-        yield _sse_pack("done", {"ok": False})
+        yield sse_pack("search_error", {"message": str(e), "phase": "places"})
+        yield sse_pack("done", finalize_done({"ok": False}, ok=False))
         return
 
     raw_dealer_count = len(dealers)
@@ -396,11 +423,25 @@ async def stream_search(
     deduped_dealer_count = len(dealers)
     dealers = dealers[: requested_dealerships]
     if not dealers:
-        yield _sse_pack("status", {"message": "No dealerships with websites found.", "phase": "places"})
-        yield _sse_pack("done", {"ok": True, "dealerships": 0})
+        yield sse_pack("status", {"message": "No dealerships with websites found.", "phase": "places"})
+        yield sse_pack(
+            "done",
+            finalize_done(
+                {
+                    "ok": True,
+                    "dealerships": 0,
+                    "radius_miles": radius_miles,
+                    "vehicle_condition": vehicle_condition,
+                    "inventory_scope": inventory_scope,
+                    "max_dealerships": requested_dealerships,
+                    "max_pages_per_dealer": requested_pages,
+                },
+                ok=True,
+            ),
+        )
         return
 
-    yield _sse_pack(
+    yield sse_pack(
         "status",
         {
             "message": (
@@ -415,8 +456,6 @@ async def stream_search(
     sem = asyncio.Semaphore(max(1, settings.search_concurrency))
     fetch_timeout = settings.scrape_timeout * 3 + 5.0
     parse_timeout = settings.openai_timeout + 5.0
-    fetch_metrics: dict[str, int] = defaultdict(int)
-    extraction_metrics: dict[str, int] = defaultdict(int)
     metrics_lock = asyncio.Lock()
     inv_url_cache: dict[str, str] = {}
 
@@ -457,7 +496,7 @@ async def stream_search(
             return html, method
 
         chunks.append(
-            _sse_pack(
+            sse_pack(
                 "dealership",
                 {
                     "index": index,
@@ -478,7 +517,7 @@ async def stream_search(
                 for listing_chunk in _chunk_listings(cached_listings):
                     total_cached += len(listing_chunk)
                     chunks.append(
-                        _sse_pack(
+                        sse_pack(
                             "vehicles",
                             {
                                 "dealership": d.name,
@@ -490,7 +529,7 @@ async def stream_search(
                         )
                     )
                 chunks.append(
-                    _sse_pack(
+                    sse_pack(
                         "dealership",
                         {
                             "index": index,
@@ -532,7 +571,7 @@ async def stream_search(
             except asyncio.TimeoutError:
                 logger.warning("Scrape timed out for %s", website)
                 chunks.append(
-                    _sse_pack(
+                    sse_pack(
                         "dealership",
                         {
                             "index": index,
@@ -552,7 +591,7 @@ async def stream_search(
                 if domain:
                     record_provider_failure(domain)
                 chunks.append(
-                    _sse_pack(
+                    sse_pack(
                         "dealership",
                         {
                             "index": index,
@@ -606,7 +645,7 @@ async def stream_search(
             # If inventory is on a different URL, fetch it before first parse.
             if inv_url and inv_url != base_url:
                 chunks.append(
-                    _sse_pack(
+                    sse_pack(
                         "dealership",
                         {
                             "index": index,
@@ -628,7 +667,7 @@ async def stream_search(
                     if domain:
                         record_provider_failure(domain)
                     chunks.append(
-                        _sse_pack(
+                        sse_pack(
                             "dealership",
                             {
                                 "index": index,
@@ -649,7 +688,7 @@ async def stream_search(
                     if domain:
                         record_provider_failure(domain)
                     chunks.append(
-                        _sse_pack(
+                        sse_pack(
                             "dealership",
                             {
                                 "index": index,
@@ -685,7 +724,7 @@ async def stream_search(
                     "/"
                 ):
                     chunks.append(
-                        _sse_pack(
+                        sse_pack(
                             "dealership",
                             {
                                 "index": index,
@@ -756,7 +795,7 @@ async def stream_search(
                         )
                         if rendered_inv_url.rstrip("/") != _prefer_https_website_url(base_url).rstrip("/"):
                             chunks.append(
-                                _sse_pack(
+                                sse_pack(
                                     "dealership",
                                     {
                                         "index": index,
@@ -883,7 +922,7 @@ async def stream_search(
             while current_url and pages_scraped < max_pages:
                 if pages_scraped > 0:
                     chunks.append(
-                        _sse_pack(
+                        sse_pack(
                             "dealership",
                             {
                                 "index": index,
@@ -962,7 +1001,7 @@ async def stream_search(
                     route.requires_render = False
 
                 chunks.append(
-                    _sse_pack(
+                    sse_pack(
                         "dealership",
                         {
                             "index": index,
@@ -999,7 +1038,7 @@ async def stream_search(
                             extraction_metrics["pages_llm_failed"] += 1
                         if pages_scraped == 0:
                             chunks.append(
-                                _sse_pack(
+                                sse_pack(
                                     "dealership",
                                     {
                                         "index": index,
@@ -1019,7 +1058,7 @@ async def stream_search(
                             extraction_metrics["pages_llm_failed"] += 1
                         if pages_scraped == 0:
                             chunks.append(
-                                _sse_pack(
+                                sse_pack(
                                     "dealership",
                                     {
                                         "index": index,
@@ -1105,7 +1144,7 @@ async def stream_search(
                     listings_for_cache.extend(vdicts)
                     for listing_chunk in _chunk_listings(vdicts):
                         chunks.append(
-                            _sse_pack(
+                            sse_pack(
                                 "vehicles",
                                 {
                                     "dealership": d.name,
@@ -1180,7 +1219,7 @@ async def stream_search(
                         "platform_id": route.platform_id if route else None,
                     },
                 )
-            chunks.append(_sse_pack("dealership", done_payload))
+            chunks.append(sse_pack("dealership", done_payload))
         return chunks
 
     async def process_one_with_timeout(index: int, d: DealershipFound) -> list[str]:
@@ -1193,7 +1232,7 @@ async def stream_search(
             website = d.website or ""
             logger.warning("Dealership worker timed out for %s", website)
             return [
-                _sse_pack(
+                sse_pack(
                     "dealership",
                     {
                         "index": index,
@@ -1221,21 +1260,24 @@ async def stream_search(
                 yield part
         except Exception as e:
             logger.exception("Worker failed")
-            yield _sse_pack("search_error", {"message": str(e), "phase": "worker"})
+            yield sse_pack("search_error", {"message": str(e), "phase": "worker"})
 
-    yield _sse_pack(
+    yield sse_pack(
         "done",
-        {
-            "ok": True,
-            "dealerships": len(dealers),
-            "dealer_discovery_count": raw_dealer_count,
-            "dealer_deduped_count": deduped_dealer_count,
-            "radius_miles": radius_miles,
-            "vehicle_condition": vehicle_condition,
-            "inventory_scope": inventory_scope,
-            "max_dealerships": requested_dealerships,
-            "max_pages_per_dealer": requested_pages,
-            "fetch_metrics": dict(fetch_metrics),
-            "extraction_metrics": dict(extraction_metrics),
-        },
+        finalize_done(
+            {
+                "ok": True,
+                "dealerships": len(dealers),
+                "dealer_discovery_count": raw_dealer_count,
+                "dealer_deduped_count": deduped_dealer_count,
+                "radius_miles": radius_miles,
+                "vehicle_condition": vehicle_condition,
+                "inventory_scope": inventory_scope,
+                "max_dealerships": requested_dealerships,
+                "max_pages_per_dealer": requested_pages,
+                "fetch_metrics": dict(fetch_metrics),
+                "extraction_metrics": dict(extraction_metrics),
+            },
+            ok=True,
+        ),
     )

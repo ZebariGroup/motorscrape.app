@@ -8,6 +8,14 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _default_accounts_db_path() -> str:
+    if os.environ.get("VERCEL") == "1" or bool(os.environ.get("VERCEL_ENV")):
+        return "/tmp/motorscrape-accounts.sqlite3"
+    data_dir = _BACKEND_ROOT / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir / "accounts.sqlite3")
+
+
 def _default_inventory_cache_path() -> str:
     if os.environ.get("VERCEL") == "1" or bool(os.environ.get("VERCEL_ENV")):
         return "/tmp/motorscrape-inventory-cache.sqlite3"
@@ -93,6 +101,40 @@ class Settings(BaseSettings):
     inventory_cache_enabled: bool = True
     inventory_cache_ttl_seconds: int = 3600
     inventory_cache_path: str = Field(default_factory=_default_inventory_cache_path)
+
+    # Supabase configuration
+    supabase_url: str = Field(default="", validation_alias=AliasChoices("SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL"))
+    supabase_service_key: str = Field(default="", validation_alias=AliasChoices("SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_ROLE_KEY"))
+
+    session_secret: str = Field(default="", validation_alias=AliasChoices("SESSION_SECRET", "MOTORSCRAPE_SESSION_SECRET"))
+    session_max_age_days: int = 14
+    accounts_db_path: str = Field(
+        default_factory=_default_accounts_db_path,
+        validation_alias=AliasChoices("ACCOUNTS_DB_PATH", "MOTORSCRAPE_ACCOUNTS_DB"),
+    )
+
+    stripe_secret_key: str = Field(default="", validation_alias=AliasChoices("STRIPE_SECRET_KEY"))
+    stripe_webhook_secret: str = Field(default="", validation_alias=AliasChoices("STRIPE_WEBHOOK_SECRET"))
+    stripe_price_standard_base: str = Field(
+        default="",
+        validation_alias=AliasChoices("STRIPE_PRICE_STANDARD_BASE"),
+    )
+    stripe_price_standard_metered: str = Field(
+        default="",
+        validation_alias=AliasChoices("STRIPE_PRICE_STANDARD_METERED"),
+    )
+    stripe_price_premium_base: str = Field(
+        default="",
+        validation_alias=AliasChoices("STRIPE_PRICE_PREMIUM_BASE"),
+    )
+    stripe_price_premium_metered: str = Field(
+        default="",
+        validation_alias=AliasChoices("STRIPE_PRICE_PREMIUM_METERED"),
+    )
+    public_web_url: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("PUBLIC_WEB_URL", "NEXT_PUBLIC_SITE_URL"),
+    )
 
 
 settings = Settings()

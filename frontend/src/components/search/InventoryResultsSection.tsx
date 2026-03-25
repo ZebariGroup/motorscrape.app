@@ -27,6 +27,7 @@ type Props = {
   loadingInventoryCards: unknown[];
   sortOrder: ListingSortOrder;
   onSortOrderChange: (order: ListingSortOrder) => void;
+  allowCsvExport?: boolean;
 };
 
 export function InventoryResultsSection({
@@ -36,6 +37,7 @@ export function InventoryResultsSection({
   loadingInventoryCards,
   sortOrder,
   onSortOrderChange,
+  allowCsvExport = true,
 }: Props) {
   const [selectedListing, setSelectedListing] = useState<AggregatedListing | null>(null);
 
@@ -66,7 +68,8 @@ export function InventoryResultsSection({
             </label>
             <button
               type="button"
-              disabled={filteredListings.length === 0}
+              disabled={filteredListings.length === 0 || !allowCsvExport}
+              title={!allowCsvExport ? "CSV export is included with Standard and Premium." : undefined}
               onClick={() => {
                 const csv = listingsToCsv(filteredListings);
                 const day = new Date().toISOString().slice(0, 10);

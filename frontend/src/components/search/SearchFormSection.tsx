@@ -1,7 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { VEHICLE_MAKES } from "@/lib/vehicleCatalog";
+
+const RADIUS_CHOICES = [10, 25, 30, 50, 75, 100, 150, 250] as const;
+const DEALER_STEPS = [4, 6, 8, 10, 12, 16, 18, 24, 30] as const;
+
+function dealerChoices(cap: number): number[] {
+  const xs = DEALER_STEPS.filter((n) => n <= cap);
+  if (xs.length > 0) return [...xs];
+  return [Math.max(1, Math.min(cap, 30))];
+}
 
 type Props = {
   running: boolean;
@@ -31,6 +40,10 @@ type Props = {
   targetDealerCount: number;
   doneDealerCount: number;
   listingsCount: number;
+  /** When set, caps advanced options for the current account tier. */
+  maxDealersCap?: number;
+  maxRadiusMilesCap?: number;
+  inventoryScopePremium?: boolean;
 };
 
 export function SearchFormSection({
@@ -61,9 +74,18 @@ export function SearchFormSection({
   targetDealerCount,
   doneDealerCount,
   listingsCount,
+  maxDealersCap = 30,
+  maxRadiusMilesCap = 250,
+  inventoryScopePremium = true,
 }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isFormExpanded, setIsFormExpanded] = useState(true);
+
+  const radiusOptions = useMemo(
+    () => RADIUS_CHOICES.filter((m) => m <= maxRadiusMilesCap),
+    [maxRadiusMilesCap],
+  );
+  const dealerOptions = useMemo(() => dealerChoices(maxDealersCap), [maxDealersCap]);
 
   const handleSearch = () => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
@@ -157,9 +179,11 @@ export function SearchFormSection({
                   onChange={(e) => setRadiusMiles(e.target.value)}
                   disabled={running}
                 >
-                  <option value="10">10 miles</option>
-                  <option value="25">25 miles</option>
-                  <option value="30">30 miles</option>
+                  {radiusOptions.map((m) => (
+                    <option key={m} value={String(m)}>
+                      {m} miles
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-sm">
@@ -184,13 +208,24 @@ export function SearchFormSection({
                     className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                     value={inventoryScope}
                     onChange={(e) => setInventoryScope(e.target.value)}
-                    disabled={running}
+                    disabled={running || !inventoryScopePremium}
                   >
                     <option value="all">All listed</option>
-                    <option value="on_lot_only">On lot only</option>
-                    <option value="exclude_shared">Exclude shared/off-site</option>
-                    <option value="include_transit">Include in transit</option>
+                    <option value="on_lot_only" disabled={!inventoryScopePremium}>
+                      On lot only
+                    </option>
+                    <option value="exclude_shared" disabled={!inventoryScopePremium}>
+                      Exclude shared/off-site
+                    </option>
+                    <option value="include_transit" disabled={!inventoryScopePremium}>
+                      Include in transit
+                    </option>
                   </select>
+                  {!inventoryScopePremium ? (
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Advanced inventory scope is available on Standard and above.
+                    </span>
+                  ) : null}
                 </label>
                 <label className="col-span-full sm:col-span-1 lg:col-span-2 flex flex-col gap-1 text-sm">
                   <span className="font-medium text-zinc-800 dark:text-zinc-200">Max dealerships</span>
@@ -200,10 +235,11 @@ export function SearchFormSection({
                     onChange={(e) => setMaxDealerships(e.target.value)}
                     disabled={running}
                   >
-                    <option value="8">8</option>
-                    <option value="12">12</option>
-                    <option value="16">16</option>
-                    <option value="24">24</option>
+                    {dealerOptions.map((n) => (
+                      <option key={n} value={String(n)}>
+                        {n}
+                      </option>
+                    ))}
                   </select>
                 </label>
               </>

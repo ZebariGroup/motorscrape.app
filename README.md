@@ -62,7 +62,25 @@ After changes in Google Cloud, update the key in Vercel if needed, then redeploy
 
 ## Optional: run without Vercel
 
-See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000`. Frontend: `cd frontend && npm install && npm run dev` (unset `NEXT_PUBLIC_API_URL` so the UI targets `http://localhost:8000`).
+See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000`.
+
+Frontend: `cd frontend && npm install && npm run dev`.
+
+**Recommended (accounts + cookies):** set `NEXT_PUBLIC_API_URL=/server` and `SESSION_SECRET` (see [`.env.example`](.env.example)). Next.js rewrites proxy `/server/*` to FastAPI on `127.0.0.1:8000` so the browser stays **same-origin** with the UI; session cookies and `EventSource` search streams then work without cross-site cookie issues.
+
+**Alternative:** point the UI directly at FastAPI with `NEXT_PUBLIC_API_URL=http://localhost:8000` — search still works, but **login/session cookies will not** be sent on that origin from `localhost:3000`.
+
+### Accounts and tiers
+
+- **Anonymous:** 4 completed searches, then the stream returns a quota error until the user signs up.
+- **Free / Standard / Premium:** enforced in [`backend/app/tiers.py`](backend/app/tiers.py); Standard and Premium can attach a **metered** Stripe price for search overages after the included monthly allotment.
+- **Enterprise / custom:** documented for sales scoping in [`docs/ENTERPRISE_FEATURES.md`](docs/ENTERPRISE_FEATURES.md); set tier manually in the accounts DB or via a future admin flow (not Stripe Checkout).
+
+Auth API: `/server/auth/*`, billing: `/server/billing/*` (same paths without `/server` when running uvicorn on port 8000 alone).
+
+### Search economics
+
+The terminal SSE `done` event includes **`duration_ms`** and **`economics`** (`cost_driver_units` plus driver breakdown: dealerships, pages, managed fetch events, LLM pages, etc.) for margin analysis — see [`backend/app/services/economics.py`](backend/app/services/economics.py).
 
 **Tests / lint (local):** use a venv in `backend/`, then `pip install -r requirements-dev.txt && ruff check app tests && pytest`. Frontend: `npm run lint && npm run test && npm run build`.
 
@@ -74,7 +92,7 @@ See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requi
 | `dealership`   | Per-dealer scrape/parse status               |
 | `vehicles`     | Batch of extracted listings for one dealer   |
 | `search_error` | Recoverable or fatal application error       |
-| `done`         | Stream complete                              |
+| `done`         | Stream complete (includes `duration_ms`, `economics`) |
 
 ## Scraping cost (ZenRows / ScrapingBee)
 
