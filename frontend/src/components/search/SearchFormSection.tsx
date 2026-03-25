@@ -117,7 +117,7 @@ export function SearchFormSection({
             onClick={() => setIsFormExpanded(true)}
             className="rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-900 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-50 dark:hover:bg-zinc-700"
           >
-            Edit search
+            Edit scrape
           </button>
         </div>
       ) : (
@@ -278,14 +278,14 @@ export function SearchFormSection({
                     </div>
                   </div>
                   <span className="relative z-10 flex flex-col items-center gap-0.5 pb-1.5">
-                    <span>Searching…</span>
+                    <span>Scraping…</span>
                     <span className="max-w-full truncate px-1 text-center text-[11px] font-normal text-white/90">
                       {`${dealerListLength}/${targetDealerCount} found · ${doneDealerCount}/${targetDealerCount} done · ${listingsCount} vehicles`}
                     </span>
                   </span>
                 </>
               ) : (
-                "Search inventory"
+                "Scrape inventory"
               )}
             </button>
             <button

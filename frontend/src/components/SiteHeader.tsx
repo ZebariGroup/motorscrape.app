@@ -9,27 +9,44 @@ type Props = {
 };
 
 export function SiteHeader({ access }: Props) {
+  const anonHint =
+    access && !access.authenticated && access.anonymous
+      ? `${access.anonymous.searches_remaining} of ${access.anonymous.signup_required_after} free scrapes left`
+      : null;
+
+  const usageHint =
+    access?.authenticated && access.usage
+      ? `Plan ${access.tier} · ${access.usage.included_used}/${access.usage.included_limit} scrapes this month` +
+        (access.usage.overage_used ? ` · ${access.usage.overage_used} overage` : "")
+      : null;
+
   return (
     <header className="border-b border-zinc-200 bg-white/80 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-        <Link href="/" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-          Motorscrape
-        </Link>
-        <nav className="flex flex-wrap items-center justify-end gap-3 text-sm">
+        <div className="flex items-center gap-4">
+          <Link href="/" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            Motorscrape
+          </Link>
+          <span className="hidden text-xs text-zinc-500 sm:inline dark:text-zinc-400">We crawl so you can drive.</span>
+        </div>
+        <nav className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm">
+          <div className="flex flex-col items-end text-xs">
+            {anonHint ? (
+              <span className="font-medium text-amber-800 dark:text-amber-200">{anonHint}</span>
+            ) : null}
+            {usageHint ? (
+              <span className="text-zinc-600 dark:text-zinc-400">{usageHint}</span>
+            ) : null}
+          </div>
           {access?.authenticated ? (
-            <>
-              <span className="hidden text-zinc-500 sm:inline dark:text-zinc-400" title="Current plan">
-                {access.tier}
-              </span>
-              <Link
-                href="/account"
-                className="font-medium text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
-              >
-                Account
-              </Link>
-            </>
+            <Link
+              href="/account"
+              className="font-medium text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              Account
+            </Link>
           ) : (
-            <>
+            <div className="flex items-center gap-3">
               <Link
                 href="/login"
                 className="font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
@@ -42,7 +59,7 @@ export function SiteHeader({ access }: Props) {
               >
                 Sign up
               </Link>
-            </>
+            </div>
           )}
         </nav>
       </div>

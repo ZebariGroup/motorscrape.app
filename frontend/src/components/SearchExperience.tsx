@@ -89,13 +89,6 @@ export function SearchExperience() {
           <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl dark:text-zinc-50">
             Local dealership inventory, one place
           </h1>
-          <p className="max-w-2xl text-zinc-600 dark:text-zinc-400">We crawl so you can drive.</p>
-          {anonHint ? (
-            <p className="max-w-2xl text-sm font-medium text-amber-800 dark:text-amber-200">{anonHint}</p>
-          ) : null}
-          {usageHint ? (
-            <p className="max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{usageHint}</p>
-          ) : null}
         </header>
 
         <SearchFormSection
@@ -179,7 +172,7 @@ export function SearchExperience() {
             <div className="flex items-center justify-between gap-4">
               <div className="flex flex-1 flex-col gap-1.5">
                 <div className="flex items-center justify-between text-xs font-medium">
-                  <span className="text-zinc-900 dark:text-zinc-50">Searching...</span>
+                  <span className="text-zinc-900 dark:text-zinc-50">Scraping...</span>
                   <span className="text-zinc-500">
                     {dealers.doneDealerCount} / {dealers.targetDealerCount}
                   </span>

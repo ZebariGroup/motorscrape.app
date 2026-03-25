@@ -84,7 +84,7 @@ export function DealerProgressList({
               ))}
             </>
           ) : (
-            <li className="text-sm text-zinc-500">No dealerships yet — run a search.</li>
+            <li className="text-sm text-zinc-500">No dealerships yet — run a scrape.</li>
           )
         ) : (
           <>
