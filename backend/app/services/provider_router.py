@@ -93,6 +93,26 @@ def _looks_like_dealer_on_srp(url: str) -> bool:
     return path.endswith("/searchnew.aspx") or path.endswith("/searchused.aspx")
 
 
+def _canonical_dealer_dot_com_inventory_url(url: str, condition: str) -> str:
+    parts = urlsplit(url)
+    if condition == "new":
+        path = "/new-inventory/index.htm"
+    elif condition == "used":
+        path = "/used-inventory/index.htm"
+    else:
+        path = "/inventory/index.htm"
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
+def _looks_like_dealer_dot_com_srp(url: str, condition: str) -> bool:
+    path = urlsplit(url).path.lower().rstrip("/")
+    if condition == "new":
+        return path.endswith("/new-inventory/index.htm")
+    if condition == "used":
+        return path.endswith("/used-inventory/index.htm")
+    return path.endswith("/inventory/index.htm")
+
+
 def _dealer_on_condition_matches(url: str, condition: str) -> bool:
     path = urlsplit(url).path.lower()
     if condition == "new":
@@ -388,6 +408,9 @@ def resolve_inventory_url_for_provider(
     if route and route.platform_id == "dealer_on" and _dealer_on_condition_matches(current_url, condition):
         best_url = current_url
         best_score = 90
+    if route and route.platform_id == "dealer_dot_com" and _looks_like_dealer_dot_com_srp(current_url, condition):
+        best_url = _drop_query_keys(current_url, {"gvBodyStyle", "make", "model", "search"})
+        best_score = 120
 
     for a in soup.find_all("a", href=True):
         href = _normalize_inventory_candidate_url(str(a["href"]))
@@ -488,7 +511,7 @@ def resolve_inventory_url_for_provider(
             best_url = generic_base
 
     if route and not model_norm and route.platform_id == "dealer_dot_com":
-        hint = (route.inventory_url_hint if route else None) or fallback_url
+        hint = best_url if best_score > 0 else (route.inventory_url_hint if route else None) or fallback_url
         # If the hint is an express.* retail URL, it will likely 403 or 404 when swapped to www.
         # Force it to a known good www.* path based on condition.
         try:
@@ -506,6 +529,18 @@ def resolve_inventory_url_for_provider(
 
         generic_base = _normalize_inventory_candidate_url(hint)
         if generic_base:
+            path = urlsplit(generic_base).path.lower().rstrip("/")
+            if path in {"", "/"} or not any(
+                token in path
+                for token in (
+                    "/new-inventory/index.htm",
+                    "/used-inventory/index.htm",
+                    "/inventory/index.htm",
+                    "/searchnew.aspx",
+                    "/searchused.aspx",
+                )
+            ):
+                generic_base = _canonical_dealer_dot_com_inventory_url(generic_base, condition)
             best_url = _drop_query_keys(generic_base, {"gvBodyStyle", "make", "model", "search"})
 
     if route and not model_norm and route.platform_id == "dealer_on":

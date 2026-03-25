@@ -79,6 +79,28 @@ def test_try_extract_synthesizes_next_from_inventory_api_json() -> None:
     assert "page=2" in result.next_page_url
 
 
+def test_try_extract_synthesizes_next_from_inventory_api_json_after_page_two() -> None:
+    html = """
+    <html><body>
+    <script type="application/json" data-ms-source="inventory-api">
+    {"page":1,"totalPages":4,"pageSize":18,"vehicles":[]}
+    </script>
+    <div class="vehicle-card" data-year="2024" data-make="Subaru" data-model="Outback" data-price="38000">
+      <a href="/inventory/v1">2024 Subaru Outback</a>
+    </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/new-inventory/index.htm?page=2",
+        html=html,
+        make_filter="",
+        model_filter="",
+    )
+    assert result is not None
+    assert result.next_page_url is not None
+    assert "page=3" in result.next_page_url
+
+
 def test_try_extract_synthesizes_pt_for_dealer_on_path() -> None:
     html = """
     <script type="application/json" data-ms-source="inventory-api">

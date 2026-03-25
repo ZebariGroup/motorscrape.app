@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Literal
@@ -498,6 +499,49 @@ def _extract_inventory_post_requests(html: str, base_url: str) -> list[tuple[str
     return requests
 
 
+def _inventory_page_number_from_url(url: str) -> int:
+    try:
+        query = {k.lower(): v for k, v in parse_qsl(urlsplit(url).query, keep_blank_values=True)}
+    except Exception:
+        return 1
+    for key in ("page", "pt", "_p", "pn", "currentpage"):
+        raw = query.get(key)
+        if not raw:
+            continue
+        try:
+            page_num = int(raw)
+        except ValueError:
+            continue
+        if page_num > 0:
+            return page_num
+    return 1
+
+
+def _rewrite_inventory_post_body_for_page(body: str, page_url: str) -> str:
+    page_num = _inventory_page_number_from_url(page_url)
+    if page_num <= 1:
+        return body
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return body
+    if not isinstance(payload, dict):
+        return body
+    inventory_params = payload.get("inventoryParameters")
+    if not isinstance(inventory_params, dict):
+        return body
+    prefs = payload.get("preferences")
+    page_size_raw = prefs.get("pageSize") if isinstance(prefs, dict) else None
+    try:
+        page_size = int(str(page_size_raw).strip()) if page_size_raw is not None else 12
+    except ValueError:
+        page_size = 12
+    start = max(0, (page_num - 1) * max(1, page_size))
+    inventory_params.pop("page", None)
+    inventory_params["start"] = str(start)
+    return json.dumps(payload, separators=(",", ":"))
+
+
 def _extract_inventory_get_requests(html: str, base_url: str) -> list[tuple[str, dict[str, str]]]:
     requests: list[tuple[str, dict[str, str]]] = []
     for match in _DDC_WIDGET_INVENTORY_PAIR_RE.finditer(html):
@@ -549,6 +593,33 @@ async def _maybe_append_inventory_api_data(
 
     payloads: list[str] = []
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        for api_url, body in api_posts[:2]:
+            try:
+                rewritten_body = _rewrite_inventory_post_body_for_page(body, page_url)
+                r = await client.post(
+                    api_url,
+                    headers={**_browser_headers(), "Content-Type": "application/json"},
+                    content=rewritten_body,
+                )
+                r.raise_for_status()
+            except Exception as e:
+                logger.debug("Inventory API POST failed for %s: %s", api_url, e)
+                continue
+            content = r.text.strip()
+            if not content.startswith("{"):
+                continue
+            payloads.append(content)
+        if payloads:
+            injected = "".join(
+                f'\n<script type="application/json" data-ms-source="inventory-api">{p}</script>\n'
+                for p in payloads
+            )
+            logger.info(
+                "Enriched %s with %d inventory API payload(s)",
+                page_url,
+                len(payloads),
+            )
+            return html + injected
         for api_url, query in api_gets[:2]:
             try:
                 r = await client.get(api_url, params=query or None, headers=_browser_headers())
@@ -573,21 +644,6 @@ async def _maybe_append_inventory_api_data(
                 r.raise_for_status()
             except Exception as e:
                 logger.debug("Inventory API fetch failed for %s: %s", api_url, e)
-                continue
-            content = r.text.strip()
-            if not content.startswith("{"):
-                continue
-            payloads.append(content)
-        for api_url, body in api_posts[:2]:
-            try:
-                r = await client.post(
-                    api_url,
-                    headers={**_browser_headers(), "Content-Type": "application/json"},
-                    content=body,
-                )
-                r.raise_for_status()
-            except Exception as e:
-                logger.debug("Inventory API POST failed for %s: %s", api_url, e)
                 continue
             content = r.text.strip()
             if not content.startswith("{"):

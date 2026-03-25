@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.scraper import (
     _host_is_express_retail,
+    _rewrite_inventory_post_body_for_page,
     _should_prefer_zenrows_render,
     _should_retry_zenrows_with_premium_proxy,
     _www_swap_express_url,
@@ -37,3 +38,17 @@ def test_should_retry_zenrows_with_premium_proxy_for_block_pages() -> None:
 def test_should_retry_zenrows_with_premium_proxy_for_inventory_placeholders() -> None:
     html = '<html><body><div class="vehicle-card vehicle-card--mod skeleton"></div></body></html>'
     assert _should_retry_zenrows_with_premium_proxy(html, page_kind="inventory")
+
+
+def test_rewrite_inventory_post_body_for_page_uses_start_offset() -> None:
+    body = (
+        '{"inventoryParameters":{"page":"2"},'
+        '"preferences":{"pageSize":"18"},'
+        '"pageAlias":"INVENTORY_LISTING_DEFAULT_AUTO_NEW"}'
+    )
+    rewritten = _rewrite_inventory_post_body_for_page(
+        body,
+        "https://dealer.example/new-inventory/index.htm?page=2",
+    )
+    assert '"start":"18"' in rewritten
+    assert '"page":"2"' not in rewritten

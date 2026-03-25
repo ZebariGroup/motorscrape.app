@@ -624,6 +624,78 @@ async def stream_search(
                     except Exception as e:
                         logger.warning("Guessed SRP inventory fetch failed for %s: %s", guess_inv, e)
 
+            # Some Dealer.com-style homepages only expose inventory hints after an inventory/render fetch
+            # against the homepage itself. Use that rendered HTML to detect the platform and derive a
+            # canonical SRP when homepage anchor discovery failed.
+            if (
+                inv_url
+                and _prefer_https_website_url(inv_url).rstrip("/")
+                == _prefer_https_website_url(website).rstrip("/")
+                and route is None
+            ):
+                try:
+                    rendered_home_html, rendered_home_method = await asyncio.wait_for(
+                        _fetch(website, "inventory", prefer_render=True),
+                        timeout=fetch_timeout,
+                    )
+                    rendered_profile = detect_platform_profile(rendered_home_html, page_url=website)
+                    if rendered_profile:
+                        route = ProviderRoute(
+                            platform_id=rendered_profile.platform_id,
+                            confidence=rendered_profile.confidence,
+                            extraction_mode=rendered_profile.extraction_mode,
+                            requires_render=rendered_profile.requires_render,
+                            detection_source=rendered_profile.detection_source,
+                            cache_status="detected",
+                            inventory_path_hints=rendered_profile.inventory_path_hints,
+                            inventory_url_hint=website,
+                        )
+                        rendered_inv_url = resolve_inventory_url_for_provider(
+                            rendered_home_html,
+                            website,
+                            route,
+                            fallback_url=_find_inventory_url(
+                                rendered_home_html,
+                                website,
+                                vehicle_condition=vehicle_condition,
+                            ),
+                            make=make,
+                            model=model,
+                            vehicle_condition=vehicle_condition,
+                        )
+                        if rendered_inv_url.rstrip("/") != _prefer_https_website_url(website).rstrip("/"):
+                            chunks.append(
+                                _sse_pack(
+                                    "dealership",
+                                    {
+                                        "index": index,
+                                        "total": len(dealers),
+                                        "name": d.name,
+                                        "website": website,
+                                        "current_url": rendered_inv_url,
+                                        "status": "scraping",
+                                    },
+                                )
+                            )
+                            current_html, current_method = await asyncio.wait_for(
+                                _fetch(
+                                    rendered_inv_url,
+                                    "inventory",
+                                    prefer_render=route.requires_render,
+                                ),
+                                timeout=fetch_timeout,
+                            )
+                            inv_url = rendered_inv_url
+                        else:
+                            current_html = rendered_home_html
+                            current_method = rendered_home_method
+                except Exception as e:
+                    logger.debug(
+                        "Rendered homepage inventory discovery skipped for %s: %s",
+                        website,
+                        e,
+                    )
+
             inventory_profile = detect_platform_profile(current_html, page_url=inv_url or website)
             if inventory_profile and (
                 route is None

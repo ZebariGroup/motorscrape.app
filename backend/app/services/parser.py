@@ -1044,7 +1044,7 @@ def infer_next_page_from_inventory_api(html: str, page_url: str, vehicles_on_pag
 
     if not meta:
         return None
-    cur = meta.get("cur") or 1
+    cur = max(meta.get("cur") or 1, _current_page_from_url(page_url))
     tp = meta.get("tp")
     total = meta.get("total")
     size = meta.get("size") or (vehicles_on_page if vehicles_on_page > 0 else 12)
