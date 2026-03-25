@@ -8,6 +8,14 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _default_inventory_cache_path() -> str:
+    if os.environ.get("VERCEL") == "1" or bool(os.environ.get("VERCEL_ENV")):
+        return "/tmp/motorscrape-inventory-cache.sqlite3"
+    data_dir = _BACKEND_ROOT / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir / "inventory-cache.sqlite3")
+
+
 def _default_platform_cache_path() -> str:
     """Vercel filesystem is ephemeral — /tmp is appropriate. Local dev uses repo-local sqlite."""
     if os.environ.get("VERCEL") == "1" or bool(os.environ.get("VERCEL_ENV")):
@@ -47,11 +55,19 @@ class Settings(BaseSettings):
     zenrows_wait_ms: int = 3000
     scrapingbee_api_key: str = ""
     scrapingbee_wait_ms: int = 3000
+    # Self-hosted headless Chromium (Playwright). Runs after direct HTTP fails or HTML is
+    # insufficient, before ZenRows/ScrapingBee. Requires `playwright install chromium` on the host.
+    playwright_enabled: bool = False
+    playwright_max_workers: int = 2
+    playwright_timeout_ms: int = 45_000
+    playwright_post_load_wait_ms: int = 2500
 
     # Max dealerships per search (quality vs speed tradeoff).
     max_dealerships: int = 8
-    # Concurrent dealership workers.
-    search_concurrency: int = 2
+    # Concurrent dealership workers (I/O-bound scraping).
+    search_concurrency: int = 5
+    # Max concurrent HTTP fetches per normalized dealer domain (avoids hammering shared infra).
+    domain_fetch_concurrency: int = 1
     # Hard cap per dealer so one slow site cannot block final completion.
     dealership_timeout: float = 150.0
     # Max pages to follow per dealership inventory (default raised for better SRP coverage).
@@ -72,6 +88,11 @@ class Settings(BaseSettings):
     # https://vercel.com/docs/storage/vercel-kv (same REST shape as Upstash)
     kv_rest_api_url: str = ""
     kv_rest_api_token: str = ""
+
+    # Short-lived cache of per-dealer listing payloads (SQLite).
+    inventory_cache_enabled: bool = True
+    inventory_cache_ttl_seconds: int = 3600
+    inventory_cache_path: str = Field(default_factory=_default_inventory_cache_path)
 
 
 settings = Settings()

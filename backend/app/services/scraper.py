@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
+from collections.abc import Callable
 from typing import Literal
 from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit, urlunsplit
 
@@ -13,6 +13,8 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
+from app.services.dealer_platforms import zenrows_inventory_js_instructions_for_url
+from app.services.scraper_strategies import zenrows_try_once
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +112,41 @@ def _www_swap_express_url(url: str) -> str | None:
         return None
 
 
+async def _playwright_pass(
+    url: str,
+    timeout: httpx.Timeout,
+    *,
+    page_kind: PageKind,
+    failures: list[str],
+    metric_bump: Callable[[str], None],
+) -> tuple[str, str] | None:
+    if not settings.playwright_enabled:
+        return None
+    try:
+        from app.services.playwright_fetch import fetch_html_via_playwright
+    except ImportError as e:
+        failures.append(f"playwright: ImportError: {e}")
+        metric_bump("playwright_import_error")
+        return None
+    try:
+        html = await fetch_html_via_playwright(url)
+    except Exception as e:
+        err_str = e.__class__.__name__ if not str(e) else str(e)
+        failures.append(f"playwright: {err_str}")
+        logger.debug("Playwright pass exception for %s: %s", url, err_str)
+        metric_bump("playwright_error")
+        return None
+    if not html:
+        metric_bump("playwright_empty")
+        return None
+    html = await _maybe_append_inventory_api_data(url, html, timeout)
+    if _direct_html_sufficient(html, page_kind=page_kind):
+        metric_bump("playwright_ok")
+        return html, "playwright"
+    metric_bump("playwright_insufficient")
+    return None
+
+
 async def _direct_get_with_express_www_fallback(url: str, timeout: httpx.Timeout) -> str:
     """
     Try direct GET; on 403 from an express.* host, try the same path on www.* once
@@ -137,11 +174,12 @@ async def fetch_page_html(
     """
     Return (html, method_used).
 
-    Order: direct HTTP → optional inventory API enrichment → if insufficient, ZenRows
-    (static, then JS render) → same for ScrapingBee → last-chance direct error.
+    Order: direct HTTP → optional inventory API enrichment → if insufficient or direct fails,
+    optional Playwright (self-hosted Chromium) → ZenRows (static, then JS render) →
+    ScrapingBee → last-chance direct body.
 
-    method_used values: direct, zenrows_static, zenrows_rendered, scrapingbee_static,
-    scrapingbee_rendered (and direct after managed retry is still the managed tag that succeeded).
+    method_used values: direct, playwright, zenrows_static, zenrows_rendered,
+    scrapingbee_static, scrapingbee_rendered, direct_fallback.
     """
     timeout = httpx.Timeout(settings.scrape_timeout)
     failures: list[str] = []
@@ -167,93 +205,28 @@ async def fetch_page_html(
                 out.append(wait)
         return tuple(out)
 
-    async def _try_zenrows(
-        *,
-        js_render: bool,
-        wait_ms: int = 0,
-        metric_prefix: str,
-        failure_label: str,
-        js_instructions: str | None = None,
-    ) -> str | None:
-        html = None
-        needs_premium = False
-        try:
-            html = await _zenrows_fetch(
-                url,
-                timeout,
-                js_render=js_render,
-                wait_ms=wait_ms,
-                js_instructions=js_instructions,
-            )
-            html = await _maybe_append_inventory_api_data(url, html, timeout)
-            if _direct_html_sufficient(html, page_kind=page_kind):
-                _m(f"{metric_prefix}_ok")
-                return html
-            _m(f"{metric_prefix}_insufficient")
-            needs_premium = _should_retry_zenrows_with_premium_proxy(html, page_kind=page_kind)
-        except Exception as e:
-            err_str = e.__class__.__name__ if not str(e) else str(e)
-            sanitized = err_str.replace(settings.zenrows_api_key, "***")
-            logger.warning("ZenRows %s failed for %s: %s", failure_label, url, sanitized)
-            failures.append(f"{failure_label}: {sanitized}")
-            # If it's a 403, 404, 422, or 429, it might be a WAF block, so try premium proxy
-            if "403" in err_str or "404" in err_str or "422" in err_str or "429" in err_str:
-                needs_premium = True
-
-        if not needs_premium or settings.zenrows_premium_proxy:
-            return None
-
-        try:
-            premium_html = await _zenrows_fetch(
-                url,
-                timeout,
-                js_render=js_render,
-                wait_ms=wait_ms,
-                premium_proxy=True,
-                js_instructions=js_instructions,
-            )
-            premium_html = await _maybe_append_inventory_api_data(url, premium_html, timeout)
-            if _direct_html_sufficient(premium_html, page_kind=page_kind):
-                _m(f"{metric_prefix}_premium_ok")
-                return premium_html
-            _m(f"{metric_prefix}_premium_insufficient")
-        except Exception as e:
-            err_str = e.__class__.__name__ if not str(e) else str(e)
-            sanitized = err_str.replace(settings.zenrows_api_key, "***")
-            logger.warning("ZenRows %s with premium proxy failed for %s: %s", failure_label, url, sanitized)
-            failures.append(f"{failure_label}_premium: {sanitized}")
-        return None
-
     if prefer_render and page_kind == "inventory":
-        # If it's OneAudi Falcon, we need to click the "Load more vehicles" button multiple times
-        # to get all vehicles on the page, since pagination doesn't work via URL.
-        js_instructions = None
-        if "audi.com" in url or "audinovi.com" in url or "audirochesterhills.com" in url or "audiannarbor.com" in url or "audilansing.com" in url or "audiwindsor.com" in url:
-            # We can't know for sure it's OneAudi without fetching, but if it's an Audi site,
-            # it's safe to try clicking the load more button.
-            js_instructions = """[
-                {"wait": 2000},
-                {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-                {"wait": 1000},
-                {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-                {"wait": 2000},
-                {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-                {"wait": 1000},
-                {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-                {"wait": 2000},
-                {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-                {"wait": 1000},
-                {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-                {"wait": 2000},
-                {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-                {"wait": 1000},
-                {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-                {"wait": 2000}
-            ]"""
+        # OneAudi Falcon (and similar): try local browser before paid JS render APIs.
+        js_instructions = zenrows_inventory_js_instructions_for_url(url)
+
+        pw_early = await _playwright_pass(
+            url,
+            timeout,
+            page_kind=page_kind,
+            failures=failures,
+            metric_bump=_m,
+        )
+        if pw_early is not None:
+            return pw_early
 
         if settings.zenrows_api_key:
             for wait_ms in _retry_waits(settings.zenrows_wait_ms):
-                html = await _try_zenrows(
+                html = await zenrows_try_once(
+                    url=url,
+                    timeout=timeout,
+                    page_kind=page_kind,
+                    failures=failures,
+                    metric_bump=_m,
                     js_render=True,
                     wait_ms=wait_ms,
                     metric_prefix="zenrows_rendered",
@@ -299,10 +272,25 @@ async def fetch_page_html(
         logger.debug("Direct fetch failed for %s: %s", url, err_str)
         _m("direct_failed")
 
+    pw_result = await _playwright_pass(
+        url,
+        timeout,
+        page_kind=page_kind,
+        failures=failures,
+        metric_bump=_m,
+    )
+    if pw_result is not None:
+        return pw_result
+
     # 2) ZenRows: static then rendered
     if settings.zenrows_api_key:
         if not prefer_render:
-            html = await _try_zenrows(
+            html = await zenrows_try_once(
+                url=url,
+                timeout=timeout,
+                page_kind=page_kind,
+                failures=failures,
+                metric_bump=_m,
                 js_render=False,
                 metric_prefix="zenrows_static",
                 failure_label="zenrows_static",
@@ -311,30 +299,14 @@ async def fetch_page_html(
                 return html, "zenrows_static"
 
         for wait_ms in _retry_waits(settings.zenrows_wait_ms):
-            # Same logic for fallback rendered fetch
-            js_instructions = None
-            if "audi.com" in url or "audinovi.com" in url or "audirochesterhills.com" in url or "audiannarbor.com" in url or "audilansing.com" in url or "audiwindsor.com" in url:
-                js_instructions = """[
-                    {"wait": 2000},
-                    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-                    {"wait": 1000},
-                    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-                    {"wait": 2000},
-                    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-                    {"wait": 1000},
-                    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-                    {"wait": 2000},
-                    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-                    {"wait": 1000},
-                    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-                    {"wait": 2000},
-                    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
-                    {"wait": 1000},
-                    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
-                    {"wait": 2000}
-                ]"""
+            js_instructions = zenrows_inventory_js_instructions_for_url(url)
 
-            html = await _try_zenrows(
+            html = await zenrows_try_once(
+                url=url,
+                timeout=timeout,
+                page_kind=page_kind,
+                failures=failures,
+                metric_bump=_m,
                 js_render=True,
                 wait_ms=wait_ms,
                 metric_prefix="zenrows_rendered",

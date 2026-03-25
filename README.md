@@ -1,6 +1,6 @@
 # Motorscrape
 
-Next.js + FastAPI platform to discover nearby car dealerships (Google Places), detect the dealer website **platform** on first contact, route through a provider-specific extraction strategy when possible, fetch with **direct HTTP first** and managed scrapers (ZenRows / ScrapingBee) only when needed, and extract inventory from structured data when possible (otherwise an LLM). Results stream to the browser via **Server-Sent Events (SSE)**.
+Next.js + FastAPI platform to discover nearby car dealerships (Google Places), detect the dealer website **platform** on first contact, route through a provider-specific extraction strategy when possible, fetch with **direct HTTP first**, optional **self-hosted Playwright**, then managed scrapers (ZenRows / ScrapingBee) when still needed, and extract inventory from structured data when possible (otherwise an LLM). Results stream to the browser via **Server-Sent Events (SSE)**.
 
 ## Deploy on Vercel (Git)
 
@@ -78,7 +78,7 @@ See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requi
 
 ## Scraping cost (ZenRows / ScrapingBee)
 
-- The backend **tries a normal browser-like HTTP GET first** for each URL. Managed scrapers run only if the response looks blocked, empty, or missing inventory signals.
+- The backend **tries a normal browser-like HTTP GET first** for each URL, then optional **Playwright** if enabled, then **ZenRows / ScrapingBee** only if the response still looks blocked, empty, or missing inventory signals.
 - Dealer **express.** inventory subdomains (digital retail) often return **403** or a Cloudflare challenge to plain HTTP clients. When **`ZENROWS_API_KEY`** or **`SCRAPINGBEE_API_KEY`** is set, **`express.*` inventory URLs** are fetched with **JS rendering first** (same path as other render-first pages). Without a managed scraper key, the backend may still try **`www.`** after a 403 on **`express.`** for the same path.
 - ZenRows is called **without JS rendering first**, then with **`js_render` + `wait`** only if the static pass is still insufficient. Tune `ZENROWS_WAIT_MS` / `SCRAPINGBEE_WAIT_MS` in env or [`backend/app/config.py`](backend/app/config.py).
 - **Structured inventory** (embedded JSON, `inventoryApiURL`-style endpoints, JSON-LD, and sitemap-discovered inventory URLs) is preferred so listings can be parsed **without** calling the LLM when possible.
@@ -93,9 +93,19 @@ See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requi
 - On repeated searches, cached platform hits let the backend skip rediscovering the extraction path for the same dealer.
 - The cache is implemented with a small SQLite store: **local dev** defaults to `backend/data/platform-cache.sqlite3`; **Vercel** defaults to `/tmp` (ephemeral). Set **`PLATFORM_CACHE_PATH`** to a persistent writable path if you need durability across cold starts.
 
-## Self-hosted browser fallback (evaluation)
+## Self-hosted browser fallback (Playwright)
 
-If you want to avoid recurring managed-scraper fees, the typical pattern is **self-hosted headless browsers** (e.g. Playwright) plus **residential/datacenter proxies** and your own block detection—**not** “raw Playwright alone” on hard anti-bot sites. Expect higher ops burden than ZenRows. Optional directions: stealth browser builds, a small worker pool, and using that path **only** when direct + static managed fetches fail.
+When **`PLAYWRIGHT_ENABLED=true`**, the API loads each URL in **headless Chromium** (after direct HTTP fails or returns HTML without inventory signals, and **before** ZenRows / ScrapingBee). That cuts paid API usage on many dealer SPAs that only need client-side rendering, not commercial anti-bot bypass.
+
+**Setup (own server / Docker / local):**
+
+1. Install Python deps (`playwright` is in [`backend/requirements.txt`](backend/requirements.txt)).
+2. Install the browser once: `cd backend && playwright install chromium`
+3. Set env: `PLAYWRIGHT_ENABLED=true` (optional: `PLAYWRIGHT_MAX_WORKERS`, `PLAYWRIGHT_TIMEOUT_MS`, `PLAYWRIGHT_POST_LOAD_WAIT_MS` — see [`.env.example`](.env.example)).
+
+**Vercel:** leave Playwright **disabled** (no bundled Chromium on typical serverless runtimes). Use ZenRows/ScrapingBee there, or run the FastAPI worker on a VM with Playwright enabled.
+
+Hard **WAF / CAPTCHA** sites may still require managed scrapers or proxies; Playwright alone is not a drop-in replacement for every dealer.
 
 ## Legal & ethics
 

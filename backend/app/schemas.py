@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SearchRequest(BaseModel):
@@ -67,6 +67,38 @@ class VehicleListing(BaseModel):
     is_in_transit: bool | None = Field(default=None, description="Whether the vehicle is marked in transit.")
     is_in_stock: bool | None = Field(default=None, description="Whether the vehicle is marked in stock/on lot.")
     is_shared_inventory: bool | None = Field(default=None, description="Whether the vehicle is shared from another store/group inventory.")
+    msrp: float | None = Field(default=None, description="Manufacturer suggested retail price in USD when listed separately from sale price.")
+    dealer_discount: float | None = Field(
+        default=None,
+        description="Total dealer discount or savings below MSRP in USD (non-negative number).",
+    )
+    incentive_labels: list[str] = Field(
+        default_factory=list,
+        description="Human-readable incentive or rebate lines (e.g. rebate names with amounts).",
+    )
+    feature_highlights: list[str] = Field(
+        default_factory=list,
+        description="Notable packages, options, or equipment lines suitable for display.",
+    )
+    stock_date: str | None = Field(
+        default=None,
+        description="Inventory/stock date as YYYY-MM-DD when the site provides it.",
+    )
+    days_on_lot: int | None = Field(
+        default=None,
+        description="Approximate days the unit has been in inventory when stated or derived from stock_date.",
+    )
+
+    @field_validator("incentive_labels", "feature_highlights", mode="before")
+    @classmethod
+    def _coerce_str_lists(cls, v: Any) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        if isinstance(v, str) and v.strip():
+            return [v.strip()]
+        return []
 
 
 class ExtractionResult(BaseModel):

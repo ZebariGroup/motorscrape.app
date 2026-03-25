@@ -1,5 +1,6 @@
 import logging
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import APIRouter, FastAPI, Query
@@ -58,7 +59,18 @@ async def search_stream(
     )
 
 
-app = FastAPI(title="Motorscrape API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    try:
+        from app.services.playwright_fetch import shutdown_playwright
+
+        await shutdown_playwright()
+    except Exception:
+        pass
+
+
+app = FastAPI(title="Motorscrape API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

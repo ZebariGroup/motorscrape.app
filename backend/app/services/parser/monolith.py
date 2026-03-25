@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import re
+from datetime import date, datetime, timezone
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
@@ -34,6 +35,11 @@ Extraction rules:
 - Prefer listing-specific URLs and images when present.
 - Do not invent VINs, prices, or stock numbers; use null if not clearly present.
 - Set `vehicle_condition` to `new` or `used` when clearly stated; otherwise use null.
+- When MSRP and a lower sale price are both shown, set `msrp` and `price` (sale), and set
+  `dealer_discount` to the gap (msrp - sale) if not stated explicitly elsewhere.
+- Capture visible incentives/rebates as short strings in `incentive_labels` (e.g. "Lease Credit: $1500").
+- When packages, option groups, or notable equipment lists appear, add concise lines to `feature_highlights` (max ~6 strings).
+- If a stock/arrival date or "days on lot" is shown, set `stock_date` as YYYY-MM-DD when parseable, and/or `days_on_lot` as an integer.
 - If there is a clear next-page link for inventory, set `next_page_url` to its absolute URL.
 - Data may be provided as structured JSON extracted from the page. Parse it the same way.
 """
@@ -452,6 +458,218 @@ def _pick_price_from_dict(d: dict[str, Any]) -> float | None:
     return None
 
 
+def _format_price_label(label: str, value: float) -> str:
+    rounded = abs(value)
+    if abs(value - round(rounded)) < 0.01:
+        return f"{label}: ${rounded:,.0f}"
+    return f"{label}: ${value:,.2f}"
+
+
+def _walk_pricing_dicts(d: dict[str, Any]) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for key in ("pricing", "trackingPricing"):
+        p = d.get(key)
+        if isinstance(p, dict):
+            blocks.append(p)
+    return blocks
+
+
+def _extract_msrp_from_dict(d: dict[str, Any]) -> float | None:
+    for label in ("msrp", "baseMsrp", "base_msrp", "listPrice", "list_price", "retailPrice"):
+        m = _coerce_float(d.get(label))
+        if m is not None and m > 0:
+            return m
+    for pricing in _walk_pricing_dicts(d):
+        for label in ("msrp", "retailPrice", "retailValue", "listPrice"):
+            m = _coerce_float(pricing.get(label))
+            if m is not None and m > 0:
+                return m
+        dprice = pricing.get("dprice")
+        if isinstance(dprice, list):
+            for row in dprice:
+                if not isinstance(row, dict):
+                    continue
+                lbl = str(row.get("label") or row.get("name") or "").lower()
+                if "msrp" in lbl or row.get("type") == "msrp":
+                    val = _coerce_float(row.get("value") or row.get("amount"))
+                    if val is not None and val > 0:
+                        return val
+    return None
+
+
+def _extract_dprice_enrichment(d: dict[str, Any]) -> tuple[list[str], float]:
+    """Incentive lines and sum of explicit dealer discount rows from Dealer.com-style dprice."""
+    incentive_labels: list[str] = []
+    discount_sum = 0.0
+    for pricing in _walk_pricing_dicts(d):
+        dprice = pricing.get("dprice")
+        if not isinstance(dprice, list):
+            continue
+        for row in dprice:
+            if not isinstance(row, dict):
+                continue
+            label = str(row.get("label") or row.get("name") or row.get("type") or "").strip()
+            if not label:
+                continue
+            raw_val = row.get("value") if "value" in row else row.get("amount")
+            val = _coerce_float(raw_val)
+            ll = label.lower()
+            if val is None:
+                if any(k in ll for k in ("incentive", "rebate", "bonus", "credit", "allowance", "cash")):
+                    incentive_labels.append(label)
+                continue
+            if any(
+                k in ll
+                for k in (
+                    "dealer discount",
+                    "dealer savings",
+                    "dealer cash",
+                    "discount",
+                    "savings",
+                    "price adjustment",
+                    "reduction",
+                )
+            ):
+                discount_sum += abs(val)
+            elif any(k in ll for k in ("incentive", "rebate", "bonus", "credit", "allowance", "conquest", "loyalty")):
+                incentive_labels.append(_format_price_label(label, val))
+            elif row.get("isDeduction") or row.get("deduction"):
+                discount_sum += abs(val)
+    return incentive_labels, discount_sum
+
+
+def _extract_feature_highlights(d: dict[str, Any], *, max_items: int = 12) -> list[str]:
+    out: list[str] = []
+    for key in (
+        "highValueFeatures",
+        "features",
+        "packages",
+        "includedPackages",
+        "standardEquipment",
+        "options",
+        "factoryOptions",
+        "equipment",
+    ):
+        v = d.get(key)
+        if isinstance(v, str) and v.strip():
+            chunk = " ".join(v.split())
+            if len(chunk) > 160:
+                chunk = chunk[:157] + "…"
+            out.append(chunk)
+        elif isinstance(v, list):
+            for item in v:
+                if len(out) >= max_items:
+                    return _dedupe_preserve_order(out)
+                if isinstance(item, str) and item.strip():
+                    text = " ".join(item.split())
+                    if len(text) > 160:
+                        text = text[:157] + "…"
+                    out.append(text)
+                elif isinstance(item, dict):
+                    name = item.get("name") or item.get("label") or item.get("description") or item.get("code")
+                    if name:
+                        out.append(str(name).strip()[:160])
+        if len(out) >= max_items:
+            break
+    return _dedupe_preserve_order(out)
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for s in items:
+        t = s.strip()
+        if not t:
+            continue
+        k = t.lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(t)
+    return out
+
+
+def _parse_stock_date(raw: Any) -> str | None:
+    if raw is None or raw is False:
+        return None
+    if isinstance(raw, (int, float)):
+        ts = float(raw)
+        if ts > 1e12:
+            ts /= 1000.0
+        if ts > 1e9:
+            try:
+                return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+            except (OSError, ValueError, OverflowError):
+                return None
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    if re.match(r"^\d{4}-\d{2}-\d{2}", s):
+        return s[:10]
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", s)
+    if m:
+        mo, da, yr = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= mo <= 12 and 1 <= da <= 31:
+            return f"{yr:04d}-{mo:02d}-{da:02d}"
+    m2 = re.match(r"^(\d{4})/(\d{1,2})/(\d{1,2})$", s)
+    if m2:
+        yr, mo, da = int(m2.group(1)), int(m2.group(2)), int(m2.group(3))
+        if 1 <= mo <= 12 and 1 <= da <= 31:
+            return f"{yr:04d}-{mo:02d}-{da:02d}"
+    return None
+
+
+def _extract_stock_date_and_days(d: dict[str, Any]) -> tuple[str | None, int | None]:
+    explicit_days: int | None = None
+    for key in ("daysOnLot", "days_on_lot", "daysInInventory", "ageInDays", "lotAge", "daysInStock"):
+        di = _coerce_int(d.get(key))
+        if di is not None and di >= 0:
+            explicit_days = di
+            break
+    stock_raw = None
+    for key in (
+        "stockDate",
+        "inventoryDate",
+        "dateInStock",
+        "inStockDate",
+        "receivedDate",
+        "inventoryAgeDate",
+        "firstReceivedDate",
+        "dateReceived",
+    ):
+        if d.get(key) not in (None, ""):
+            stock_raw = d.get(key)
+            break
+    stock_iso = _parse_stock_date(stock_raw)
+    days = explicit_days
+    if days is None and stock_iso:
+        try:
+            y, mth, da = stock_iso.split("-")
+            sd = date(int(y), int(mth), int(da))
+            delta = (date.today() - sd).days
+            if delta >= 0:
+                days = delta
+        except ValueError:
+            pass
+    return stock_iso, days
+
+
+def _merge_pricing_enrichment(
+    d: dict[str, Any],
+    *,
+    final_price: float | None,
+) -> tuple[float | None, float | None, list[str]]:
+    msrp = _extract_msrp_from_dict(d)
+    incentive_labels, discount_from_rows = _extract_dprice_enrichment(d)
+    dealer_discount = discount_from_rows if discount_from_rows > 0 else None
+    if dealer_discount is None and msrp is not None and final_price is not None:
+        gap = msrp - final_price
+        if gap >= 50:
+            dealer_discount = gap
+    return msrp, dealer_discount, _dedupe_preserve_order(incentive_labels)
+
+
 def _pick_price_from_pricelib(raw: Any) -> float | None:
     if not raw:
         return None
@@ -570,6 +788,38 @@ def _prefer_vehicle_fields(existing: VehicleListing, incoming: VehicleListing) -
                 continue
             if curr_num <= 1 < inc_num:
                 merged[key] = value
+        elif key in ("incentive_labels", "feature_highlights"):
+            merged[key] = _dedupe_preserve_order(list(current or []) + list(value or []))[
+                :24
+            ]
+        elif key == "days_on_lot":
+            try:
+                ci = int(current) if current is not None else None
+                vi = int(value) if value is not None else None
+            except Exception:
+                continue
+            if vi is None:
+                continue
+            if ci is None or vi > ci:
+                merged[key] = value
+        elif key == "dealer_discount":
+            try:
+                cc = float(current) if current is not None else 0.0
+                iv = float(value) if value is not None else 0.0
+            except Exception:
+                continue
+            if iv > cc:
+                merged[key] = value
+        elif key == "msrp":
+            try:
+                cc = float(current) if current is not None else None
+                iv = float(value) if value is not None else None
+            except Exception:
+                continue
+            if iv is None:
+                continue
+            if cc is None or iv > cc:
+                merged[key] = value
     return VehicleListing(**merged)
 
 
@@ -667,6 +917,11 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         status_text=str(status_text) if status_text else None,
     )
 
+    final_price = _pick_price_from_dict(d)
+    msrp, dealer_discount, incentive_labels = _merge_pricing_enrichment(d, final_price=final_price)
+    features = _extract_feature_highlights(d)
+    stock_date, days_on_lot = _extract_stock_date_and_days(d)
+
     return VehicleListing(
         year=_pick_year(d) or _coerce_int(title_fields.get("year")),
         make=make_s,
@@ -674,7 +929,7 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         trim=trim_s or (str(title_fields.get("trim")).strip() if title_fields.get("trim") else None),
         body_style=body_style_s,
         exterior_color=exterior_color_s,
-        price=_pick_price_from_dict(d),
+        price=final_price,
         mileage=_coerce_int(miles),
         vehicle_condition=vehicle_condition,
         vin=vin_s,
@@ -693,6 +948,12 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         is_in_transit=is_in_transit,
         is_in_stock=is_in_stock,
         is_shared_inventory=is_shared_inventory,
+        msrp=msrp,
+        dealer_discount=dealer_discount,
+        incentive_labels=incentive_labels,
+        feature_highlights=features,
+        stock_date=stock_date,
+        days_on_lot=days_on_lot,
     )
 
 
@@ -887,18 +1148,47 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             or payload.get("mileage")
             or payload.get("odometer")
         )
+        msrp_attr = _coerce_float(
+            card.get("data-msrp")
+            or card.get("data-list-price")
+            or card.get("data-retail-price")
+            or payload.get("msrp")
+        )
         price = _coerce_float(
             card.get("data-price")
             or card.get("data-vehicle-price")
-            or card.get("data-msrp")
             or card.get("data-dotagging-item-price")
             or payload.get("price")
             or payload.get("internetPrice")
             or payload.get("salePrice")
-            or payload.get("msrp")
         )
         if price in (None, 0.0):
             price = _pick_price_from_pricelib(card.get("data-pricelib")) or price
+        if price in (None, 0.0) and msrp_attr:
+            price = msrp_attr
+        card_msrp: float | None = None
+        dealer_disc: float | None = None
+        if msrp_attr and price and msrp_attr - price >= 50:
+            card_msrp = msrp_attr
+            dealer_disc = msrp_attr - price
+        save_match = _SAVE_PRICE_MSRP_RE.search(card_text or "")
+        if save_match:
+            sm_price = _coerce_float(save_match.group("price"))
+            sm_msrp = _coerce_float(save_match.group("msrp"))
+            if sm_msrp and sm_price and sm_msrp > sm_price:
+                card_msrp = card_msrp or sm_msrp
+                if price in (None, 0.0):
+                    price = sm_price
+                dealer_disc = dealer_disc or max(0.0, sm_msrp - (price or sm_price))
+        pl = payload or {}
+        payload_features = _extract_feature_highlights(pl, max_items=8)
+        dom_days = _coerce_int(card.get("data-days-on-lot") or pl.get("daysOnLot"))
+        dom_stock_payload = dict(pl)
+        if card.get("data-stock-date"):
+            dom_stock_payload.setdefault("stockDate", card.get("data-stock-date"))
+        stock_dom, days_dom = _extract_stock_date_and_days(dom_stock_payload)
+        if dom_days is not None:
+            days_dom = dom_days
         is_in_stock = _coerce_bool(card.get("data-instock"))
         is_in_transit = _coerce_bool(card.get("data-intransit"))
         inventory_location = card.get("data-dotagging-item-location")
@@ -998,6 +1288,11 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
                 is_in_transit=is_in_transit,
                 is_in_stock=is_in_stock,
                 is_shared_inventory=False,
+                msrp=card_msrp,
+                dealer_discount=dealer_disc,
+                feature_highlights=payload_features,
+                stock_date=stock_dom,
+                days_on_lot=days_dom,
             )
         )
 
@@ -1222,12 +1517,17 @@ def try_extract_vehicles_without_llm(
     html: str,
     make_filter: str,
     model_filter: str,
+    platform_id: str | None = None,
 ) -> ExtractionResult | None:
     """
     If embedded/JSON-LD/inventory-api data yields concrete vehicles, map them without OpenAI.
     Returns None when structured data is missing or too weak.
     """
     dicts = collect_structured_vehicle_dicts(html, page_url)
+    if platform_id is not None:
+        from app.services.parser.factory import inventory_parser_for_platform
+
+        dicts = inventory_parser_for_platform(platform_id).normalize_pricing_dicts(dicts)
     vehicles: list[VehicleListing] = []
     by_key: dict[str, VehicleListing] = {}
     for d in dicts:

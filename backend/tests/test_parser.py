@@ -29,6 +29,29 @@ def test_try_extract_dom_vehicle_card() -> None:
     assert v.listing_url == "https://dealer.example/inventory/v1"
 
 
+def test_try_extract_dom_msrp_and_discount_from_attributes() -> None:
+    html = """
+    <html><body>
+      <div class="vehicle-card" data-year="2024" data-make="Jeep" data-model="Wrangler"
+           data-price="42000" data-msrp="45000" data-days-on-lot="18">
+        <a href="/inventory/j1">2024 Jeep Wrangler</a>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+    )
+    assert result is not None
+    v = result.vehicles[0]
+    assert v.price == 42000
+    assert v.msrp == 45000
+    assert v.dealer_discount == 3000
+    assert v.days_on_lot == 18
+
+
 def test_find_next_page_dealer_on_pt_query() -> None:
     html = '<html><body><a href="searchnew.aspx?pt=2" class="pagination__next">Next</a></body></html>'
     base = "https://dealer.example/searchnew.aspx?pt=1"

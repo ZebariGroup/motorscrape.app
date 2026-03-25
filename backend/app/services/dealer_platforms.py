@@ -33,6 +33,49 @@ class PlatformDefinition:
     requires_render: bool = False
 
 
+# ZenRows `js_instructions` for infinite-scroll SRPs (e.g. OneAudi Falcon) — host-based, not hard-coded in scraper.
+_ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS = """[
+    {"wait": 2000},
+    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+    {"wait": 1000},
+    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+    {"wait": 2000},
+    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+    {"wait": 1000},
+    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+    {"wait": 2000},
+    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+    {"wait": 1000},
+    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+    {"wait": 2000},
+    {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+    {"wait": 1000},
+    {"evaluate": "Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click()"},
+    {"wait": 2000}
+]"""
+
+_ONEAUDI_FALCON_INVENTORY_HOST_FRAGMENTS: frozenset[str] = frozenset(
+    {
+        "audi.com",
+        "audinovi.com",
+        "audirochesterhills.com",
+        "audiannarbor.com",
+        "audilansing.com",
+        "audiwindsor.com",
+    }
+)
+
+
+def zenrows_inventory_js_instructions_for_url(url: str) -> str | None:
+    """Return platform-specific ZenRows JS instructions for inventory URLs, if any."""
+    if not url:
+        return None
+    u = url.lower()
+    if any(h in u for h in _ONEAUDI_FALCON_INVENTORY_HOST_FRAGMENTS):
+        return _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS.strip()
+    return None
+
+
 _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
     PlatformDefinition(
         platform_id="oneaudi_falcon",

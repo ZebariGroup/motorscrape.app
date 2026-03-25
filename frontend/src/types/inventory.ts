@@ -18,6 +18,15 @@ export type VehicleListing = {
   is_in_transit?: boolean;
   is_in_stock?: boolean;
   is_shared_inventory?: boolean;
+  /** List / sticker MSRP when shown separately from sale price */
+  msrp?: number;
+  /** Savings below MSRP in USD */
+  dealer_discount?: number;
+  incentive_labels?: string[];
+  feature_highlights?: string[];
+  /** YYYY-MM-DD when the dealer exposes a stock date */
+  stock_date?: string;
+  days_on_lot?: number;
 };
 
 export type DealershipProgress = {

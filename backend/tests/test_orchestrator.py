@@ -70,6 +70,10 @@ async def test_stream_search_done_includes_fetch_metrics() -> None:
             return_value=dealers,
         ),
         patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
             "app.services.orchestrator.fetch_page_html",
             new_callable=AsyncMock,
             side_effect=fake_fetch,

@@ -24,6 +24,11 @@ from app.services.inventory_filters import (
     listing_matches_vehicle_condition,
     model_filter_variants,
 )
+from app.services.inventory_result_cache import (
+    get_cached_inventory_listings,
+    inventory_listings_cache_key,
+    set_cached_inventory_listings,
+)
 from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.places import find_car_dealerships
 from app.services.platform_store import normalize_dealer_domain
@@ -39,6 +44,15 @@ from app.services.scraper import PageKind, _looks_like_block_page, fetch_page_ht
 
 logger = logging.getLogger(__name__)
 _STREAM_LISTING_BATCH_SIZE = 8
+
+# Per-normalized-host concurrency for fetch_page_html (complements dealer-level semaphore).
+_domain_fetch_limiters: dict[str, asyncio.Semaphore] = {}
+
+
+def _domain_fetch_limiter(host_key: str) -> asyncio.Semaphore:
+    if host_key not in _domain_fetch_limiters:
+        _domain_fetch_limiters[host_key] = asyncio.Semaphore(max(1, settings.domain_fetch_concurrency))
+    return _domain_fetch_limiters[host_key]
 
 # Inventory-page family stacks that should override generic website platforms (DealerOn / Inspire / DDC).
 _INVENTORY_FAMILY_PLATFORM_IDS = frozenset(
@@ -411,6 +425,16 @@ async def stream_search(
         website = _prefer_https_website_url((d.website or "").strip())
         domain = normalize_dealer_domain(website)
         fetch_methods_used: list[str] = []
+        inv_cache_key = inventory_listings_cache_key(
+            website=website,
+            domain=domain,
+            make=make,
+            model=model,
+            vehicle_condition=vehicle_condition,
+            inventory_scope=inventory_scope,
+            max_pages=requested_pages,
+        )
+        listings_for_cache: list[dict] = []
 
         async def _fetch(
             url: str,
@@ -418,12 +442,14 @@ async def stream_search(
             *,
             prefer_render: bool = False,
         ) -> tuple[str, str]:
-            html, method = await fetch_page_html(
-                url,
-                page_kind=page_kind,
-                prefer_render=prefer_render,
-                metrics=None,
-            )
+            host_key = normalize_dealer_domain(url) or domain or "unknown"
+            async with _domain_fetch_limiter(host_key):
+                html, method = await fetch_page_html(
+                    url,
+                    page_kind=page_kind,
+                    prefer_render=prefer_render,
+                    metrics=None,
+                )
             fetch_methods_used.append(method)
             async with metrics_lock:
                 key = f"fetch_{method}"
@@ -444,6 +470,45 @@ async def stream_search(
             )
         )
         async with sem:
+            cached_inv = get_cached_inventory_listings(inv_cache_key)
+            if cached_inv and cached_inv.get("listings"):
+                fetch_methods_used.append("inventory_cache")
+                cached_listings = cached_inv["listings"]
+                total_cached = 0
+                for listing_chunk in _chunk_listings(cached_listings):
+                    total_cached += len(listing_chunk)
+                    chunks.append(
+                        _sse_pack(
+                            "vehicles",
+                            {
+                                "dealership": d.name,
+                                "website": website,
+                                "current_url": website,
+                                "count": len(listing_chunk),
+                                "listings": listing_chunk,
+                            },
+                        )
+                    )
+                chunks.append(
+                    _sse_pack(
+                        "dealership",
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": d.name,
+                            "website": website,
+                            "status": "done",
+                            "listings_found": total_cached,
+                            "fetch_methods": fetch_methods_used,
+                            "platform_id": cached_inv.get("platform_id"),
+                            "platform_source": "cache",
+                            "strategy_used": "inventory_cache",
+                            "from_cache": True,
+                        },
+                    )
+                )
+                return chunks
+
             # 1. Fetch homepage to find inventory link
             base_url = website
             try:
@@ -451,10 +516,9 @@ async def stream_search(
                     _fetch(website, "homepage"),
                     timeout=fetch_timeout,
                 )
-                
+
                 # If the homepage has a canonical link, it likely redirected to a different domain.
                 # Use the canonical URL as the new base website to ensure inventory links resolve correctly.
-                from bs4 import BeautifulSoup
                 try:
                     soup = BeautifulSoup(html, "lxml")
                     canonical = soup.find("link", rel="canonical")
@@ -864,6 +928,7 @@ async def stream_search(
                         html=current_html,
                         make_filter=make,
                         model_filter=model,
+                        platform_id=route.platform_id if route else None,
                     )
                     extraction_mode = "structured" if ext_result is not None else None
                     if ext_result is not None:
@@ -1037,6 +1102,7 @@ async def stream_search(
                             requires_render=("rendered" in current_method) or route.requires_render,
                         )
                     total_vehicles += len(vdicts)
+                    listings_for_cache.extend(vdicts)
                     for listing_chunk in _chunk_listings(vdicts):
                         chunks.append(
                             _sse_pack(
@@ -1101,6 +1167,19 @@ async def stream_search(
             }
             if skip_info:
                 done_payload["info"] = skip_info
+            if (
+                settings.inventory_cache_enabled
+                and listings_for_cache
+                and total_vehicles > 0
+                and not skip_info
+            ):
+                set_cached_inventory_listings(
+                    inv_cache_key,
+                    {
+                        "listings": listings_for_cache,
+                        "platform_id": route.platform_id if route else None,
+                    },
+                )
             chunks.append(_sse_pack("dealership", done_payload))
         return chunks
 

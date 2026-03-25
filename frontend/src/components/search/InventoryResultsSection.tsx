@@ -1,9 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import { downloadCsv, listingsToCsv } from "@/lib/csvExport";
 import { formatMoney, locationBadge } from "@/lib/inventoryFormat";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { ListingSortOrder } from "@/hooks/useSearchStream";
+
+function featureChip(text: string, key: string) {
+  const short =
+    text.length > 36 ? `${text.slice(0, 34)}…` : text;
+  return (
+    <span
+      key={key}
+      className="max-w-full truncate rounded-md border border-white/25 bg-black/35 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-white/95 shadow-sm backdrop-blur-sm sm:text-[10px]"
+      title={text}
+    >
+      {short}
+    </span>
+  );
+}
 
 type Props = {
   listings: AggregatedListing[];
@@ -35,19 +50,33 @@ export function InventoryResultsSection({
           </span>
         </div>
         {listings.length > 0 ? (
-          <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-            <span className="shrink-0 font-medium text-zinc-700 dark:text-zinc-300">Sort by</span>
-            <select
-              value={sortOrder}
-              onChange={(e) => onSortOrderChange(e.target.value as ListingSortOrder)}
-              className="min-w-[11rem] rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-zinc-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+              <span className="shrink-0 font-medium text-zinc-700 dark:text-zinc-300">Sort by</span>
+              <select
+                value={sortOrder}
+                onChange={(e) => onSortOrderChange(e.target.value as ListingSortOrder)}
+                className="min-w-[11rem] rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-zinc-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+              >
+                <option value="year_desc">Year (newest)</option>
+                <option value="price_asc">Price (low to high)</option>
+                <option value="price_desc">Price (high to low)</option>
+                <option value="mileage_asc">Mileage (low to high)</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={filteredListings.length === 0}
+              onClick={() => {
+                const csv = listingsToCsv(filteredListings);
+                const day = new Date().toISOString().slice(0, 10);
+                downloadCsv(`motorscrape-inventory-${day}.csv`, csv);
+              }}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-emerald-400 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-emerald-600"
             >
-              <option value="year_desc">Year (newest)</option>
-              <option value="price_asc">Price (low to high)</option>
-              <option value="price_desc">Price (high to low)</option>
-              <option value="mileage_asc">Mileage (low to high)</option>
-            </select>
-          </label>
+              Download CSV
+            </button>
+          </div>
         ) : null}
       </div>
       {listings.length === 0 ? (
@@ -98,7 +127,7 @@ export function InventoryResultsSection({
               className="flex flex-row sm:flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 cursor-pointer hover:border-emerald-300 hover:ring-1 hover:ring-emerald-500/20 transition-all"
               onClick={() => setSelectedListing(v)}
             >
-              <div className="relative w-2/5 shrink-0 sm:w-full sm:aspect-[16/10] bg-zinc-100 dark:bg-zinc-900">
+              <div className="relative w-2/5 shrink-0 sm:w-full sm:aspect-[16/10] min-h-[128px] bg-zinc-100 dark:bg-zinc-900">
                 {v.image_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -109,10 +138,47 @@ export function InventoryResultsSection({
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-zinc-400">
+                  <div className="flex h-full min-h-[128px] items-center justify-center text-xs text-zinc-400">
                     No image
                   </div>
                 )}
+                {v.image_url ? (
+                  <>
+                    <div
+                      className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/88 via-black/20 to-black/15"
+                      aria-hidden
+                    />
+                    {v.dealer_discount != null && v.dealer_discount > 0 ? (
+                      <div className="absolute left-1.5 top-1.5 sm:left-2 sm:top-2 rounded-full bg-emerald-500/95 px-2 py-0.5 text-[10px] font-bold tracking-tight text-white shadow-lg ring-1 ring-white/20 sm:text-xs">
+                        Save {formatMoney(v.dealer_discount)}
+                      </div>
+                    ) : null}
+                    {v.days_on_lot != null ? (
+                      <div className="absolute right-1.5 top-1.5 sm:right-2 sm:top-2 rounded-full bg-zinc-900/80 px-2 py-0.5 text-[10px] font-semibold text-white shadow-md ring-1 ring-white/15 backdrop-blur-sm sm:text-xs">
+                        {v.days_on_lot}d on lot
+                      </div>
+                    ) : null}
+                    {(v.feature_highlights?.length ?? 0) > 0 ? (
+                      <div className="absolute right-1.5 top-[38%] flex max-w-[48%] -translate-y-1/2 flex-col items-end gap-1 sm:right-2">
+                        {v.feature_highlights!.slice(0, 2).map((t, i) =>
+                          featureChip(t, `feat-${i}`)
+                        )}
+                      </div>
+                    ) : null}
+                    <div className="absolute bottom-0 left-0 right-0 px-2 pb-1.5 pt-8 text-white sm:px-3 sm:pb-2">
+                      <div className="text-base font-bold leading-none drop-shadow sm:text-xl">
+                        {formatMoney(v.price)}
+                      </div>
+                      {v.msrp != null &&
+                      v.price != null &&
+                      v.msrp > v.price + 1 ? (
+                        <div className="mt-0.5 text-[10px] text-white/80 line-through sm:text-xs">
+                          {formatMoney(v.msrp)} MSRP
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
               </div>
               <div className="flex flex-1 flex-col p-3 sm:p-4">
                 <h3 className="text-sm sm:text-base font-semibold text-zinc-900 dark:text-zinc-50 line-clamp-2 sm:line-clamp-none">
@@ -120,10 +186,14 @@ export function InventoryResultsSection({
                     ([v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") || "Vehicle")}
                 </h3>
                 <dl className="mt-2 flex flex-col gap-1 text-[11px] sm:grid sm:grid-cols-2 sm:gap-x-2 sm:text-xs text-zinc-600 dark:text-zinc-400">
-                  <div className="flex justify-between sm:contents">
-                    <dt className="font-medium text-zinc-500">Price</dt>
-                    <dd className="font-semibold text-zinc-900 dark:text-zinc-50 sm:font-normal sm:text-zinc-600 sm:dark:text-zinc-400">{formatMoney(v.price)}</dd>
-                  </div>
+                  {!v.image_url ? (
+                    <div className="flex justify-between sm:contents">
+                      <dt className="font-medium text-zinc-500">Price</dt>
+                      <dd className="font-semibold text-zinc-900 dark:text-zinc-50 sm:font-normal sm:text-zinc-600 sm:dark:text-zinc-400">
+                        {formatMoney(v.price)}
+                      </dd>
+                    </div>
+                  ) : null}
                   <div className="flex justify-between sm:contents">
                     <dt className="font-medium text-zinc-500">Mileage</dt>
                     <dd>{v.mileage != null ? `${v.mileage.toLocaleString()} mi` : "—"}</dd>
@@ -221,10 +291,27 @@ export function InventoryResultsSection({
               
               <div className="p-5 sm:p-6 space-y-6">
                 <div className="flex flex-wrap items-baseline justify-between gap-4 border-b border-zinc-100 pb-4 dark:border-zinc-800/50">
-                  <div className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
-                    {formatMoney(selectedListing.price)}
+                  <div>
+                    <div className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
+                      {formatMoney(selectedListing.price)}
+                    </div>
+                    {selectedListing.msrp != null &&
+                    selectedListing.price != null &&
+                    selectedListing.msrp > selectedListing.price + 1 ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+                        <span className="line-through">
+                          MSRP {formatMoney(selectedListing.msrp)}
+                        </span>
+                        {selectedListing.dealer_discount != null &&
+                        selectedListing.dealer_discount > 0 ? (
+                          <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                            Dealer savings {formatMoney(selectedListing.dealer_discount)}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {selectedListing.vehicle_condition && (
                       <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200 capitalize">
                         {selectedListing.vehicle_condition}
@@ -235,8 +322,58 @@ export function InventoryResultsSection({
                         {selectedListing.mileage.toLocaleString()} mi
                       </span>
                     )}
+                    {selectedListing.days_on_lot != null ? (
+                      <span className="rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100">
+                        {selectedListing.days_on_lot} days on lot
+                      </span>
+                    ) : null}
                   </div>
                 </div>
+
+                {(selectedListing.incentive_labels?.length ?? 0) > 0 ? (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                      Incentives &amp; rebates
+                    </h3>
+                    <ul className="flex flex-wrap gap-2">
+                      {selectedListing.incentive_labels!.map((label, i) => (
+                        <li
+                          key={`inc-${i}`}
+                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-100"
+                        >
+                          {label}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {(selectedListing.feature_highlights?.length ?? 0) > 0 ? (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                      Packages &amp; features
+                    </h3>
+                    <ul className="grid gap-2 sm:grid-cols-2">
+                      {selectedListing.feature_highlights!.map((line, i) => (
+                        <li
+                          key={`feat-${i}`}
+                          className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        >
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {selectedListing.stock_date ? (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Stock date (as listed):{" "}
+                    <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                      {selectedListing.stock_date}
+                    </span>
+                  </p>
+                ) : null}
 
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm sm:grid-cols-3">
                   <div className="space-y-1">
