@@ -102,6 +102,38 @@ def _dealer_on_condition_matches(url: str, condition: str) -> bool:
     return _looks_like_dealer_on_srp(url)
 
 
+def _dealer_inspire_path_score(url: str, condition: str) -> int:
+    path = urlsplit(url).path.lower().rstrip("/")
+    if not path:
+        return 0
+    if condition == "new":
+        if path.endswith("/new-vehicles"):
+            return 90
+        if "/new-vehicles/" in path:
+            return -40
+    if condition == "used":
+        if path.endswith("/used-vehicles"):
+            return 90
+        if "/used-vehicles/" in path:
+            return -40
+    return 0
+
+
+def _family_inventory_path_score(url: str, condition: str) -> int:
+    path = urlsplit(url).path.lower().rstrip("/")
+    if condition == "new":
+        if path.endswith("/inventory/new"):
+            return 90
+        if "/inventory/new-" in path:
+            return -40
+    if condition == "used":
+        if path.endswith("/inventory/used"):
+            return 90
+        if "/inventory/used-" in path:
+            return -40
+    return 0
+
+
 def _hint_score(hint: str, href_lower: str, condition: str) -> int:
     if not hint or hint not in href_lower:
         return 0
@@ -282,6 +314,10 @@ def resolve_inventory_url_for_provider(
                 score -= 60
             if any(token in href_lower for token in ("model=", "modelandtrim=", "year=")):
                 score -= 100
+        if route and route.platform_id == "dealer_inspire" and not model_norm:
+            score += _dealer_inspire_path_score(href, condition)
+        if route and route.platform_id == "honda_acura_inventory" and not model_norm:
+            score += _family_inventory_path_score(href, condition)
         if condition == "new":
             if "new-inventory" in href_lower:
                 score += 40

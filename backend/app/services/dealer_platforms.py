@@ -70,8 +70,9 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
             "__next_data__",
             "wp-content/themes/dealerinspire",
         ),
-        inventory_path_hints=("new-inventory", "used-vehicles", "inventory", "vehicles"),
+        inventory_path_hints=("new-vehicles", "new-inventory", "used-vehicles", "inventory", "vehicles"),
         extraction_mode="structured_json",
+        requires_render=True,
     ),
     PlatformDefinition(
         platform_id="cdk_dealerfire",

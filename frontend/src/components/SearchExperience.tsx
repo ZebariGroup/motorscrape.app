@@ -11,9 +11,6 @@ type AggregatedListing = VehicleListing & {
   dealership_website: string;
 };
 
-/** Matches backend default parse cap: openai_timeout (75) + orchestrator margin (~5). */
-const PARSING_HINT_MAX_SEC = 80;
-
 function formatMoney(n: number | undefined) {
   if (n == null || Number.isNaN(n)) return "—";
   return new Intl.NumberFormat("en-US", {
@@ -63,17 +60,11 @@ export function SearchExperience() {
   const [errors, setErrors] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [searchStartedAtMs, setSearchStartedAtMs] = useState<number | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
   const dealerList = useMemo(
     () => Object.values(dealers).sort((a, b) => a.index - b.index),
     [dealers],
-  );
-
-  const activeDealerCount = useMemo(
-    () => dealerList.filter((d) => d.status === "scraping" || d.status === "parsing").length,
-    [dealerList],
   );
 
   const doneDealerCount = useMemo(
@@ -235,16 +226,10 @@ export function SearchExperience() {
     return () => window.clearInterval(id);
   }, [running]);
 
-  const searchElapsedSec = useMemo(() => {
-    if (!running || searchStartedAtMs == null) return 0;
-    return Math.max(0, Math.floor((nowMs - searchStartedAtMs) / 1000));
-  }, [nowMs, running, searchStartedAtMs]);
-
   const stopStream = useCallback(() => {
     esRef.current?.close();
     esRef.current = null;
     setRunning(false);
-    setSearchStartedAtMs(null);
   }, []);
 
   const startSearch = useCallback(() => {
@@ -255,7 +240,6 @@ export function SearchExperience() {
     setStatus(null);
     const startedAt = Date.now();
     setNowMs(startedAt);
-    setSearchStartedAtMs(startedAt);
 
     const base = getApiBaseUrl();
     const params = new URLSearchParams({
@@ -504,11 +488,39 @@ export function SearchExperience() {
         <div className="mt-4 flex flex-col justify-end gap-2 sm:flex-row">
             <button
               type="button"
-              className="inline-flex flex-1 items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="relative inline-flex min-h-[2.75rem] flex-1 flex-col items-center justify-center overflow-hidden rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={running || location.trim().length < 2}
               onClick={startSearch}
             >
-              {running ? "Searching…" : "Search inventory"}
+              {running ? (
+                <>
+                  <div
+                    className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-px"
+                    aria-hidden
+                  >
+                    <div className="h-0.5 w-full bg-black/15 dark:bg-black/30">
+                      <div
+                        className="h-full bg-gradient-to-r from-emerald-300 via-emerald-200 to-teal-300 transition-[width] duration-700 ease-out"
+                        style={{ width: `${discoveredDealerPercent}%` }}
+                      />
+                    </div>
+                    <div className="h-0.5 w-full bg-black/15 dark:bg-black/30">
+                      <div
+                        className="h-full bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-200 transition-[width] duration-700 ease-out"
+                        style={{ width: `${completedDealerPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="relative z-10 flex flex-col items-center gap-0.5 pb-1.5">
+                    <span>Searching…</span>
+                    <span className="max-w-full truncate px-1 text-center text-[11px] font-normal text-white/90">
+                      {`${dealerList.length}/${targetDealerCount} found · ${doneDealerCount}/${targetDealerCount} done · ${listings.length} vehicles`}
+                    </span>
+                  </span>
+                </>
+              ) : (
+                "Search inventory"
+              )}
             </button>
             <button
               type="button"
@@ -530,81 +542,6 @@ export function SearchExperience() {
               ) : null}
               <span>{status}</span>
             </p>
-            {running ? (
-              <>
-                <div className="grid gap-2 pt-2 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/70 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/40">
-                    <div className="text-[11px] font-medium tracking-wide text-emerald-700 uppercase dark:text-emerald-300">
-                      Dealerships found
-                    </div>
-                    <div className="mt-1 flex items-baseline gap-2">
-                      <span className="text-lg font-semibold text-emerald-900 dark:text-emerald-100">
-                        {dealerList.length}
-                      </span>
-                      <span className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
-                        / {targetDealerCount} target
-                      </span>
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-amber-200/70 bg-amber-50/70 px-3 py-2 dark:border-amber-900/60 dark:bg-amber-950/40">
-                    <div className="text-[11px] font-medium tracking-wide text-amber-700 uppercase dark:text-amber-300">
-                      Active now
-                    </div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <span className="inline-flex h-2.5 w-2.5 rounded-full bg-amber-500 motion-safe:animate-pulse" />
-                      <span className="text-lg font-semibold text-amber-900 dark:text-amber-100">
-                        {activeDealerCount}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/70">
-                    <div className="text-[11px] font-medium tracking-wide text-zinc-600 uppercase dark:text-zinc-400">
-                      Vehicles loaded
-                    </div>
-                    <div className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                      {listings.length}
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/70">
-                    <div className="text-[11px] font-medium tracking-wide text-zinc-600 uppercase dark:text-zinc-400">
-                      Elapsed
-                    </div>
-                    <div className="mt-1 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                      {searchElapsedSec}s
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-2 pt-2">
-                  <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
-                    <span>Dealership discovery</span>
-                    <span>{dealerList.length}/{targetDealerCount}</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-400 transition-[width] duration-700 ease-out"
-                      style={{ width: `${discoveredDealerPercent}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
-                    <span>Dealership completion</span>
-                    <span>{doneDealerCount}/{targetDealerCount}</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-300 transition-[width] duration-700 ease-out"
-                      style={{ width: `${completedDealerPercent}%` }}
-                    />
-                  </div>
-                </div>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {pendingDealerSlots > 0
-                    ? `Still looking for ${pendingDealerSlots} more dealerships in range. `
-                    : ""}
-                  AI parsing is often ~10–40s per page when matches are found; it can run up to
-                  about {PARSING_HINT_MAX_SEC}s on a slow or large page.
-                </p>
-              </>
-            ) : null}
           </div>
         ) : null}
         {errors.length > 0 ? (
@@ -654,33 +591,37 @@ export function SearchExperience() {
                       </span>
                     </div>
                     {priceBounds && effectivePriceMin != null && effectivePriceMax != null ? (
-                      <div className="space-y-3">
-                        <input
-                          type="range"
-                          min={priceBounds.min}
-                          max={priceBounds.max}
-                          step={sliderStep(priceBounds.min, priceBounds.max, 500)}
-                          value={effectivePriceMin}
-                          onChange={(e) =>
-                            setPriceFilterMin(
-                              Math.min(Number(e.target.value), effectivePriceMax),
-                            )
-                          }
-                          className="w-full accent-emerald-600"
-                        />
-                        <input
-                          type="range"
-                          min={priceBounds.min}
-                          max={priceBounds.max}
-                          step={sliderStep(priceBounds.min, priceBounds.max, 500)}
-                          value={effectivePriceMax}
-                          onChange={(e) =>
-                            setPriceFilterMax(
-                              Math.max(Number(e.target.value), effectivePriceMin),
-                            )
-                          }
-                          className="w-full accent-emerald-600"
-                        />
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            aria-label="Minimum price"
+                            min={priceBounds.min}
+                            max={priceBounds.max}
+                            step={sliderStep(priceBounds.min, priceBounds.max, 500)}
+                            value={effectivePriceMin}
+                            onChange={(e) =>
+                              setPriceFilterMin(
+                                Math.min(Number(e.target.value), effectivePriceMax),
+                              )
+                            }
+                            className="min-w-0 flex-1 accent-emerald-600"
+                          />
+                          <input
+                            type="range"
+                            aria-label="Maximum price"
+                            min={priceBounds.min}
+                            max={priceBounds.max}
+                            step={sliderStep(priceBounds.min, priceBounds.max, 500)}
+                            value={effectivePriceMax}
+                            onChange={(e) =>
+                              setPriceFilterMax(
+                                Math.max(Number(e.target.value), effectivePriceMin),
+                              )
+                            }
+                            className="min-w-0 flex-1 accent-emerald-600"
+                          />
+                        </div>
                         <div className="flex justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
                           <span>{formatMoney(priceBounds.min)}</span>
                           <span>{formatMoney(priceBounds.max)}</span>
@@ -706,33 +647,37 @@ export function SearchExperience() {
                     {mileageBounds &&
                     effectiveMileageMin != null &&
                     effectiveMileageMax != null ? (
-                      <div className="space-y-3">
-                        <input
-                          type="range"
-                          min={mileageBounds.min}
-                          max={mileageBounds.max}
-                          step={sliderStep(mileageBounds.min, mileageBounds.max, 100)}
-                          value={effectiveMileageMin}
-                          onChange={(e) =>
-                            setMileageFilterMin(
-                              Math.min(Number(e.target.value), effectiveMileageMax),
-                            )
-                          }
-                          className="w-full accent-emerald-600"
-                        />
-                        <input
-                          type="range"
-                          min={mileageBounds.min}
-                          max={mileageBounds.max}
-                          step={sliderStep(mileageBounds.min, mileageBounds.max, 100)}
-                          value={effectiveMileageMax}
-                          onChange={(e) =>
-                            setMileageFilterMax(
-                              Math.max(Number(e.target.value), effectiveMileageMin),
-                            )
-                          }
-                          className="w-full accent-emerald-600"
-                        />
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="range"
+                            aria-label="Minimum mileage"
+                            min={mileageBounds.min}
+                            max={mileageBounds.max}
+                            step={sliderStep(mileageBounds.min, mileageBounds.max, 100)}
+                            value={effectiveMileageMin}
+                            onChange={(e) =>
+                              setMileageFilterMin(
+                                Math.min(Number(e.target.value), effectiveMileageMax),
+                              )
+                            }
+                            className="min-w-0 flex-1 accent-emerald-600"
+                          />
+                          <input
+                            type="range"
+                            aria-label="Maximum mileage"
+                            min={mileageBounds.min}
+                            max={mileageBounds.max}
+                            step={sliderStep(mileageBounds.min, mileageBounds.max, 100)}
+                            value={effectiveMileageMax}
+                            onChange={(e) =>
+                              setMileageFilterMax(
+                                Math.max(Number(e.target.value), effectiveMileageMin),
+                              )
+                            }
+                            className="min-w-0 flex-1 accent-emerald-600"
+                          />
+                        </div>
                         <div className="flex justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
                           <span>{mileageBounds.min.toLocaleString()} mi</span>
                           <span>{mileageBounds.max.toLocaleString()} mi</span>

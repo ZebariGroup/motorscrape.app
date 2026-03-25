@@ -807,7 +807,14 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
     vehicles: list[VehicleListing] = []
     seen: set[str] = set()
 
-    for card in soup.select(".vehicle-card, .new-vehicle, .si-vehicle-box"):
+    selectors = (
+        ".vehicle-card",
+        ".result-wrap.new-vehicle",
+        ".new-vehicle[data-vehicle]",
+        ".si-vehicle-box",
+        ".carbox",
+    )
+    for card in soup.select(", ".join(selectors)):
         classes = set(card.get("class") or [])
         if "skeleton" in classes:
             continue
@@ -868,6 +875,7 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             or _text_or_none(card.select_one(".vehicleTitle"))
             or _text_or_none(card.select_one(".hit-title"))
             or _text_or_none(card.select_one(".hit-title a"))
+            or _text_or_none(card.select_one(".srp-vehicle-title"))
             or _text_or_none(card.select_one(".vehicle-title"))
             or payload_title
             or payload.get("title")

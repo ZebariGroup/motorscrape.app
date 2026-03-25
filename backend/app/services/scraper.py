@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 from urllib.parse import urljoin
 
 import httpx
+from bs4 import BeautifulSoup
 
 from app.config import settings
 
@@ -230,10 +231,28 @@ def _looks_like_placeholder_inventory(html: str) -> bool:
     return any(marker in lower for marker in _PLACEHOLDER_MARKERS)
 
 
+def _looks_like_empty_inventory_shell(html: str) -> bool:
+    lower = html.lower()
+    if "loader-hits" not in lower or 'id="hits"' not in lower:
+        return False
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return False
+    hits = soup.select_one("#hits")
+    if hits is None:
+        return False
+    if hits.select_one("[data-vehicle], .result-wrap.new-vehicle, .carbox, .vehicle-card, .si-vehicle-box"):
+        return False
+    return True
+
+
 def _direct_html_sufficient(html: str, *, page_kind: PageKind) -> bool:
     if _looks_like_block_page(html):
         return False
     if page_kind == "inventory" and _looks_like_placeholder_inventory(html):
+        return False
+    if page_kind == "inventory" and _looks_like_empty_inventory_shell(html):
         return False
     if _has_structured_inventory_hint(html):
         return True
