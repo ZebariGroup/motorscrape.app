@@ -91,7 +91,7 @@ def create_checkout(
         logger.warning("Stripe Checkout failed: %s", msg, exc_info=True)
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
-            "Could not start checkout. Please try again shortly.",
+            f"Checkout error: {msg}" if msg else "Could not start checkout. Please try again shortly.",
         ) from exc
 
     try:
@@ -126,7 +126,7 @@ def create_portal_session(
         logger.warning("Stripe billing portal failed: %s", msg, exc_info=True)
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
-            "Could not open billing portal. Please try again shortly.",
+            f"Billing portal error: {msg}" if msg else "Could not open billing portal. Please try again shortly.",
         ) from exc
 
     try:

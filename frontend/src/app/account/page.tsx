@@ -235,6 +235,7 @@ export default function AccountPage() {
                   <span className="font-medium text-zinc-800 dark:text-zinc-200">New Password</span>
                   <input
                     type="password"
+                    autoComplete="new-password"
                     required
                     minLength={8}
                     value={newPassword}
