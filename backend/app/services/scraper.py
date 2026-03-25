@@ -5,10 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Literal
-from urllib.parse import parse_qsl
-from urllib.parse import unquote
-from urllib.parse import urlencode
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -75,6 +72,51 @@ _PLACEHOLDER_MARKERS = (
 )
 
 
+def _host_is_express_retail(url: str) -> bool:
+    """Dealer 'express store' subdomains (e.g. express.dealer.com) sit behind strict WAF; prefer managed fetch."""
+    try:
+        host = urlsplit(url).netloc.lower().split("@")[-1]
+    except Exception:
+        return False
+    if not host:
+        return False
+    no_port = host.split(":")[0]
+    return no_port == "express" or no_port.startswith("express.")
+
+
+def _www_swap_express_url(url: str) -> str | None:
+    """express.dealer.com/path -> www.dealer.com/path when the group runs inventory on both."""
+    try:
+        parts = urlsplit(url)
+        host = parts.netloc.lower().split("@")[-1].split(":")[0]
+        if not host.startswith("express."):
+            return None
+        base = host.removeprefix("express.")
+        if not base or base.startswith("express."):
+            return None
+        www_host = f"www.{base}"
+        return urlunsplit((parts.scheme, www_host, parts.path, parts.query, parts.fragment))
+    except Exception:
+        return None
+
+
+async def _direct_get_with_express_www_fallback(url: str, timeout: httpx.Timeout) -> str:
+    """
+    Try direct GET; on 403 from an express.* host, try the same path on www.* once
+    (some Dealer.com groups answer on www while express is Cloudflare-challenged).
+    """
+    try:
+        return await _direct_get(url, timeout)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 403 or not _host_is_express_retail(url):
+            raise
+        alt = _www_swap_express_url(url)
+        if not alt or alt.rstrip("/") == url.rstrip("/"):
+            raise
+        logger.info("403 on express inventory; retrying direct on www equivalent: %s", alt)
+        return await _direct_get(alt, timeout)
+
+
 async def fetch_page_html(
     url: str,
     *,
@@ -93,6 +135,13 @@ async def fetch_page_html(
     """
     timeout = httpx.Timeout(settings.scrape_timeout)
     failures: list[str] = []
+
+    if (
+        page_kind == "inventory"
+        and _host_is_express_retail(url)
+        and (settings.zenrows_api_key or settings.scrapingbee_api_key)
+    ):
+        prefer_render = True
 
     def _m(key: str) -> None:
         if metrics is not None:
@@ -148,7 +197,7 @@ async def fetch_page_html(
 
     # 1) Direct first (cheapest)
     try:
-        html = await _direct_get(url, timeout)
+        html = await _direct_get_with_express_www_fallback(url, timeout)
         html = await _maybe_append_inventory_api_data(url, html, timeout)
         if _direct_html_sufficient(html, page_kind=page_kind):
             _m("direct_ok")
@@ -222,7 +271,7 @@ async def fetch_page_html(
 
     # 4) If we had a direct body that was "insufficient", return it rather than failing completely
     try:
-        html = await _direct_get(url, timeout)
+        html = await _direct_get_with_express_www_fallback(url, timeout)
         html = await _maybe_append_inventory_api_data(url, html, timeout)
         _m("direct_fallback_ok")
         return html, "direct"

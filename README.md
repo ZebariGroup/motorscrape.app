@@ -64,6 +64,8 @@ After changes in Google Cloud, update the key in Vercel if needed, then redeploy
 
 See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000`. Frontend: `cd frontend && npm install && npm run dev` (unset `NEXT_PUBLIC_API_URL` so the UI targets `http://localhost:8000`).
 
+**Tests / lint (local):** use a venv in `backend/`, then `pip install -r requirements-dev.txt && ruff check app tests && pytest`. Frontend: `npm run lint && npm run test && npm run build`.
+
 ## SSE event types
 
 | Event           | Purpose                                      |
@@ -77,9 +79,10 @@ See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requi
 ## Scraping cost (ZenRows / ScrapingBee)
 
 - The backend **tries a normal browser-like HTTP GET first** for each URL. Managed scrapers run only if the response looks blocked, empty, or missing inventory signals.
+- Dealer **express.** inventory subdomains (digital retail) often return **403** or a Cloudflare challenge to plain HTTP clients. When **`ZENROWS_API_KEY`** or **`SCRAPINGBEE_API_KEY`** is set, **`express.*` inventory URLs** are fetched with **JS rendering first** (same path as other render-first pages). Without a managed scraper key, the backend may still try **`www.`** after a 403 on **`express.`** for the same path.
 - ZenRows is called **without JS rendering first**, then with **`js_render` + `wait`** only if the static pass is still insufficient. Tune `ZENROWS_WAIT_MS` / `SCRAPINGBEE_WAIT_MS` in env or [`backend/app/config.py`](backend/app/config.py).
 - **Structured inventory** (embedded JSON, `inventoryApiURL`-style endpoints, JSON-LD, and sitemap-discovered inventory URLs) is preferred so listings can be parsed **without** calling the LLM when possible.
-- The search stream’s final **`done`** event includes **`fetch_metrics`** (counts per fetch mode, e.g. `fetch_direct`, `fetch_zenrows_rendered`). Each dealership **`done`** payload may include **`fetch_methods`** (sequence used for that dealer), plus **`platform_id`**, **`platform_source`**, and **`strategy_used`**.
+- The search stream’s final **`done`** event includes **`fetch_metrics`** (counts per fetch mode, e.g. `fetch_direct`, `fetch_zenrows_rendered`) and **`extraction_metrics`** (pages extracted via provider vs structured JSON vs LLM, plus LLM failures). Each dealership **`done`** payload may include **`fetch_methods`** (sequence used for that dealer), plus **`platform_id`**, **`platform_source`**, and **`strategy_used`**.
 
 ## Platform-aware routing
 
@@ -88,7 +91,7 @@ See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requi
 - Platform detection is cached by normalized dealer domain using the path configured by **`PLATFORM_CACHE_PATH`**.
 - The cache stores the detected platform, extraction mode, whether render is usually required, and the last successful inventory URL hint.
 - On repeated searches, cached platform hits let the backend skip rediscovering the extraction path for the same dealer.
-- The cache is implemented with a small local SQLite store by default. In ephemeral/serverless environments, point **`PLATFORM_CACHE_PATH`** at a writable persistent location or swap the store backend if you need stronger durability across cold starts.
+- The cache is implemented with a small SQLite store: **local dev** defaults to `backend/data/platform-cache.sqlite3`; **Vercel** defaults to `/tmp` (ephemeral). Set **`PLATFORM_CACHE_PATH`** to a persistent writable path if you need durability across cold starts.
 
 ## Self-hosted browser fallback (evaluation)
 
