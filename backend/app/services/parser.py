@@ -133,7 +133,9 @@ def _normalize_schema_org(rec: dict) -> dict:
         if k.startswith("@"):
             continue
         if isinstance(v, dict):
-            if "name" in v:
+            if k in ("trackingPricing", "pricing", "offers"):
+                out[k] = v
+            elif "name" in v:
                 out[k] = v["name"]
             elif "value" in v:
                 out[k] = v["value"]
