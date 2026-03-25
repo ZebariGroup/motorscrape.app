@@ -60,6 +60,7 @@ _BLOCK_MARKERS = (
     "captcha.js",
     "access denied",
     "request blocked",
+    "client challenge",
 )
 _STRUCTURE_HINTS = (
     '"inventory":',
@@ -281,7 +282,7 @@ async def fetch_page_html(
         html = await _direct_get_with_express_www_fallback(url, timeout)
         html = await _maybe_append_inventory_api_data(url, html, timeout)
         _m("direct_fallback_ok")
-        return html, "direct"
+        return html, "direct_fallback"
     except Exception as e:
         failures.append(f"direct_retry: {e}")
 

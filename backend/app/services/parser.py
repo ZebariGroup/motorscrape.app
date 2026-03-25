@@ -845,6 +845,9 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
         ".new-vehicle[data-vehicle]",
         ".si-vehicle-box",
         ".carbox",
+        ".inventory-vehicle-block",
+        ".vehicle-box",
+        ".vehicle-specials",
     )
     for card in soup.select(", ".join(selectors)):
         classes = set(card.get("class") or [])
@@ -915,11 +918,17 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
         )
         if not raw_title and card_text:
             raw_title = re.split(
-                r"\b(?:MSRP|Your\s+Price|Details|Disclosure|Exterior:|Interior:|Engine:|Transmission:|vin:|Stock:)\b",
+                r"\b(?:MSRP|Your\s+Price|Details|Disclosure|Exterior:|Interior:|Engine:|Transmission:|vin:|Stock:|Finance\s+for|Lease\s+for)\b|\$|Starting\s+at",
                 card_text,
                 maxsplit=1,
                 flags=re.I,
             )[0].strip()
+            raw_title = re.sub(
+                r"^(?:Finance\s+a\s+|Lease\s+a\s+|Buy\s+a\s+|New\s+|Used\s+|Certified\s+Pre-Owned\s+|CPO\s+|\d+\s+Available\s+)+",
+                "",
+                raw_title,
+                flags=re.I,
+            ).strip()
         title_fields = _parse_title_fields(raw_title or card_text)
         if not raw_title:
             raw_title = title_fields.get("raw_title")
