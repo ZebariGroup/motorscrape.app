@@ -54,7 +54,9 @@ async def _ensure_browser() -> Any:
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
-                "--window-size=1365,900",
+                "--window-size=1920,1080",
+                "--disable-blink-features=AutomationControlled",
+                "--ignore-certificate-errors",
             ),
         )
         return _browser
@@ -91,8 +93,22 @@ async def fetch_html_via_playwright(url: str) -> str | None:
             browser = await _ensure_browser()
             context = await browser.new_context(
                 user_agent=_UA,
-                viewport={"width": 1365, "height": 900},
+                viewport={"width": 1920, "height": 1080},
                 locale="en-US",
+                timezone_id="America/New_York",
+                device_scale_factor=1,
+                has_touch=False,
+                is_mobile=False,
+                ignore_https_errors=True,
+            )
+            # Add stealth script to avoid basic bot detection
+            await context.add_init_script(
+                """
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                window.chrome = { runtime: {} };
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                """
             )
             page = await context.new_page()
             nav_timeout = max(5000, settings.playwright_timeout_ms)
@@ -100,6 +116,11 @@ async def fetch_html_via_playwright(url: str) -> str | None:
             post = max(0, settings.playwright_post_load_wait_ms)
             if post:
                 await page.wait_for_timeout(post)
+            # Wait for network idle to ensure JS renders if it's a SPA
+            try:
+                await page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                pass
             html = await page.content()
             await context.close()
         except Exception as e:

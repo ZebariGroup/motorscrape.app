@@ -137,12 +137,14 @@ async def _playwright_pass(
         metric_bump("playwright_error")
         return None
     if not html:
+        failures.append("playwright: empty")
         metric_bump("playwright_empty")
         return None
     html = await _maybe_append_inventory_api_data(url, html, timeout)
     if _direct_html_sufficient(html, page_kind=page_kind):
         metric_bump("playwright_ok")
         return html, "playwright"
+    failures.append("playwright: insufficient")
     metric_bump("playwright_insufficient")
     return None
 
@@ -151,9 +153,16 @@ async def _direct_get_with_express_www_fallback(url: str, timeout: httpx.Timeout
     """
     Try direct GET; on 403 from an express.* host, try the same path on www.* once
     (some Dealer.com groups answer on www while express is Cloudflare-challenged).
+    Also handles TLS internal errors by trying http:// if it's a known problematic host.
     """
     try:
         return await _direct_get(url, timeout)
+    except httpx.ConnectError as e:
+        if "tlsv1 alert internal error" in str(e).lower() and url.startswith("https://"):
+            logger.info("TLS internal error on %s; retrying with http://", url)
+            alt = url.replace("https://", "http://", 1)
+            return await _direct_get(alt, timeout)
+        raise
     except httpx.HTTPStatusError as e:
         if e.response.status_code != 403 or not _host_is_express_retail(url):
             raise
@@ -349,13 +358,31 @@ async def fetch_page_html(
 
     # 4) If we had a direct body that was "insufficient", return it rather than failing completely
     try:
-        html = await _direct_get_with_express_www_fallback(url, timeout)
-        html = await _maybe_append_inventory_api_data(url, html, timeout)
+        html_fallback = await _direct_get_with_express_www_fallback(url, timeout)
+        html_fallback = await _maybe_append_inventory_api_data(url, html_fallback, timeout)
+        if _has_block_markers(html_fallback):
+            raise RuntimeError("blocked")
+        if "site currently not available" in html_fallback.lower() or "seite vorübergehend" in html_fallback.lower():
+            raise RuntimeError("unavailable")
         _m("direct_fallback_ok")
-        return html, "direct_fallback"
+        return html_fallback, "direct_fallback"
     except Exception as e:
         err_str = e.__class__.__name__ if not str(e) else str(e)
+        if str(e) in ("blocked", "unavailable"):
+            err_str = str(e)
         failures.append(f"direct_retry: {err_str}")
+        
+        # If the fallback attempt succeeded but was thin, return it
+        if "html_fallback" in locals() and html_fallback and len(html_fallback) > 10 and not _has_block_markers(html_fallback):
+            if "site currently not available" not in html_fallback.lower() and "seite vorübergehend" not in html_fallback.lower() and "denied" not in html_fallback.lower():
+                _m("direct_fallback_ok")
+                return html_fallback, "direct_fallback"
+
+    # If we had a thin HTML from the first pass that wasn't blocked, return it
+    if "html" in locals() and html and len(html) > 10 and not _has_block_markers(html):
+        if "site currently not available" not in html.lower() and "seite vorübergehend" not in html.lower() and "denied" not in html.lower():
+            _m("direct_fallback_ok")
+            return html, "direct_fallback"
 
     detail = " | ".join(failures)
     raise RuntimeError(f"All fetch methods failed for {url}: {detail}") from None
@@ -364,6 +391,13 @@ async def fetch_page_html(
 def _looks_like_block_page(html: str) -> bool:
     if not html or len(html.strip()) < 200:
         return True
+    lower = html.lower()
+    return any(m in lower for m in _BLOCK_MARKERS)
+
+
+def _has_block_markers(html: str) -> bool:
+    if not html:
+        return False
     lower = html.lower()
     return any(m in lower for m in _BLOCK_MARKERS)
 
@@ -434,6 +468,8 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind) -> bool:
     lower = html.lower()
     if page_kind == "homepage":
         return len(html) >= 1800 and ("href=" in lower or "inventory" in lower)
+    if "site currently not available" in lower or "seite vorübergehend" in lower:
+        return False
     # Inventory pages often return large SEO shells or placeholder grids.
     return False
 
@@ -450,7 +486,7 @@ def _browser_headers() -> dict[str, str]:
 
 
 async def _direct_get(url: str, timeout: httpx.Timeout) -> str:
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=False) as client:
         r = await client.get(url, headers=_browser_headers())
         r.raise_for_status()
         return r.text
