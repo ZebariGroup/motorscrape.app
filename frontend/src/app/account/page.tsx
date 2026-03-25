@@ -192,7 +192,32 @@ export default function AccountPage() {
                   ? "Manage your active subscription, payment methods, and billing history."
                   : "Subscribe via Stripe Checkout to unlock higher limits and premium features. Enterprise and custom licensing are contracted separately."}
               </p>
-              {billingError ? <p className="mt-2 text-sm text-red-600">{billingError}</p> : null}
+              
+              {!me.stripe_customer_id && (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Standard</h3>
+                    <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+                      <li>• 50 included searches / month</li>
+                      <li>• $0.50 per overage search</li>
+                      <li>• Up to 100 mile radius</li>
+                      <li>• Search up to 10 dealerships at once</li>
+                    </ul>
+                  </div>
+                  <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Premium</h3>
+                    <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+                      <li>• 250 included searches / month</li>
+                      <li>• $0.40 per overage search</li>
+                      <li>• Nationwide search radius</li>
+                      <li>• Search up to 30 dealerships at once</li>
+                      <li>• Access to premium inventory scope</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {billingError ? <p className="mt-4 text-sm text-red-600">{billingError}</p> : null}
               <div className="mt-4 flex flex-wrap gap-3">
                 {me.stripe_customer_id ? (
                   <button
