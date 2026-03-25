@@ -1002,11 +1002,15 @@ def find_next_page_url(html: str, base_url: str) -> str | None:
         href = str(a["href"])
         if "next" not in cls and text not in ("next", "next page", "›", "»"):
             continue
-        if any(x in href.lower() for x in ("page=", "p=", "offset=", "start=", "pn=", "pageindex")):
+        if any(
+            x in href.lower()
+            for x in ("page=", "pt=", "p=", "offset=", "start=", "pn=", "pageindex")
+        ):
             return urljoin(base_url, href)
 
     try:
-        current_page = int(dict(parse_qsl(urlsplit(base_url).query)).get("page", "1"))
+        base_query = dict(parse_qsl(urlsplit(base_url).query))
+        current_page = int(base_query.get("page") or base_query.get("pt") or "1")
     except ValueError:
         current_page = 1
 
@@ -1015,7 +1019,7 @@ def find_next_page_url(html: str, base_url: str) -> str | None:
         href = str(a["href"])
         parsed = urlsplit(urljoin(base_url, href))
         query = dict(parse_qsl(parsed.query))
-        page_val = query.get("page")
+        page_val = query.get("page") or query.get("pt")
         if not page_val:
             continue
         try:

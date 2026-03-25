@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qsl
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from app.schemas import VehicleListing
-
 
 _USED_CONDITION_RE = re.compile(r"\b(used|pre[\s-]?owned|cpo|certified)\b", re.I)
 _NEW_CONDITION_RE = re.compile(r"\bnew\b", re.I)

@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
 from collections import defaultdict
+from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.schemas import DealershipFound, VehicleListing
+from app.services.dealer_platforms import detect_platform_profile
 from app.services.inventory_discovery import discover_sitemap_inventory_urls
 from app.services.inventory_filters import (
     infer_vehicle_condition_from_page,
@@ -23,7 +24,6 @@ from app.services.inventory_filters import (
     listing_matches_vehicle_condition,
     model_filter_variants,
 )
-from app.services.dealer_platforms import detect_platform_profile
 from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.places import find_car_dealerships
 from app.services.platform_store import normalize_dealer_domain
@@ -345,6 +345,7 @@ async def stream_search(
     fetch_timeout = settings.scrape_timeout * 3 + 5.0
     parse_timeout = settings.openai_timeout + 5.0
     fetch_metrics: dict[str, int] = defaultdict(int)
+    extraction_metrics: dict[str, int] = defaultdict(int)
     metrics_lock = asyncio.Lock()
     inv_url_cache: dict[str, str] = {}
 
@@ -551,19 +552,24 @@ async def stream_search(
                     inventory_path_hints=inventory_profile.inventory_path_hints,
                     inventory_url_hint=inv_url or website,
                 )
-            
+
             # 2. Pagination loop
             current_url = inv_url
             pages_scraped = 0
             max_pages = (
                 max(
                     requested_pages,
-                    8
-                    if route
-                    and route.platform_id in {"dealer_inspire", "team_velocity", "nissan_infiniti_inventory"}
-                    and not model.strip()
-                    and vehicle_condition == "new"
-                    else 4,
+                        8
+                        if route
+                        and route.platform_id in {
+                            "dealer_inspire",
+                            "team_velocity",
+                            "nissan_infiniti_inventory",
+                            "dealer_dot_com",
+                        }
+                        and not model.strip()
+                        and vehicle_condition == "new"
+                        else 4,
                 )
                 if route and route.platform_id in {
                     "nissan_infiniti_inventory",
@@ -571,6 +577,8 @@ async def stream_search(
                     "kia_inventory",
                     "dealer_inspire",
                     "team_velocity",
+                    "dealer_dot_com",
+                    "dealer_on",
                 }
                 else requested_pages
             )
@@ -649,6 +657,8 @@ async def stream_search(
                 )
                 if ext_result is not None:
                     extraction_mode = f"provider:{route.platform_id}" if route else "provider"
+                    async with metrics_lock:
+                        extraction_metrics["pages_provider"] += 1
                 else:
                     ext_result = try_extract_vehicles_without_llm(
                         page_url=current_url,
@@ -657,6 +667,9 @@ async def stream_search(
                         model_filter=model,
                     )
                     extraction_mode = "structured" if ext_result is not None else None
+                    if ext_result is not None:
+                        async with metrics_lock:
+                            extraction_metrics["pages_structured"] += 1
 
                 if ext_result is None:
                     if make.strip() and not _html_mentions_make(current_html, make):
@@ -713,9 +726,13 @@ async def stream_search(
                             ),
                             timeout=parse_timeout,
                         )
+                        async with metrics_lock:
+                            extraction_metrics["pages_llm"] += 1
                     except asyncio.TimeoutError:
                         msg = f"Timed out during AI extraction after ~{int(parse_timeout)}s."
                         logger.warning("Parse timed out for %s", current_url)
+                        async with metrics_lock:
+                            extraction_metrics["pages_llm_failed"] += 1
                         if pages_scraped == 0:
                             chunks.append(
                                 _sse_pack(
@@ -734,6 +751,8 @@ async def stream_search(
                         break
                     except Exception as e:
                         logger.warning("Parse failed for %s: %s", current_url, e)
+                        async with metrics_lock:
+                            extraction_metrics["pages_llm_failed"] += 1
                         if pages_scraped == 0:
                             chunks.append(
                                 _sse_pack(
@@ -923,5 +942,6 @@ async def stream_search(
             "max_dealerships": requested_dealerships,
             "max_pages_per_dealer": requested_pages,
             "fetch_metrics": dict(fetch_metrics),
+            "extraction_metrics": dict(extraction_metrics),
         },
     )

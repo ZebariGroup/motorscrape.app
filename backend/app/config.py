@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from pydantic import AliasChoices, Field
@@ -5,6 +6,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _default_platform_cache_path() -> str:
+    """Vercel filesystem is ephemeral — /tmp is appropriate. Local dev uses repo-local sqlite."""
+    if os.environ.get("VERCEL") == "1" or bool(os.environ.get("VERCEL_ENV")):
+        return "/tmp/motorscrape-platform-cache.sqlite3"
+    data_dir = _BACKEND_ROOT / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir / "platform-cache.sqlite3")
 
 
 class Settings(BaseSettings):
@@ -50,9 +60,9 @@ class Settings(BaseSettings):
     max_html_chars: int = 60_000
     # HTTP timeout for each scraper call (seconds).
     scrape_timeout: float = 90.0
-    # Platform detection cache. Use a writable path in the runtime environment.
+    # Platform detection cache. Override PLATFORM_CACHE_PATH on Vercel if using persistent storage.
     platform_cache_enabled: bool = True
-    platform_cache_path: str = "/tmp/motorscrape-platform-cache.sqlite3"
+    platform_cache_path: str = Field(default_factory=_default_platform_cache_path)
     platform_cache_ttl_hours: int = 24 * 14
     platform_cache_failure_threshold: int = 3
 

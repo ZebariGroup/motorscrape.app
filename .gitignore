@@ -7,6 +7,9 @@ __pycache__/
 venv/
 env/
 
+# Local platform cache (see PLATFORM_CACHE_PATH)
+backend/data/*.sqlite3
+
 # Env and secrets
 .env
 .env.local

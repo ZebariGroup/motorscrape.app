@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import parse_qsl
-from urllib.parse import urlencode
-from urllib.parse import urlsplit
-from urllib.parse import urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
