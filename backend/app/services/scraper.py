@@ -173,6 +173,8 @@ async def fetch_page_html(
         metric_prefix: str,
         failure_label: str,
     ) -> str | None:
+        html = None
+        needs_premium = False
         try:
             html = await _zenrows_fetch(
                 url,
@@ -185,13 +187,16 @@ async def fetch_page_html(
                 _m(f"{metric_prefix}_ok")
                 return html
             _m(f"{metric_prefix}_insufficient")
+            needs_premium = _should_retry_zenrows_with_premium_proxy(html, page_kind=page_kind)
         except Exception as e:
             sanitized = str(e).replace(settings.zenrows_api_key, "***")
             logger.warning("ZenRows %s failed for %s: %s", failure_label, url, sanitized)
             failures.append(f"{failure_label}: {sanitized}")
-            return None
+            # If it's a 403 or 404, it might be a WAF block, so try premium proxy
+            if "403" in str(e) or "404" in str(e) or "429" in str(e):
+                needs_premium = True
 
-        if not _should_retry_zenrows_with_premium_proxy(html, page_kind=page_kind):
+        if not needs_premium or settings.zenrows_premium_proxy:
             return None
 
         try:
@@ -358,6 +363,8 @@ def _looks_like_empty_inventory_shell(html: str) -> bool:
 def _should_prefer_zenrows_render(html: str, *, page_kind: PageKind) -> bool:
     if page_kind != "inventory":
         return False
+    if _has_structured_inventory_hint(html):
+        return False
     return (
         _looks_like_block_page(html)
         or _looks_like_placeholder_inventory(html)
@@ -367,6 +374,8 @@ def _should_prefer_zenrows_render(html: str, *, page_kind: PageKind) -> bool:
 
 def _should_retry_zenrows_with_premium_proxy(html: str, *, page_kind: PageKind) -> bool:
     if settings.zenrows_premium_proxy:
+        return False
+    if page_kind == "inventory" and _has_structured_inventory_hint(html):
         return False
     return _looks_like_block_page(html) or (
         page_kind == "inventory"
@@ -380,12 +389,12 @@ def _should_retry_zenrows_with_premium_proxy(html: str, *, page_kind: PageKind) 
 def _direct_html_sufficient(html: str, *, page_kind: PageKind) -> bool:
     if _looks_like_block_page(html):
         return False
+    if _has_structured_inventory_hint(html):
+        return True
     if page_kind == "inventory" and _looks_like_placeholder_inventory(html):
         return False
     if page_kind == "inventory" and _looks_like_empty_inventory_shell(html):
         return False
-    if _has_structured_inventory_hint(html):
-        return True
     if _html_looks_inventory_ready(html):
         return True
     lower = html.lower()

@@ -433,11 +433,26 @@ async def stream_search(
         )
         async with sem:
             # 1. Fetch homepage to find inventory link
+            base_url = website
             try:
                 html, method = await asyncio.wait_for(
                     _fetch(website, "homepage"),
                     timeout=fetch_timeout,
                 )
+                
+                # If the homepage has a canonical link, it likely redirected to a different domain.
+                # Use the canonical URL as the new base website to ensure inventory links resolve correctly.
+                from bs4 import BeautifulSoup
+                try:
+                    soup = BeautifulSoup(html, "lxml")
+                    canonical = soup.find("link", rel="canonical")
+                    if canonical and canonical.get("href"):
+                        canonical_href = canonical["href"].strip()
+                        if canonical_href.startswith("http"):
+                            domain = normalize_dealer_domain(canonical_href)
+                            base_url = canonical_href
+                except Exception:
+                    pass
             except asyncio.TimeoutError:
                 logger.warning("Scrape timed out for %s", website)
                 chunks.append(
@@ -475,45 +490,45 @@ async def stream_search(
                 )
                 return chunks
 
-            route = detect_or_lookup_provider(domain=domain, website=website, homepage_html=html)
+            route = detect_or_lookup_provider(domain=domain, website=base_url, homepage_html=html)
             if route:
                 async with metrics_lock:
                     fetch_metrics[f"platform_{route.platform_id}"] += 1
                     fetch_metrics[f"platform_source_{route.cache_status}"] += 1
             inv_url = resolve_inventory_url_for_provider(
                 html,
-                website,
+                base_url,
                 route,
                 fallback_url=_find_inventory_url(
                     html,
-                    website,
+                    base_url,
                     vehicle_condition=vehicle_condition,
                 ),
                 make=make,
                 model=model,
                 vehicle_condition=vehicle_condition,
             )
-            if inv_url == website and domain in inv_url_cache:
+            if inv_url == base_url and domain in inv_url_cache:
                 cached = inv_url_cache[domain]
-                if cached and cached.rstrip("/") != website.rstrip("/"):
+                if cached and cached.rstrip("/") != base_url.rstrip("/"):
                     inv_url = cached
-            if inv_url == website:
+            if inv_url == base_url:
                 try:
                     sm_timeout = httpx.Timeout(min(settings.scrape_timeout, 30.0))
-                    candidates = await discover_sitemap_inventory_urls(website, sm_timeout)
+                    candidates = await discover_sitemap_inventory_urls(base_url, sm_timeout)
                     for cand in candidates:
-                        if cand.rstrip("/") != website.rstrip("/"):
+                        if cand.rstrip("/") != base_url.rstrip("/"):
                             inv_url = cand
                             logger.info("Using sitemap inventory candidate for %s: %s", domain, inv_url)
                             break
                 except Exception as e:
-                    logger.debug("Sitemap discovery skipped for %s: %s", website, e)
+                    logger.debug("Sitemap discovery skipped for %s: %s", base_url, e)
 
             current_html = html
             current_method = method
 
             # If inventory is on a different URL, fetch it before first parse.
-            if inv_url and inv_url != website:
+            if inv_url and inv_url != base_url:
                 chunks.append(
                     _sse_pack(
                         "dealership",
@@ -575,22 +590,22 @@ async def stream_search(
             elif route and route.requires_render:
                 try:
                     current_html, current_method = await asyncio.wait_for(
-                        _fetch(inv_url or website, "inventory", prefer_render=True),
+                        _fetch(inv_url or base_url, "inventory", prefer_render=True),
                         timeout=fetch_timeout,
                     )
                 except Exception as e:
-                    logger.debug("Preferred rendered refetch skipped for %s: %s", inv_url or website, e)
+                    logger.debug("Preferred rendered refetch skipped for %s: %s", inv_url or base_url, e)
 
             # Bot-challenge homepages often have no inventory <a> tags, so inv_url stays the homepage.
             # Try a common franchise SRP with JS rendering before giving up on platform detection.
             if (
                 inv_url
                 and _prefer_https_website_url(inv_url).rstrip("/")
-                == _prefer_https_website_url(website).rstrip("/")
+                == _prefer_https_website_url(base_url).rstrip("/")
                 and _looks_like_block_page(current_html)
             ):
-                guess_inv = _guess_franchise_inventory_srp_url(website, vehicle_condition)
-                if guess_inv and guess_inv.rstrip("/") != _prefer_https_website_url(website).rstrip(
+                guess_inv = _guess_franchise_inventory_srp_url(base_url, vehicle_condition)
+                if guess_inv and guess_inv.rstrip("/") != _prefer_https_website_url(base_url).rstrip(
                     "/"
                 ):
                     chunks.append(
@@ -630,15 +645,15 @@ async def stream_search(
             if (
                 inv_url
                 and _prefer_https_website_url(inv_url).rstrip("/")
-                == _prefer_https_website_url(website).rstrip("/")
+                == _prefer_https_website_url(base_url).rstrip("/")
                 and route is None
             ):
                 try:
                     rendered_home_html, rendered_home_method = await asyncio.wait_for(
-                        _fetch(website, "inventory", prefer_render=True),
+                        _fetch(base_url, "inventory", prefer_render=True),
                         timeout=fetch_timeout,
                     )
-                    rendered_profile = detect_platform_profile(rendered_home_html, page_url=website)
+                    rendered_profile = detect_platform_profile(rendered_home_html, page_url=base_url)
                     if rendered_profile:
                         route = ProviderRoute(
                             platform_id=rendered_profile.platform_id,
@@ -648,22 +663,22 @@ async def stream_search(
                             detection_source=rendered_profile.detection_source,
                             cache_status="detected",
                             inventory_path_hints=rendered_profile.inventory_path_hints,
-                            inventory_url_hint=website,
+                            inventory_url_hint=base_url,
                         )
                         rendered_inv_url = resolve_inventory_url_for_provider(
                             rendered_home_html,
-                            website,
+                            base_url,
                             route,
                             fallback_url=_find_inventory_url(
                                 rendered_home_html,
-                                website,
+                                base_url,
                                 vehicle_condition=vehicle_condition,
                             ),
                             make=make,
                             model=model,
                             vehicle_condition=vehicle_condition,
                         )
-                        if rendered_inv_url.rstrip("/") != _prefer_https_website_url(website).rstrip("/"):
+                        if rendered_inv_url.rstrip("/") != _prefer_https_website_url(base_url).rstrip("/"):
                             chunks.append(
                                 _sse_pack(
                                     "dealership",
@@ -692,11 +707,11 @@ async def stream_search(
                 except Exception as e:
                     logger.debug(
                         "Rendered homepage inventory discovery skipped for %s: %s",
-                        website,
+                        base_url,
                         e,
                     )
 
-            inventory_profile = detect_platform_profile(current_html, page_url=inv_url or website)
+            inventory_profile = detect_platform_profile(current_html, page_url=inv_url or base_url)
             if inventory_profile and (
                 route is None
                 or inventory_profile.confidence >= route.confidence
@@ -714,7 +729,7 @@ async def stream_search(
                     detection_source=inventory_profile.detection_source,
                     cache_status="detected",
                     inventory_path_hints=inventory_profile.inventory_path_hints,
-                    inventory_url_hint=inv_url or website,
+                    inventory_url_hint=inv_url or base_url,
                 )
 
             # 2. Pagination loop
@@ -762,7 +777,7 @@ async def stream_search(
             dealer_inspire_fallback_urls = (
                 _dealer_inspire_model_inventory_urls(
                     current_html,
-                    current_url or website,
+                    current_url or base_url,
                     vehicle_condition=vehicle_condition,
                 )
                 if route
@@ -776,7 +791,7 @@ async def stream_search(
             team_velocity_fallback_urls = (
                 _team_velocity_model_inventory_urls(
                     current_html,
-                    current_url or website,
+                    current_url or base_url,
                     vehicle_condition=vehicle_condition,
                 )
                 if route
