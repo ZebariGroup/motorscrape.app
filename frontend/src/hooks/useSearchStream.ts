@@ -197,6 +197,13 @@ export function useSearchStream() {
   ]);
 
   useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFiltersExpanded(false);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!running) return;
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);

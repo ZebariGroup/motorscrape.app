@@ -17,10 +17,6 @@ export function SearchExperience() {
           Local dealership inventory, one place
         </h1>
         <p className="max-w-2xl text-zinc-600 dark:text-zinc-400">We crawl so you can drive.</p>
-        <p className="max-w-2xl text-zinc-600 dark:text-zinc-400">
-          Enter where you are shopping and what you want. We discover nearby dealerships, fetch
-          their sites, and extract listings in real time.
-        </p>
       </header>
 
       <SearchFormSection
