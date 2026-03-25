@@ -54,28 +54,54 @@ def create_checkout(
     base, metered = _pick_prices(body.tier)
     if not base:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"Stripe price IDs are not configured for {body.tier}.")
-    stripe = _stripe()
+    stripe_mod = _stripe()
     store = get_account_store(settings.accounts_db_path)
     user = store.get_user_by_id(ctx.user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED)
+
+    email = (user.email or "").strip()
+    if not email:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Your account has no email on file.")
 
     line_items: list[dict[str, Any]] = [{"price": base, "quantity": 1}]
     if metered:
         line_items.append({"price": metered})
 
     web = (settings.public_web_url or "https://www.motorscrape.com").rstrip("/")
-    session = stripe.checkout.Session.create(
-        mode="subscription",
-        success_url=f"{web}/account?checkout=success",
-        cancel_url=f"{web}/account?checkout=cancel",
-        client_reference_id=str(user.id),
-        customer_email=user.email,
-        line_items=line_items,
-        metadata={"user_id": str(user.id), "tier": body.tier},
-        subscription_data={"metadata": {"user_id": str(user.id), "tier": body.tier}},
-    )
-    return {"url": session["url"]}
+    create_kwargs: dict[str, Any] = {
+        "mode": "subscription",
+        "success_url": f"{web}/account?checkout=success",
+        "cancel_url": f"{web}/account?checkout=cancel",
+        "client_reference_id": str(user.id),
+        "line_items": line_items,
+        "metadata": {"user_id": str(user.id), "tier": body.tier},
+        "subscription_data": {"metadata": {"user_id": str(user.id), "tier": body.tier}},
+    }
+    cust_id = (user.stripe_customer_id or "").strip()
+    if cust_id:
+        create_kwargs["customer"] = cust_id
+    else:
+        create_kwargs["customer_email"] = email
+
+    try:
+        session = stripe_mod.checkout.Session.create(**create_kwargs)
+    except stripe_mod.StripeError as exc:
+        msg = (getattr(exc, "user_message", None) or str(exc) or "").strip()
+        logger.warning("Stripe Checkout failed: %s", msg, exc_info=True)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Could not start checkout. Please try again shortly.",
+        ) from exc
+
+    try:
+        url = session["url"]
+    except (KeyError, TypeError):
+        url = None
+    if not url:
+        logger.error("Stripe Checkout returned no redirect URL")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Checkout did not return a URL.")
+    return {"url": url}
 
 
 @router.post("/portal")
@@ -88,13 +114,28 @@ def create_portal_session(
     user = store.get_user_by_id(ctx.user_id)
     if user is None or not user.stripe_customer_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No active billing account.")
-    stripe = _stripe()
+    stripe_mod = _stripe()
     web = (settings.public_web_url or "https://www.motorscrape.com").rstrip("/")
-    session = stripe.billing_portal.Session.create(
-        customer=user.stripe_customer_id,
-        return_url=f"{web}/account",
-    )
-    return {"url": session.url}
+    try:
+        session = stripe_mod.billing_portal.Session.create(
+            customer=user.stripe_customer_id,
+            return_url=f"{web}/account",
+        )
+    except stripe_mod.StripeError as exc:
+        msg = (getattr(exc, "user_message", None) or str(exc) or "").strip()
+        logger.warning("Stripe billing portal failed: %s", msg, exc_info=True)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Could not open billing portal. Please try again shortly.",
+        ) from exc
+
+    try:
+        url = session["url"]
+    except (KeyError, TypeError):
+        url = None
+    if not url:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Billing portal did not return a URL.")
+    return {"url": url}
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request) -> dict[str, bool]:
