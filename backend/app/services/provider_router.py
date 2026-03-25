@@ -331,6 +331,41 @@ def resolve_inventory_url_for_provider(
     model: str = "",
     vehicle_condition: str = "all",
 ) -> str:
+    condition = (vehicle_condition or "all").strip().lower()
+
+    if route and route.platform_id == "dealer_dot_com":
+        # express.* retail URLs often 403 on bare GETs and 404 when blindly swapped to www.*.
+        # Force them to a known good www.* path based on condition before routing.
+        def _fix_ddc_express(u: str | None) -> str | None:
+            if not u:
+                return u
+            try:
+                parts = urlsplit(u)
+                host = parts.netloc.lower().split("@")[-1].split(":")[0]
+                if host.startswith("express."):
+                    base_host = host.removeprefix("express.")
+                    if base_host and not base_host.startswith("express."):
+                        www_host = f"www.{base_host}"
+                        path = "/new-inventory/index.htm" if condition == "new" else "/used-inventory/index.htm" if condition == "used" else "/inventory/index.htm"
+                        return urlunsplit((parts.scheme, www_host, path, "", ""))
+            except Exception:
+                pass
+            return u
+
+        base_url = _fix_ddc_express(base_url) or base_url
+        fallback_url = _fix_ddc_express(fallback_url) or fallback_url
+        if route.inventory_url_hint:
+            route = ProviderRoute(
+                platform_id=route.platform_id,
+                confidence=route.confidence,
+                extraction_mode=route.extraction_mode,
+                requires_render=route.requires_render,
+                detection_source=route.detection_source,
+                cache_status=route.cache_status,
+                inventory_path_hints=route.inventory_path_hints,
+                inventory_url_hint=_fix_ddc_express(route.inventory_url_hint),
+            )
+
     try:
         soup = BeautifulSoup(html, "lxml")
     except Exception:
@@ -343,7 +378,6 @@ def resolve_inventory_url_for_provider(
     hints = tuple(h.lower() for h in (route.inventory_path_hints if route else ()))
     make_norm = _norm(make)
     model_norm = _norm(model)
-    condition = (vehicle_condition or "all").strip().lower()
     current_url = _normalize_inventory_candidate_url(base_url)
 
     if route and route.platform_id == "dealer_on" and _dealer_on_condition_matches(current_url, condition):
@@ -434,9 +468,23 @@ def resolve_inventory_url_for_provider(
             best_url = generic_base
 
     if route and not model_norm and route.platform_id == "dealer_dot_com":
-        generic_base = _normalize_inventory_candidate_url(
-            (route.inventory_url_hint if route else None) or fallback_url
-        )
+        hint = (route.inventory_url_hint if route else None) or fallback_url
+        # If the hint is an express.* retail URL, it will likely 403 or 404 when swapped to www.
+        # Force it to a known good www.* path based on condition.
+        try:
+            parts = urlsplit(hint)
+            host = parts.netloc.lower().split("@")[-1].split(":")[0]
+            if host.startswith("express."):
+                base = host.removeprefix("express.")
+                if base and not base.startswith("express."):
+                    www_host = f"www.{base}"
+                    cond = (vehicle_condition or "all").strip().lower()
+                    path = "/new-inventory/index.htm" if cond == "new" else "/used-inventory/index.htm" if cond == "used" else "/inventory/index.htm"
+                    hint = urlunsplit((parts.scheme, www_host, path, "", ""))
+        except Exception:
+            pass
+
+        generic_base = _normalize_inventory_candidate_url(hint)
         if generic_base:
             best_url = _drop_query_keys(generic_base, {"gvBodyStyle", "make", "model", "search"})
 
