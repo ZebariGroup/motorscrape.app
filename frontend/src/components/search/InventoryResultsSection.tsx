@@ -271,7 +271,7 @@ export function InventoryResultsSection({
               </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto">
+            <div className="modal-card-scroll flex-1 min-h-0 overflow-y-auto">
               {selectedListing.image_url ? (
                 <div className="w-full bg-zinc-100 dark:bg-zinc-900">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
