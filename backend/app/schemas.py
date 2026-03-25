@@ -32,8 +32,8 @@ class SearchRequest(BaseModel):
     max_pages_per_dealer: int | None = Field(
         default=None,
         ge=1,
-        le=5,
-        description="Optional per-search override for pagination depth per dealership.",
+        le=20,
+        description="Optional per-search override for pagination depth per dealership (also capped by server settings).",
     )
 
 

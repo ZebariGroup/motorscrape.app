@@ -313,7 +313,13 @@ async def stream_search(
     """
     yield _sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
     requested_dealerships = max(1, min(max_dealerships or settings.max_dealerships, 30))
-    requested_pages = max(1, min(max_pages_per_dealer or settings.max_pages_per_dealer, 5))
+    requested_pages = max(
+        1,
+        min(
+            max_pages_per_dealer or settings.max_pages_per_dealer,
+            settings.search_max_pages_per_dealer_cap,
+        ),
+    )
 
     try:
         dealers = await find_car_dealerships(
@@ -595,6 +601,11 @@ async def stream_search(
                     "ford_family_inventory",
                     "gm_family_inventory",
                     "toyota_lexus_oem_inventory",
+                    "cdk_dealerfire",
+                    "fusionzone",
+                    "shift_digital",
+                    "purecars",
+                    "jazel",
                 }
                 else requested_pages
             )
@@ -815,6 +826,22 @@ async def stream_search(
                     emitted_listing_keys.add(key)
                     deduped_filtered.append(v)
                 vdicts = [v.model_dump(exclude_none=True) for v in deduped_filtered]
+                logger.info(
+                    "scrape_inventory_page dealer=%r domain=%s platform=%s url=%s page=%s/%s "
+                    "raw=%s filtered=%s emitted=%s next_page=%s extract=%s fetch=%s",
+                    d.name,
+                    domain or "",
+                    route.platform_id if route else "",
+                    current_url or "",
+                    pages_scraped,
+                    max_pages,
+                    len(normalized_vehicles),
+                    len(filtered),
+                    len(deduped_filtered),
+                    ext_result.next_page_url,
+                    extraction_mode or "",
+                    current_method,
+                )
                 if (
                     route
                     and route.platform_id == "dealer_inspire"

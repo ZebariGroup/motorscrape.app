@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from typing import Any
-from urllib.parse import parse_qsl, urljoin, urlsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
@@ -979,6 +979,167 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
     return vehicles
 
 
+def _query_lower_dict(url: str) -> dict[str, str]:
+    parts = urlsplit(url)
+    return {k.lower(): v for k, v in parse_qsl(parts.query, keep_blank_values=True)}
+
+
+def _current_page_from_url(url: str) -> int:
+    q = _query_lower_dict(url)
+    for k in ("page", "pt", "_p", "pn", "currentpage"):
+        if k in q:
+            try:
+                return int(q[k])
+            except ValueError:
+                continue
+    return 1
+
+
+def _pagination_link_tokens() -> tuple[str, ...]:
+    return (
+        "page=",
+        "pt=",
+        "_p=",
+        "pn=",
+        "p=",
+        "offset=",
+        "start=",
+        "pageindex",
+        "currentpage=",
+    )
+
+
+def infer_next_page_from_inventory_api(html: str, page_url: str, vehicles_on_page: int) -> str | None:
+    """
+    When anchors omit next-page links, use pagination fields from injected inventory API JSON
+    (e.g. Dealer.com widget responses) to decide if another page exists.
+    """
+    meta: dict[str, int] = {}
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return None
+    for script in soup.find_all("script"):
+        stype = (script.get("type") or "").lower()
+        dsrc = (script.get("data-ms-source") or "").lower()
+        if "application/json" not in stype and "inventory" not in dsrc:
+            continue
+        raw = script.string
+        if not raw or len(raw) < 40:
+            continue
+        try:
+            blob = json.loads(raw.strip(), strict=False)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        _walk_merge_inventory_pagination(blob, meta, depth=0)
+
+    if not meta:
+        return None
+    cur = meta.get("cur") or 1
+    tp = meta.get("tp")
+    total = meta.get("total")
+    size = meta.get("size") or (vehicles_on_page if vehicles_on_page > 0 else 12)
+
+    has_next = False
+    if tp is not None:
+        has_next = cur < tp
+    elif total is not None and size > 0:
+        consumed = (cur - 1) * size + max(vehicles_on_page, 0)
+        has_next = consumed < total
+    if not has_next:
+        return None
+    return synthesize_next_page_url(page_url, cur + 1)
+
+
+def _try_merge_pagination_shard(d: dict[str, Any], target: dict[str, int]) -> None:
+    lk = {str(k).lower(): v for k, v in d.items()}
+    shard: dict[str, int] = {}
+    for pk in ("page", "pagenumber", "currentpage", "number"):
+        if pk not in lk:
+            continue
+        v = lk[pk]
+        if isinstance(v, bool):
+            continue
+        try:
+            shard["cur"] = int(v) if isinstance(v, int) else int(float(str(v).strip()))
+            break
+        except (ValueError, TypeError):
+            continue
+    for pk in ("pagesize", "size", "limit", "hitsperpage", "perpage"):
+        if pk not in lk:
+            continue
+        v = lk[pk]
+        try:
+            shard["size"] = int(v) if isinstance(v, int) else int(float(str(v).strip()))
+            break
+        except (ValueError, TypeError):
+            continue
+    for pk in ("totalpages", "pagecount"):
+        if pk not in lk:
+            continue
+        v = lk[pk]
+        try:
+            shard["tp"] = int(v) if isinstance(v, int) else int(float(str(v).strip()))
+            break
+        except (ValueError, TypeError):
+            continue
+    for pk in ("totalcount", "totalrecords", "totalhits", "total"):
+        if pk not in lk:
+            continue
+        v = lk[pk]
+        if pk == "total" and isinstance(v, dict):
+            continue
+        try:
+            shard["total"] = int(v) if isinstance(v, int) else int(float(str(v).strip()))
+            break
+        except (ValueError, TypeError):
+            continue
+    if "tp" in shard or "total" in shard:
+        target.update(shard)
+
+
+def _walk_merge_inventory_pagination(obj: Any, target: dict[str, int], depth: int) -> None:
+    if depth > 14:
+        return
+    if isinstance(obj, dict):
+        _try_merge_pagination_shard(obj, target)
+        for v in obj.values():
+            _walk_merge_inventory_pagination(v, target, depth + 1)
+    elif isinstance(obj, list):
+        for item in obj[:60]:
+            _walk_merge_inventory_pagination(item, target, depth + 1)
+
+
+def synthesize_next_page_url(page_url: str, next_page_num: int) -> str | None:
+    """Build URL for page N, reusing an existing page query param when possible."""
+    parts = urlsplit(page_url)
+    pairs = parse_qsl(parts.query, keep_blank_values=True)
+    page_key_names = ("pt", "page", "_p", "pn", "currentpage")
+    idx: int | None = None
+    key_used: str | None = None
+    for i, (k, v) in enumerate(pairs):
+        if k.lower() not in page_key_names:
+            continue
+        try:
+            int(v)
+            idx, key_used = i, k
+            break
+        except ValueError:
+            continue
+    if idx is not None and key_used:
+        new_pairs = list(pairs)
+        new_pairs[idx] = (key_used, str(next_page_num))
+        q = urlencode(new_pairs)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, q, parts.fragment))
+    path_lower = parts.path.lower()
+    if "searchnew" in path_lower or "searchused" in path_lower:
+        extra: list[tuple[str, str]] = [("pt", str(next_page_num))]
+    else:
+        extra = [("page", str(next_page_num))]
+    q = urlencode(list(pairs) + extra)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, q, parts.fragment))
+
+
 def find_next_page_url(html: str, base_url: str) -> str | None:
     """Best-effort rel=next / pagination link without calling the LLM."""
     try:
@@ -996,30 +1157,25 @@ def find_next_page_url(html: str, base_url: str) -> str | None:
         if "next" in rel_s:
             return urljoin(base_url, str(a["href"]))
 
+    href_lower_tokens = _pagination_link_tokens()
     for a in soup.find_all("a", href=True):
         cls = " ".join(a.get("class") or []).lower()
         text = a.get_text(strip=True).lower()
         href = str(a["href"])
+        href_l = href.lower()
         if "next" not in cls and text not in ("next", "next page", "›", "»"):
             continue
-        if any(
-            x in href.lower()
-            for x in ("page=", "pt=", "p=", "offset=", "start=", "pn=", "pageindex")
-        ):
+        if any(t in href_l for t in href_lower_tokens):
             return urljoin(base_url, href)
 
-    try:
-        base_query = dict(parse_qsl(urlsplit(base_url).query))
-        current_page = int(base_query.get("page") or base_query.get("pt") or "1")
-    except ValueError:
-        current_page = 1
+    current_page = _current_page_from_url(base_url)
 
     numbered_pages: list[tuple[int, str]] = []
     for a in soup.find_all("a", href=True):
         href = str(a["href"])
-        parsed = urlsplit(urljoin(base_url, href))
-        query = dict(parse_qsl(parsed.query))
-        page_val = query.get("page") or query.get("pt")
+        parsed = urljoin(base_url, href)
+        q = _query_lower_dict(parsed)
+        page_val = q.get("page") or q.get("pt") or q.get("_p") or q.get("pn") or q.get("currentpage")
         if not page_val:
             continue
         try:
@@ -1027,7 +1183,7 @@ def find_next_page_url(html: str, base_url: str) -> str | None:
         except ValueError:
             continue
         if page_num > current_page:
-            numbered_pages.append((page_num, urljoin(base_url, href)))
+            numbered_pages.append((page_num, parsed))
 
     if numbered_pages:
         numbered_pages.sort(key=lambda item: item[0])
@@ -1073,6 +1229,8 @@ def try_extract_vehicles_without_llm(
         return None
 
     next_u = find_next_page_url(html, page_url)
+    if not next_u:
+        next_u = infer_next_page_from_inventory_api(html, page_url, len(vehicles))
     logger.info(
         "Structured extraction: %d vehicle(s) without LLM for %s",
         len(vehicles),
@@ -1122,4 +1280,11 @@ async def extract_vehicles_from_html(
     parsed = response.choices[0].message.parsed
     if not parsed:
         return ExtractionResult(vehicles=[], next_page_url=None)
+    next_u = parsed.next_page_url
+    if not next_u:
+        next_u = find_next_page_url(html, page_url)
+    if not next_u:
+        next_u = infer_next_page_from_inventory_api(html, page_url, len(parsed.vehicles))
+    if next_u != parsed.next_page_url:
+        parsed = parsed.model_copy(update={"next_page_url": next_u})
     return parsed
