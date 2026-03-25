@@ -58,6 +58,23 @@ def _drop_query_keys(url: str, keys: set[str]) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(params), parts.fragment))
 
 
+def _slugify_model_path(text: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (text or "").strip().lower())
+    return slug.strip("-")
+
+
+def _build_family_inventory_path(base_url: str, make: str, model: str) -> str:
+    parts = urlsplit(base_url)
+    path = parts.path.rstrip("/")
+    if path.endswith("/inventory/new") or path.endswith("/inventory/used"):
+        model_slug = _slugify_model_path(model)
+        make_slug = _slugify_model_path(make)
+        if model_slug and make_slug:
+            path = f"{path}/{make_slug}/{model_slug}"
+            return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+    return base_url
+
+
 def _looks_like_exact_bmw_inventory_path(url: str, model: str) -> bool:
     path = urlsplit(url).path.lower()
     model_norm = _norm(model)
@@ -74,6 +91,26 @@ def _looks_like_exact_bmw_inventory_path(url: str, model: str) -> bool:
 def _looks_like_dealer_on_srp(url: str) -> bool:
     path = urlsplit(url).path.lower()
     return path.endswith("/searchnew.aspx") or path.endswith("/searchused.aspx")
+
+
+def _dealer_on_condition_matches(url: str, condition: str) -> bool:
+    path = urlsplit(url).path.lower()
+    if condition == "new":
+        return path.endswith("/searchnew.aspx")
+    if condition == "used":
+        return path.endswith("/searchused.aspx")
+    return _looks_like_dealer_on_srp(url)
+
+
+def _hint_score(hint: str, href_lower: str, condition: str) -> int:
+    if not hint or hint not in href_lower:
+        return 0
+    hint_lower = hint.lower()
+    if condition == "new" and ("used" in hint_lower or "pre-owned" in hint_lower):
+        return -20
+    if condition == "used" and ("searchnew" in hint_lower or "new-inventory" in hint_lower):
+        return -20
+    return 50
 
 
 def _model_href_match_score(href: str, text: str, model_norm: str) -> int:
@@ -214,6 +251,11 @@ def resolve_inventory_url_for_provider(
     make_norm = _norm(make)
     model_norm = _norm(model)
     condition = (vehicle_condition or "all").strip().lower()
+    current_url = _normalize_inventory_candidate_url(base_url)
+
+    if route and route.platform_id == "dealer_on" and _dealer_on_condition_matches(current_url, condition):
+        best_url = current_url
+        best_score = 90
 
     for a in soup.find_all("a", href=True):
         href = _normalize_inventory_candidate_url(str(a["href"]))
@@ -223,8 +265,7 @@ def resolve_inventory_url_for_provider(
         score = 0
 
         for hint in hints:
-            if hint and hint in href_lower:
-                score += 50
+            score += _hint_score(hint, href_lower, condition)
 
         if make_norm and make_norm in combined_norm:
             score += 30
@@ -234,6 +275,13 @@ def resolve_inventory_url_for_provider(
             score += 35
         if "inventory" in href_lower or "inventory" in text:
             score += 20
+        if route and route.platform_id == "dealer_on" and not model_norm:
+            if _dealer_on_condition_matches(href, condition):
+                score += 80
+            if "?q=" in href_lower:
+                score -= 60
+            if any(token in href_lower for token in ("model=", "modelandtrim=", "year=")):
+                score -= 100
         if condition == "new":
             if "new-inventory" in href_lower:
                 score += 40
@@ -287,6 +335,9 @@ def resolve_inventory_url_for_provider(
             else:
                 base = _drop_query_keys(base, {"gvBodyStyle", "make", "search"})
                 best_url = _with_query_params(base, {"model": model})
+        elif route.platform_id == "honda_acura_inventory":
+            base = _normalize_inventory_candidate_url(best_url if best_score > 0 else generic_base)
+            best_url = _build_family_inventory_path(base, make, model)
         elif route.platform_id == "dealer_on" and best_score < 100 and generic_base:
             updates = {"Make": make, "Model": model}
             if _looks_like_dealer_on_srp(generic_base):

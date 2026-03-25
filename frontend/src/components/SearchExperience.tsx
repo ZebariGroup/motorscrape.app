@@ -34,11 +34,14 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, value));
 }
 
-function parseOptionalNumber(value: string) {
-  const normalized = value.replaceAll(",", "").trim();
-  if (!normalized) return null;
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function sliderStep(min: number, max: number, fallback: number) {
+  const span = Math.max(0, max - min);
+  if (span <= 0) return fallback;
+  return Math.max(fallback, Math.round(span / 100));
 }
 
 export function SearchExperience() {
@@ -52,10 +55,11 @@ export function SearchExperience() {
   const [status, setStatus] = useState<string | null>(null);
   const [dealers, setDealers] = useState<Record<string, DealershipProgress>>({});
   const [listings, setListings] = useState<AggregatedListing[]>([]);
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
-  const [minMileage, setMinMileage] = useState("");
-  const [maxMileage, setMaxMileage] = useState("");
+  const [priceFilterMin, setPriceFilterMin] = useState<number | null>(null);
+  const [priceFilterMax, setPriceFilterMax] = useState<number | null>(null);
+  const [mileageFilterMin, setMileageFilterMin] = useState<number | null>(null);
+  const [mileageFilterMax, setMileageFilterMax] = useState<number | null>(null);
+  const [filtersExpanded, setFiltersExpanded] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -115,42 +119,115 @@ export function SearchExperience() {
     [listings.length, running],
   );
 
-  const parsedMinPrice = useMemo(() => parseOptionalNumber(minPrice), [minPrice]);
-  const parsedMaxPrice = useMemo(() => parseOptionalNumber(maxPrice), [maxPrice]);
-  const parsedMinMileage = useMemo(() => parseOptionalNumber(minMileage), [minMileage]);
-  const parsedMaxMileage = useMemo(() => parseOptionalNumber(maxMileage), [maxMileage]);
+  const priceBounds = useMemo(() => {
+    const values = listings
+      .map((listing) => listing.price)
+      .filter((value): value is number => value != null && !Number.isNaN(value));
+    if (values.length === 0) return null;
+    return {
+      min: Math.min(...values),
+      max: Math.max(...values),
+    };
+  }, [listings]);
+
+  const mileageBounds = useMemo(() => {
+    const values = listings
+      .map((listing) => listing.mileage)
+      .filter((value): value is number => value != null && !Number.isNaN(value));
+    if (values.length === 0) return null;
+    return {
+      min: Math.min(...values),
+      max: Math.max(...values),
+    };
+  }, [listings]);
+
+  const effectivePriceMin = useMemo(() => {
+    if (!priceBounds) return null;
+    return clampNumber(
+      priceFilterMin ?? priceBounds.min,
+      priceBounds.min,
+      priceFilterMax ?? priceBounds.max,
+    );
+  }, [priceBounds, priceFilterMax, priceFilterMin]);
+
+  const effectivePriceMax = useMemo(() => {
+    if (!priceBounds) return null;
+    return clampNumber(
+      priceFilterMax ?? priceBounds.max,
+      effectivePriceMin ?? priceBounds.min,
+      priceBounds.max,
+    );
+  }, [effectivePriceMin, priceBounds, priceFilterMax]);
+
+  const effectiveMileageMin = useMemo(() => {
+    if (!mileageBounds) return null;
+    return clampNumber(
+      mileageFilterMin ?? mileageBounds.min,
+      mileageBounds.min,
+      mileageFilterMax ?? mileageBounds.max,
+    );
+  }, [mileageBounds, mileageFilterMax, mileageFilterMin]);
+
+  const effectiveMileageMax = useMemo(() => {
+    if (!mileageBounds) return null;
+    return clampNumber(
+      mileageFilterMax ?? mileageBounds.max,
+      effectiveMileageMin ?? mileageBounds.min,
+      mileageBounds.max,
+    );
+  }, [effectiveMileageMin, mileageBounds, mileageFilterMax]);
 
   const filteredListings = useMemo(() => {
     return listings.filter((listing) => {
-      if (parsedMinPrice != null && (listing.price == null || listing.price < parsedMinPrice)) {
+      if (effectivePriceMin != null && (listing.price == null || listing.price < effectivePriceMin)) {
         return false;
       }
-      if (parsedMaxPrice != null && (listing.price == null || listing.price > parsedMaxPrice)) {
+      if (effectivePriceMax != null && (listing.price == null || listing.price > effectivePriceMax)) {
         return false;
       }
       if (
-        parsedMinMileage != null &&
-        (listing.mileage == null || listing.mileage < parsedMinMileage)
+        effectiveMileageMin != null &&
+        (listing.mileage == null || listing.mileage < effectiveMileageMin)
       ) {
         return false;
       }
       if (
-        parsedMaxMileage != null &&
-        (listing.mileage == null || listing.mileage > parsedMaxMileage)
+        effectiveMileageMax != null &&
+        (listing.mileage == null || listing.mileage > effectiveMileageMax)
       ) {
         return false;
       }
       return true;
     });
-  }, [listings, parsedMaxMileage, parsedMaxPrice, parsedMinMileage, parsedMinPrice]);
+  }, [effectiveMileageMax, effectiveMileageMin, effectivePriceMax, effectivePriceMin, listings]);
 
-  const activeResultFilterCount = useMemo(
-    () =>
-      [parsedMinPrice, parsedMaxPrice, parsedMinMileage, parsedMaxMileage].filter(
-        (value) => value != null,
-      ).length,
-    [parsedMaxMileage, parsedMaxPrice, parsedMinMileage, parsedMinPrice],
-  );
+  const activeResultFilterCount = useMemo(() => {
+    let count = 0;
+    if (
+      priceBounds &&
+      effectivePriceMin != null &&
+      effectivePriceMax != null &&
+      (effectivePriceMin > priceBounds.min || effectivePriceMax < priceBounds.max)
+    ) {
+      count += 1;
+    }
+    if (
+      mileageBounds &&
+      effectiveMileageMin != null &&
+      effectiveMileageMax != null &&
+      (effectiveMileageMin > mileageBounds.min || effectiveMileageMax < mileageBounds.max)
+    ) {
+      count += 1;
+    }
+    return count;
+  }, [
+    effectiveMileageMax,
+    effectiveMileageMin,
+    effectivePriceMax,
+    effectivePriceMin,
+    mileageBounds,
+    priceBounds,
+  ]);
 
   useEffect(() => {
     if (!running) return;
@@ -539,86 +616,152 @@ export function SearchExperience() {
         ) : null}
       </section>
 
-      <section className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                Result filters
-              </h2>
-              {activeResultFilterCount > 0 ? (
-                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                  {activeResultFilterCount} active
-                </span>
-              ) : null}
-            </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Narrow the streamed inventory by price and miles without rerunning the search.
-            </p>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <label className="flex min-w-0 flex-col gap-1 text-xs">
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">Min price</span>
-              <input
-                inputMode="numeric"
-                placeholder="Any"
-                value={minPrice}
-                onChange={(e) => setMinPrice(e.target.value)}
-                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-              />
-            </label>
-            <label className="flex min-w-0 flex-col gap-1 text-xs">
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">Max price</span>
-              <input
-                inputMode="numeric"
-                placeholder="Any"
-                value={maxPrice}
-                onChange={(e) => setMaxPrice(e.target.value)}
-                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-              />
-            </label>
-            <label className="flex min-w-0 flex-col gap-1 text-xs">
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">Min miles</span>
-              <input
-                inputMode="numeric"
-                placeholder="Any"
-                value={minMileage}
-                onChange={(e) => setMinMileage(e.target.value)}
-                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-              />
-            </label>
-            <label className="flex min-w-0 flex-col gap-1 text-xs">
-              <span className="font-medium text-zinc-700 dark:text-zinc-300">Max miles</span>
-              <input
-                inputMode="numeric"
-                placeholder="Any"
-                value={maxMileage}
-                onChange={(e) => setMaxMileage(e.target.value)}
-                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-              />
-            </label>
-          </div>
-        </div>
-        {activeResultFilterCount > 0 ? (
-          <div className="mt-3 flex justify-end">
-            <button
-              type="button"
-              onClick={() => {
-                setMinPrice("");
-                setMaxPrice("");
-                setMinMileage("");
-                setMaxMileage("");
-              }}
-              className="text-xs font-medium text-zinc-600 underline-offset-2 hover:underline dark:text-zinc-400"
-            >
-              Clear filters
-            </button>
-          </div>
-        ) : null}
-      </section>
-
       <div className="grid gap-8 lg:grid-cols-3">
         <section className="lg:col-span-1">
+          <div className="mb-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+            <button
+              type="button"
+              onClick={() => setFiltersExpanded((open) => !open)}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+            >
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                    Result filters
+                  </h2>
+                  {activeResultFilterCount > 0 ? (
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                      {activeResultFilterCount} active
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  Narrow the streamed inventory by price and miles.
+                </p>
+              </div>
+              <span className="text-lg text-zinc-400">{filtersExpanded ? "−" : "+"}</span>
+            </button>
+            {filtersExpanded ? (
+              <div className="border-t border-zinc-200 px-4 py-4 dark:border-zinc-800">
+                <div className="space-y-5">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">Price</span>
+                      <span className="text-zinc-500 dark:text-zinc-400">
+                        {priceBounds && effectivePriceMin != null && effectivePriceMax != null
+                          ? `${formatMoney(effectivePriceMin)} to ${formatMoney(effectivePriceMax)}`
+                          : "No priced vehicles yet"}
+                      </span>
+                    </div>
+                    {priceBounds && effectivePriceMin != null && effectivePriceMax != null ? (
+                      <div className="space-y-3">
+                        <input
+                          type="range"
+                          min={priceBounds.min}
+                          max={priceBounds.max}
+                          step={sliderStep(priceBounds.min, priceBounds.max, 500)}
+                          value={effectivePriceMin}
+                          onChange={(e) =>
+                            setPriceFilterMin(
+                              Math.min(Number(e.target.value), effectivePriceMax),
+                            )
+                          }
+                          className="w-full accent-emerald-600"
+                        />
+                        <input
+                          type="range"
+                          min={priceBounds.min}
+                          max={priceBounds.max}
+                          step={sliderStep(priceBounds.min, priceBounds.max, 500)}
+                          value={effectivePriceMax}
+                          onChange={(e) =>
+                            setPriceFilterMax(
+                              Math.max(Number(e.target.value), effectivePriceMin),
+                            )
+                          }
+                          className="w-full accent-emerald-600"
+                        />
+                        <div className="flex justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+                          <span>{formatMoney(priceBounds.min)}</span>
+                          <span>{formatMoney(priceBounds.max)}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-900/70 dark:text-zinc-400">
+                        Drag bars appear once priced inventory is loaded.
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-zinc-700 dark:text-zinc-300">Miles</span>
+                      <span className="text-zinc-500 dark:text-zinc-400">
+                        {mileageBounds &&
+                        effectiveMileageMin != null &&
+                        effectiveMileageMax != null
+                          ? `${effectiveMileageMin.toLocaleString()} to ${effectiveMileageMax.toLocaleString()} mi`
+                          : "No mileage data yet"}
+                      </span>
+                    </div>
+                    {mileageBounds &&
+                    effectiveMileageMin != null &&
+                    effectiveMileageMax != null ? (
+                      <div className="space-y-3">
+                        <input
+                          type="range"
+                          min={mileageBounds.min}
+                          max={mileageBounds.max}
+                          step={sliderStep(mileageBounds.min, mileageBounds.max, 100)}
+                          value={effectiveMileageMin}
+                          onChange={(e) =>
+                            setMileageFilterMin(
+                              Math.min(Number(e.target.value), effectiveMileageMax),
+                            )
+                          }
+                          className="w-full accent-emerald-600"
+                        />
+                        <input
+                          type="range"
+                          min={mileageBounds.min}
+                          max={mileageBounds.max}
+                          step={sliderStep(mileageBounds.min, mileageBounds.max, 100)}
+                          value={effectiveMileageMax}
+                          onChange={(e) =>
+                            setMileageFilterMax(
+                              Math.max(Number(e.target.value), effectiveMileageMin),
+                            )
+                          }
+                          className="w-full accent-emerald-600"
+                        />
+                        <div className="flex justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+                          <span>{mileageBounds.min.toLocaleString()} mi</span>
+                          <span>{mileageBounds.max.toLocaleString()} mi</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-900/70 dark:text-zinc-400">
+                        Drag bars appear once mileage data is available.
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPriceFilterMin(null);
+                        setPriceFilterMax(null);
+                        setMileageFilterMin(null);
+                        setMileageFilterMax(null);
+                      }}
+                      className="text-xs font-medium text-zinc-600 underline-offset-2 hover:underline dark:text-zinc-400"
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
           <h2 className="mb-3 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
             Dealerships
           </h2>
