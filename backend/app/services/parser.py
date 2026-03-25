@@ -402,6 +402,17 @@ def _parse_title_fields(raw_title: str | None) -> dict[str, Any]:
 
 
 def _pick_price_from_dict(d: dict[str, Any]) -> float | None:
+    # First, look for a definitive final price in Dealer.com's pricing.dprice structure
+    pricing_obj = d.get("pricing")
+    if isinstance(pricing_obj, dict):
+        dprice = pricing_obj.get("dprice")
+        if isinstance(dprice, list):
+            for row in dprice:
+                if isinstance(row, dict) and row.get("isFinalPrice"):
+                    p = _coerce_float(row.get("value"))
+                    if p is not None and p > 0:
+                        return p
+
     for key in (
         "price",
         "priceInet",
