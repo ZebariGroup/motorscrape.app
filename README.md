@@ -75,6 +75,7 @@ Frontend: `cd frontend && npm install && npm run dev`.
 - **Anonymous:** 4 completed searches, then the stream returns a quota error until the user signs up.
 - **Free / Standard / Premium:** enforced in [`backend/app/tiers.py`](backend/app/tiers.py); Standard and Premium can attach a **metered** Stripe price for search overages after the included monthly allotment.
 - **Enterprise / custom:** documented for sales scoping in [`docs/ENTERPRISE_FEATURES.md`](docs/ENTERPRISE_FEATURES.md); set tier manually in the accounts DB or via a future admin flow (not Stripe Checkout).
+- **Product priorities (paid differentiation):** see [`docs/PRODUCT_ROADMAP.md`](docs/PRODUCT_ROADMAP.md).
 
 Auth API: `/server/auth/*`, billing: `/server/billing/*` (same paths without `/server` when running uvicorn on port 8000 alone).
 

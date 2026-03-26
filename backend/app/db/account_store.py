@@ -51,6 +51,50 @@ CREATE TABLE IF NOT EXISTS rate_buckets (
     count INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (bucket_key, window_start)
 );
+
+CREATE TABLE IF NOT EXISTS alert_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    criteria_json TEXT NOT NULL,
+    cadence TEXT NOT NULL,
+    day_of_week INTEGER,
+    hour_local INTEGER NOT NULL,
+    timezone TEXT NOT NULL,
+    deliver_csv INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    next_run_at REAL NOT NULL,
+    last_run_at REAL,
+    last_run_status TEXT,
+    last_result_count INTEGER,
+    last_error TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_subscriptions_user_id
+ON alert_subscriptions (user_id, is_active, next_run_at);
+
+CREATE TABLE IF NOT EXISTS alert_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscription_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    trigger_source TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result_count INTEGER NOT NULL DEFAULT 0,
+    emailed INTEGER NOT NULL DEFAULT 0,
+    csv_attached INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    summary_json TEXT,
+    started_at REAL NOT NULL,
+    completed_at REAL,
+    FOREIGN KEY (subscription_id) REFERENCES alert_subscriptions(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_runs_user_id
+ON alert_runs (user_id, started_at DESC);
 """
 
 _lock = threading.Lock()
@@ -82,6 +126,43 @@ class UserRecord:
     stripe_subscription_id: str | None
     stripe_metered_item_id: str | None
     entitlements: dict[str, Any]
+
+
+@dataclass(slots=True)
+class AlertSubscriptionRecord:
+    id: str
+    user_id: str
+    name: str
+    criteria: dict[str, Any]
+    cadence: str
+    day_of_week: int | None
+    hour_local: int
+    timezone: str
+    deliver_csv: bool
+    is_active: bool
+    next_run_at: float
+    last_run_at: float | None
+    last_run_status: str | None
+    last_result_count: int | None
+    last_error: str | None
+    created_at: float
+    updated_at: float
+
+
+@dataclass(slots=True)
+class AlertRunRecord:
+    id: str
+    subscription_id: str
+    user_id: str
+    trigger_source: str
+    status: str
+    result_count: int
+    emailed: bool
+    csv_attached: bool
+    error_message: str | None
+    summary: dict[str, Any]
+    started_at: float
+    completed_at: float | None
 
 
 class AccountStore:
@@ -294,6 +375,235 @@ class AccountStore:
             c.execute("DELETE FROM rate_buckets WHERE window_start < ?", (cutoff,))
             c.commit()
 
+    def create_alert_subscription(
+        self,
+        user_id: int | str,
+        *,
+        name: str,
+        criteria: dict[str, Any],
+        cadence: str,
+        day_of_week: int | None,
+        hour_local: int,
+        timezone: str,
+        deliver_csv: bool,
+        next_run_at: float,
+    ) -> AlertSubscriptionRecord:
+        now = time.time()
+        with self._conn() as c:
+            cur = c.execute(
+                """
+                INSERT INTO alert_subscriptions (
+                    user_id, name, criteria_json, cadence, day_of_week, hour_local,
+                    timezone, deliver_csv, is_active, next_run_at, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    name,
+                    json.dumps(criteria, separators=(",", ":"), sort_keys=True),
+                    cadence,
+                    day_of_week,
+                    hour_local,
+                    timezone,
+                    1 if deliver_csv else 0,
+                    next_run_at,
+                    now,
+                    now,
+                ),
+            )
+            subscription_id = int(cur.lastrowid)
+            c.commit()
+        return self.get_alert_subscription(user_id, subscription_id)  # type: ignore[return-value]
+
+    def list_alert_subscriptions(self, user_id: int | str) -> list[AlertSubscriptionRecord]:
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT *
+                FROM alert_subscriptions
+                WHERE user_id = ?
+                ORDER BY is_active DESC, next_run_at ASC, created_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [_row_to_alert_subscription(row) for row in rows]
+
+    def get_alert_subscription(
+        self,
+        user_id: int | str,
+        subscription_id: int | str,
+    ) -> AlertSubscriptionRecord | None:
+        with self._conn() as c:
+            row = c.execute(
+                """
+                SELECT *
+                FROM alert_subscriptions
+                WHERE user_id = ? AND id = ?
+                """,
+                (user_id, subscription_id),
+            ).fetchone()
+        return _row_to_alert_subscription(row) if row is not None else None
+
+    def update_alert_subscription(
+        self,
+        user_id: int | str,
+        subscription_id: int | str,
+        *,
+        name: str | None = None,
+        criteria: dict[str, Any] | None = None,
+        cadence: str | None = None,
+        day_of_week: int | None = None,
+        hour_local: int | None = None,
+        timezone: str | None = None,
+        deliver_csv: bool | None = None,
+        is_active: bool | None = None,
+        next_run_at: float | None = None,
+        last_run_at: float | None = None,
+        last_run_status: str | None = None,
+        last_result_count: int | None = None,
+        last_error: str | None = None,
+    ) -> AlertSubscriptionRecord | None:
+        fields: list[str] = []
+        args: list[Any] = []
+        if name is not None:
+            fields.append("name = ?")
+            args.append(name)
+        if criteria is not None:
+            fields.append("criteria_json = ?")
+            args.append(json.dumps(criteria, separators=(",", ":"), sort_keys=True))
+        if cadence is not None:
+            fields.append("cadence = ?")
+            args.append(cadence)
+            fields.append("day_of_week = ?")
+            args.append(day_of_week)
+        if hour_local is not None:
+            fields.append("hour_local = ?")
+            args.append(hour_local)
+        if timezone is not None:
+            fields.append("timezone = ?")
+            args.append(timezone)
+        if deliver_csv is not None:
+            fields.append("deliver_csv = ?")
+            args.append(1 if deliver_csv else 0)
+        if is_active is not None:
+            fields.append("is_active = ?")
+            args.append(1 if is_active else 0)
+        if next_run_at is not None:
+            fields.append("next_run_at = ?")
+            args.append(next_run_at)
+        if last_run_at is not None:
+            fields.append("last_run_at = ?")
+            args.append(last_run_at)
+        if last_run_status is not None:
+            fields.append("last_run_status = ?")
+            args.append(last_run_status)
+        if last_result_count is not None:
+            fields.append("last_result_count = ?")
+            args.append(last_result_count)
+        if last_error is not None or last_error == "":
+            fields.append("last_error = ?")
+            args.append(last_error)
+        if not fields:
+            return self.get_alert_subscription(user_id, subscription_id)
+        fields.append("updated_at = ?")
+        args.append(time.time())
+        args.extend([user_id, subscription_id])
+        with self._conn() as c:
+            c.execute(
+                f"UPDATE alert_subscriptions SET {', '.join(fields)} WHERE user_id = ? AND id = ?",
+                args,
+            )
+            c.commit()
+        return self.get_alert_subscription(user_id, subscription_id)
+
+    def delete_alert_subscription(self, user_id: int | str, subscription_id: int | str) -> bool:
+        with self._conn() as c:
+            cur = c.execute(
+                "DELETE FROM alert_subscriptions WHERE user_id = ? AND id = ?",
+                (user_id, subscription_id),
+            )
+            c.commit()
+        return cur.rowcount > 0
+
+    def list_due_alert_subscriptions(
+        self,
+        *,
+        now_ts: float,
+        limit: int = 25,
+    ) -> list[AlertSubscriptionRecord]:
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT *
+                FROM alert_subscriptions
+                WHERE is_active = 1 AND next_run_at <= ?
+                ORDER BY next_run_at ASC
+                LIMIT ?
+                """,
+                (now_ts, limit),
+            ).fetchall()
+        return [_row_to_alert_subscription(row) for row in rows]
+
+    def create_alert_run(
+        self,
+        *,
+        subscription_id: int | str,
+        user_id: int | str,
+        trigger_source: str,
+        status: str,
+        result_count: int,
+        emailed: bool,
+        csv_attached: bool,
+        error_message: str | None,
+        summary: dict[str, Any],
+        started_at: float,
+        completed_at: float | None,
+    ) -> AlertRunRecord:
+        with self._conn() as c:
+            cur = c.execute(
+                """
+                INSERT INTO alert_runs (
+                    subscription_id, user_id, trigger_source, status, result_count,
+                    emailed, csv_attached, error_message, summary_json, started_at, completed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    subscription_id,
+                    user_id,
+                    trigger_source,
+                    status,
+                    result_count,
+                    1 if emailed else 0,
+                    1 if csv_attached else 0,
+                    error_message,
+                    json.dumps(summary, separators=(",", ":"), sort_keys=True),
+                    started_at,
+                    completed_at,
+                ),
+            )
+            run_id = int(cur.lastrowid)
+            c.commit()
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM alert_runs WHERE id = ?", (run_id,)).fetchone()
+        assert row is not None
+        return _row_to_alert_run(row)
+
+    def list_alert_runs(self, user_id: int | str, *, limit: int = 20) -> list[AlertRunRecord]:
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT *
+                FROM alert_runs
+                WHERE user_id = ?
+                ORDER BY started_at DESC
+                LIMIT ?
+                """,
+                (user_id, limit),
+            ).fetchall()
+        return [_row_to_alert_run(row) for row in rows]
+
 
 def _row_to_user(row: sqlite3.Row | None) -> UserRecord | None:
     if row is None:
@@ -313,6 +623,59 @@ def _row_to_user(row: sqlite3.Row | None) -> UserRecord | None:
         stripe_subscription_id=row["stripe_subscription_id"],
         stripe_metered_item_id=row["stripe_metered_item_id"],
         entitlements=ent,
+    )
+
+
+def _json_dict(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return dict(parsed) if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _row_to_alert_subscription(row: sqlite3.Row) -> AlertSubscriptionRecord:
+    return AlertSubscriptionRecord(
+        id=str(row["id"]),
+        user_id=str(row["user_id"]),
+        name=str(row["name"]),
+        criteria=_json_dict(row["criteria_json"]),
+        cadence=str(row["cadence"]),
+        day_of_week=int(row["day_of_week"]) if row["day_of_week"] is not None else None,
+        hour_local=int(row["hour_local"]),
+        timezone=str(row["timezone"]),
+        deliver_csv=bool(row["deliver_csv"]),
+        is_active=bool(row["is_active"]),
+        next_run_at=float(row["next_run_at"]),
+        last_run_at=float(row["last_run_at"]) if row["last_run_at"] is not None else None,
+        last_run_status=str(row["last_run_status"]) if row["last_run_status"] is not None else None,
+        last_result_count=int(row["last_result_count"]) if row["last_result_count"] is not None else None,
+        last_error=str(row["last_error"]) if row["last_error"] is not None else None,
+        created_at=float(row["created_at"]),
+        updated_at=float(row["updated_at"]),
+    )
+
+
+def _row_to_alert_run(row: sqlite3.Row) -> AlertRunRecord:
+    return AlertRunRecord(
+        id=str(row["id"]),
+        subscription_id=str(row["subscription_id"]),
+        user_id=str(row["user_id"]),
+        trigger_source=str(row["trigger_source"]),
+        status=str(row["status"]),
+        result_count=int(row["result_count"]),
+        emailed=bool(row["emailed"]),
+        csv_attached=bool(row["csv_attached"]),
+        error_message=str(row["error_message"]) if row["error_message"] is not None else None,
+        summary=_json_dict(row["summary_json"]),
+        started_at=float(row["started_at"]),
+        completed_at=float(row["completed_at"]) if row["completed_at"] is not None else None,
     )
 
 

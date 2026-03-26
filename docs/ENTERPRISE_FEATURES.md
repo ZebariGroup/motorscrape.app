@@ -2,6 +2,8 @@
 
 This document scopes **contract-governed** tiers (`enterprise`, `custom`) that justify higher pricing than self-serve Standard/Premium.
 
+**Relationship to self-serve:** Standard and Premium are sold via Stripe Checkout with limits in [`backend/app/tiers.py`](../backend/app/tiers.py). The next product priority for paid differentiation is **workflow automation** — saved searches, history, alerts, and scheduled runs — see [`PRODUCT_ROADMAP.md`](PRODUCT_ROADMAP.md). Enterprise/custom builds on similar themes with **team workspace**, **contracted volume**, **SLAs**, and **integrations** (API, webhooks, white-label) under separate terms.
+
 ## Enterprise / dealer / broker (monthly contract)
 
 **Buyer:** dealership groups, independent stores running daily acquisition, brokers sourcing regionally.
@@ -10,7 +12,7 @@ This document scopes **contract-governed** tiers (`enterprise`, `custom`) that j
 
 - **Pooled search volume** aligned to contract (not literal “unlimited” until unit economics are proven).
 - **Seat-based access** (sales managers, buyers, BDC) with audit-friendly usage summaries.
-- **Team workspace:** shared saved searches, territory presets, export policies.
+- **Team workspace:** shared saved searches (see also roadmap for self-serve saved-search direction), territory presets, export policies.
 - **Operational guarantees:** prioritized error handling, agreed support response times, optional private Slack/email channel.
 - **Integration hooks:** CSV export scheduling, outbound webhooks to CRM/DMS (roadmap), IP allowlisting for API keys.
 - **Compliance posture:** data processing terms, logging/retention options, regional deployment discussions.

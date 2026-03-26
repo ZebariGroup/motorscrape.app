@@ -17,6 +17,7 @@ function dealerChoices(cap: number): number[] {
 
 type Props = {
   running: boolean;
+  reconnecting: boolean;
   location: string;
   setLocation: (v: string) => void;
   make: string;
@@ -52,6 +53,7 @@ type Props = {
 
 export function SearchFormSection({
   running,
+  reconnecting,
   location,
   setLocation,
   make,
@@ -339,7 +341,7 @@ export function SearchFormSection({
                     </div>
                   </div>
                   <span className="relative z-10 flex flex-col items-center gap-0.5 pb-1.5">
-                    <span>Scraping…</span>
+                    <span>{reconnecting ? "Reconnecting…" : "Scraping…"}</span>
                     <span className="max-w-full truncate px-1 text-center text-[11px] font-normal text-white/90">
                       {`${dealerListLength}/${targetDealerCount} found · ${doneDealerCount}/${targetDealerCount} done · ${listingsCount} vehicles`}
                     </span>

@@ -122,6 +122,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const [pinnedDealerWebsite, setPinnedDealerWebsite] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const esRef = useRef<EventSource | null>(null);
   const streamSessionRef = useRef(0);
@@ -329,15 +330,18 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     esRef.current?.close();
     esRef.current = null;
     setRunning(false);
+    setReconnecting(false);
   }, []);
 
   const startSearch = useCallback(() => {
+    if (running) return; // Prevent double-submit
     stopStream();
     setErrors([]);
     setListings([]);
     setDealers({});
     setPinnedDealerWebsite(null);
     setStatus(null);
+    setReconnecting(false);
     const startedAt = Date.now();
     setNowMs(startedAt);
 
@@ -454,8 +458,18 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     es.addEventListener("search_error", onError);
     es.addEventListener("done", onDone);
 
+    es.onopen = () => {
+      if (isStaleSession()) return;
+      setReconnecting(false);
+    };
+
     es.onerror = () => {
       if (isStaleSession()) return;
+      if (es.readyState === EventSource.CONNECTING) {
+        setReconnecting(true);
+        setStatus("Connection lost. Reconnecting...");
+        return;
+      }
       setErrors((e) => [...e, "Connection to search stream lost or failed."]);
       stopStream();
     };
@@ -468,6 +482,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     radiusMiles,
     stopStream,
     vehicleCondition,
+    running,
   ]);
 
   return {
@@ -490,6 +505,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     },
     search: {
       running,
+      reconnecting,
       startSearch,
       stopStream,
       status,

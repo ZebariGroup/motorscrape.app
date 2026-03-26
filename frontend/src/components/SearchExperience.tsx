@@ -5,11 +5,18 @@ import { useEffect, useState } from "react";
 import { useSearchStream } from "@/hooks/useSearchStream";
 import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { DealerProgressList } from "@/components/search/DealerProgressList";
+import { EmailAlertPanel } from "@/components/search/EmailAlertPanel";
 import { InventoryResultsSection } from "@/components/search/InventoryResultsSection";
 import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
 import { resolveApiUrl } from "@/lib/apiBase";
+import {
+  PREMIUM_BULLETS_SHORT,
+  QUOTA_MODAL_BODY_DEFAULT,
+  QUOTA_MODAL_BODY_STANDARD_USER,
+  STANDARD_BULLETS_SHORT,
+} from "@/lib/tierMarketingCopy";
 
 export function SearchExperience() {
   const { access, refresh } = useAccessSummary();
@@ -66,6 +73,22 @@ export function SearchExperience() {
   const maxRadiusCap = lim?.max_radius_miles ?? 250;
   const scopePremium = lim?.inventory_scope_premium ?? true;
   const csvOk = lim?.csv_export ?? true;
+  const canSearch =
+    form.location.trim().length >= 2 &&
+    (access?.tier === "premium" ||
+      access?.tier === "enterprise" ||
+      access?.tier === "custom" ||
+      form.model.trim().length > 0);
+  const alertCriteria = {
+    location: form.location.trim(),
+    make: form.make.trim(),
+    model: form.model.trim(),
+    vehicle_condition: form.vehicleCondition as "all" | "new" | "used",
+    radius_miles: Number.parseInt(form.radiusMiles, 10) || 25,
+    inventory_scope: form.inventoryScope as "all" | "on_lot_only" | "exclude_shared" | "include_transit",
+    max_dealerships: Number.parseInt(form.maxDealerships, 10) || null,
+    max_pages_per_dealer: null,
+  };
 
   // Avoid duplicating the same "quota reached" message: we show it via the modal instead.
   const visibleErrors = search.errors.filter(
@@ -119,9 +142,10 @@ export function SearchExperience() {
           </h1>
         </header>
 
-        <SearchFormSection
-          running={search.running}
-          location={form.location}
+            <SearchFormSection
+              running={search.running}
+              reconnecting={search.reconnecting}
+              location={form.location}
           setLocation={form.setLocation}
           make={form.make}
           setMake={form.setMake}
@@ -138,10 +162,7 @@ export function SearchExperience() {
           setMaxDealerships={form.setMaxDealerships}
           onSearch={search.startSearch}
           onStop={search.stopStream}
-          canSearch={
-            form.location.trim().length >= 2 &&
-            (access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom" || form.model.trim().length > 0)
-          }
+          canSearch={canSearch}
           status={search.status}
           errors={visibleErrors}
           discoveredDealerPercent={dealers.discoveredDealerPercent}
@@ -155,6 +176,7 @@ export function SearchExperience() {
           inventoryScopePremium={scopePremium}
           allowAnyModel={access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom"}
         />
+        <EmailAlertPanel access={access} criteria={alertCriteria} canSearch={canSearch} />
 
         <div className="grid gap-8 lg:grid-cols-3">
           <section className="lg:col-span-1">
@@ -205,14 +227,16 @@ export function SearchExperience() {
             <div className="flex items-center justify-between gap-4">
               <div className="flex flex-1 flex-col gap-1.5">
                 <div className="flex items-center justify-between text-xs font-medium">
-                  <span className="text-zinc-900 dark:text-zinc-50">Scraping...</span>
+                  <span className="text-zinc-900 dark:text-zinc-50">
+                    {search.reconnecting ? "Reconnecting..." : "Scraping..."}
+                  </span>
                   <span className="text-zinc-500">
                     {dealers.doneDealerCount} / {dealers.targetDealerCount}
                   </span>
                 </div>
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
                   <div
-                    className="h-full bg-emerald-500 transition-all duration-500"
+                    className={`h-full transition-all duration-500 ${search.reconnecting ? "bg-amber-500" : "bg-emerald-500"}`}
                     style={{ width: `${dealers.completedDealerPercent}%` }}
                   />
                 </div>
@@ -234,9 +258,7 @@ export function SearchExperience() {
                 <div className="space-y-2">
                   <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Subscribe to keep searching</h2>
                   <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                    {access?.tier === "standard"
-                      ? "You’ve used up your included monthly searches. Upgrade to Premium to get more included searches and a wider dealership sweep."
-                      : "You’ve used up your monthly included searches. Subscribe to Standard/Premium to unlock higher limits and keep searching."}
+                    {access?.tier === "standard" ? QUOTA_MODAL_BODY_STANDARD_USER : QUOTA_MODAL_BODY_DEFAULT}
                   </p>
                 </div>
                 <button
@@ -260,9 +282,9 @@ export function SearchExperience() {
                 <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                   <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Standard</h3>
                   <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-                    <li>• 350 included searches / month</li>
-                    <li>• Up to 10 dealerships at once</li>
-                    <li>• Up to 30 mile radius</li>
+                    {STANDARD_BULLETS_SHORT.map((line) => (
+                      <li key={line}>• {line}</li>
+                    ))}
                   </ul>
                   <button
                     type="button"
@@ -277,10 +299,9 @@ export function SearchExperience() {
                 <div className="rounded-xl border border-emerald-300 p-4 dark:border-emerald-800">
                   <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Premium</h3>
                   <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-                    <li>• 750 included searches / month</li>
-                    <li>• Up to 20 dealerships at once</li>
-                    <li>• Nationwide search radius</li>
-                    <li>• Access to premium inventory scope</li>
+                    {PREMIUM_BULLETS_SHORT.map((line) => (
+                      <li key={line}>• {line}</li>
+                    ))}
                   </ul>
                   <button
                     type="button"

@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { SiteHeader } from "@/components/SiteHeader";
+import { AlertManagerSection } from "@/components/account/AlertManagerSection";
 import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { resolveApiUrl } from "@/lib/apiBase";
+import { PREMIUM_BULLETS, STANDARD_BULLETS } from "@/lib/tierMarketingCopy";
 import type { AccessSummary } from "@/types/access";
 
 type MeResponse = {
@@ -174,7 +176,7 @@ export default function AccountPage() {
               <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
                 {me.stripe_customer_id
                   ? "Manage your active subscription, payment methods, and billing history."
-                  : "Subscribe via Stripe Checkout to unlock higher limits and premium features. Enterprise and custom licensing are contracted separately."}
+                  : "Subscribe via Stripe Checkout for Standard or Premium (see limits below). Enterprise and custom licensing are contracted separately."}
               </p>
               
               {!me.stripe_customer_id && (
@@ -182,18 +184,17 @@ export default function AccountPage() {
                   <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                     <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Standard</h3>
                     <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-                      <li>• 350 included searches / month</li>
-                      <li>• Up to 30 mile radius</li>
-                      <li>• Search up to 10 dealerships at once</li>
+                      {STANDARD_BULLETS.map((line) => (
+                        <li key={line}>• {line}</li>
+                      ))}
                     </ul>
                   </div>
                   <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                     <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Premium</h3>
                     <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-                      <li>• 750 included searches / month</li>
-                      <li>• Nationwide search radius</li>
-                      <li>• Search up to 20 dealerships at once</li>
-                      <li>• Access to premium inventory scope</li>
+                      {PREMIUM_BULLETS.map((line) => (
+                        <li key={line}>• {line}</li>
+                      ))}
                     </ul>
                   </div>
                 </div>
@@ -266,6 +267,8 @@ export default function AccountPage() {
                 </div>
               </form>
             </section>
+
+            <AlertManagerSection authenticated={Boolean(me)} tier={me.tier} />
           </div>
         )}
 

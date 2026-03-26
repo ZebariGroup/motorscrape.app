@@ -150,6 +150,9 @@ class Settings(BaseSettings):
         default="http://localhost:3000",
         validation_alias=AliasChoices("PUBLIC_WEB_URL", "NEXT_PUBLIC_SITE_URL"),
     )
+    resend_api_key: str = Field(default="", validation_alias=AliasChoices("RESEND_API_KEY"))
+    alerts_from_email: str = Field(default="", validation_alias=AliasChoices("ALERTS_FROM_EMAIL"))
+    alerts_internal_secret: str = Field(default="", validation_alias=AliasChoices("ALERTS_INTERNAL_SECRET"))
 
 
 settings = Settings()

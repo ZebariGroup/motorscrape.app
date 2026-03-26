@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import AccessContext, get_access_context
+from app.api.routes_alerts import router as alerts_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_billing import router as billing_router
 from app.api.search_quota import evaluate_search_start, record_search_completed
@@ -141,6 +142,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(billing_router)
+app.include_router(alerts_router)
 
 # Mount twice so the same deployment works locally (/health) and on Vercel Services
 # whether the platform forwards the `/server` prefix or strips it to root paths.
@@ -148,3 +150,4 @@ app.include_router(router)
 app.include_router(router, prefix="/server")
 app.include_router(auth_router, prefix="/server")
 app.include_router(billing_router, prefix="/server")
+app.include_router(alerts_router, prefix="/server")
