@@ -176,3 +176,55 @@ def test_resolve_inventory_url_for_provider_keeps_generic_ddc_srp_when_anchor_te
     )
     assert url == "https://www.alfaromeoofbirmingham.com/new-inventory/index.htm"
 
+
+def test_resolve_inventory_url_for_provider_keeps_generic_ddc_srp_for_single_brand_bmw_host() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-inventory",),
+        inventory_url_hint="https://www.bmwofannarbor.com/new-inventory/index.htm",
+    )
+    html = """
+    <html><body>
+      <a href="/new-inventory/index.htm">New Inventory</a>
+      <a href="/featured-vehicles/new.htm">Featured New</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.bmwofannarbor.com/",
+        route,
+        fallback_url="https://www.bmwofannarbor.com/new-inventory/index.htm",
+        make="BMW",
+        model="",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.bmwofannarbor.com/new-inventory/index.htm"
+
+
+def test_resolve_inventory_url_for_provider_canonicalizes_stale_dealer_on_inventory_hint() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_on",
+        confidence=1.0,
+        extraction_mode="rendered_dom",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("searchnew.aspx", "searchused.aspx"),
+        inventory_url_hint="https://express.bmwgrandblanc.com/inventory",
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html></html>",
+        "https://www.bmwgrandblanc.com/",
+        route,
+        fallback_url="https://express.bmwgrandblanc.com/inventory",
+        make="BMW",
+        model="",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.bmwgrandblanc.com/searchnew.aspx?Make=BMW"
+

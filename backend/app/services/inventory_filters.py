@@ -47,6 +47,38 @@ def infer_vehicle_condition_from_page(page_url: str, html: str) -> str | None:
     return None
 
 
+def infer_make_from_page_scope(page_url: str, requested_make: str) -> str | None:
+    make = requested_make.strip()
+    make_norm = normalize_model_text(make)
+    if not make_norm:
+        return None
+    parts = urlsplit((page_url or "").strip())
+    if not parts.path and not parts.query:
+        return None
+    query_pairs = parse_qsl(parts.query, keep_blank_values=True)
+    for key, value in query_pairs:
+        if key.lower() not in {"make", "manufacturer", "brand"}:
+            continue
+        if normalize_model_text(value) == make_norm:
+            return make
+    path_norm = normalize_model_text(parts.path)
+    path_lower = parts.path.lower()
+    if make_norm in path_norm and any(token in path_lower for token in ("inventory", "vehicles", "search")):
+        return make
+    return None
+
+
+def apply_page_make_scope(v: VehicleListing, page_url: str, requested_make: str) -> VehicleListing:
+    scoped_make = infer_make_from_page_scope(page_url, requested_make)
+    if not scoped_make:
+        return v
+    current_make_norm = normalize_model_text(v.make or "")
+    scoped_make_norm = normalize_model_text(scoped_make)
+    if current_make_norm == scoped_make_norm:
+        return v
+    return v.model_copy(update={"make": scoped_make})
+
+
 def model_filter_variants(model: str) -> list[str]:
     """Substrings to match user model input (F-150 / F150 / F 150)."""
     raw = model.strip().lower()

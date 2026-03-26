@@ -96,9 +96,38 @@ def _looks_like_exact_bmw_inventory_path(url: str, model: str) -> bool:
     )
 
 
+def _canonical_dealer_on_inventory_url(url: str, condition: str) -> str:
+    parts = urlsplit(url)
+    host = parts.netloc.lower().split("@")[-1].split(":")[0]
+    if host.startswith("express."):
+        base = host.removeprefix("express.")
+        if base and not base.startswith("express."):
+            netloc = parts.netloc.replace(host, f"www.{base}", 1)
+        else:
+            netloc = parts.netloc
+    else:
+        netloc = parts.netloc
+    if condition == "new":
+        path = "/searchnew.aspx"
+    elif condition == "used":
+        path = "/searchused.aspx"
+    else:
+        path = "/searchall.aspx"
+    return urlunsplit((parts.scheme, netloc, path, "", ""))
+
+
 def _looks_like_dealer_on_srp(url: str) -> bool:
     path = urlsplit(url).path.lower()
     return path.endswith("/searchnew.aspx") or path.endswith("/searchused.aspx")
+
+
+def _host_contains_token(url: str, token_norm: str) -> bool:
+    if not token_norm:
+        return False
+    host = urlsplit(url).netloc.lower().split("@")[-1].split(":")[0]
+    if host.startswith("www."):
+        host = host.removeprefix("www.")
+    return token_norm in _norm(host)
 
 
 def _canonical_dealer_dot_com_inventory_url(url: str, condition: str) -> str:
@@ -671,7 +700,11 @@ def resolve_inventory_url_for_provider(
             if path in {"", "/"} or specific_model_landing or (not is_canonical_srp and not make_specific_path):
                 generic_base = _canonical_dealer_dot_com_inventory_url(generic_base, condition)
                 generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "make", "model", "search"})
-                if make_norm and not best_url_make_signal:
+                if (
+                    make_norm
+                    and not best_url_make_signal
+                    and not (make_norm == "bmw" and _host_contains_token(generic_base, make_norm))
+                ):
                     generic_base = _with_query_params(generic_base, {"make": make})
             else:
                 generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "model", "search"})
@@ -681,8 +714,11 @@ def resolve_inventory_url_for_provider(
         generic_base = _normalize_inventory_candidate_url(
             (route.inventory_url_hint if route else None) or fallback_url
         )
-        if generic_base and make_norm:
-            best_url = _with_query_params(generic_base, {"Make": make})
+        if generic_base:
+            if not _looks_like_dealer_on_srp(generic_base):
+                generic_base = _canonical_dealer_on_inventory_url(generic_base, condition)
+            generic_base = _drop_query_keys(generic_base, {"Make", "make", "Model", "model", "ModelAndTrim", "modelandtrim", "search", "q"})
+            best_url = _with_query_params(generic_base, {"Make": make}) if make_norm else generic_base
 
     if model_norm and route:
         generic_base = _normalize_inventory_candidate_url(

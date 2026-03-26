@@ -19,6 +19,7 @@ from app.services.dealer_platforms import detect_platform_profile
 from app.services.economics import build_search_economics, log_economics_line
 from app.services.inventory_discovery import discover_sitemap_inventory_urls
 from app.services.inventory_filters import (
+    apply_page_make_scope,
     infer_vehicle_condition_from_page,
     listing_matches_filters,
     listing_matches_inventory_scope,
@@ -1147,9 +1148,15 @@ async def stream_search(
                 page_vehicle_condition = infer_vehicle_condition_from_page(current_url, current_html)
                 normalized_vehicles = [
                     (
-                        v.model_copy(update={"vehicle_condition": page_vehicle_condition})
-                        if v.vehicle_condition is None and page_vehicle_condition is not None
-                        else v
+                        apply_page_make_scope(
+                            (
+                                v.model_copy(update={"vehicle_condition": page_vehicle_condition})
+                                if v.vehicle_condition is None and page_vehicle_condition is not None
+                                else v
+                            ),
+                            current_url,
+                            make,
+                        )
                     )
                     for v in ext_result.vehicles
                 ]

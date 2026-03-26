@@ -17,7 +17,11 @@ from openai import AsyncOpenAI
 from app.config import settings
 from app.schemas import ExtractionResult, PaginationInfo, VehicleListing
 from app.services.dealer_platforms import provider_enriched_vehicle_dicts
-from app.services.inventory_filters import listing_matches_filters, normalize_vehicle_condition
+from app.services.inventory_filters import (
+    apply_page_make_scope,
+    listing_matches_filters,
+    normalize_vehicle_condition,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1357,6 +1361,7 @@ def _pagination_info(
 def _merge_pagination_info(
     *infos: PaginationInfo | None,
     fallback_current_page: int | None = None,
+    fallback_page_size: int | None = None,
 ) -> PaginationInfo | None:
     merged: dict[str, int | str] = {}
     for info in infos:
@@ -1373,6 +1378,9 @@ def _merge_pagination_info(
     page_size = _coerce_int(merged.get("page_size"))
     total_pages = _coerce_int(merged.get("total_pages"))
     current_page = _coerce_int(merged.get("current_page"))
+    if (page_size is None or page_size <= 0) and fallback_page_size is not None and fallback_page_size > 0:
+        merged["page_size"] = fallback_page_size
+        page_size = fallback_page_size
     if total_pages is None and total_results is not None and page_size is not None and page_size > 0:
         merged["total_pages"] = max(1, (total_results + page_size - 1) // page_size)
         total_pages = _coerce_int(merged.get("total_pages"))
@@ -1476,17 +1484,28 @@ def _pagination_info_from_page_links(html: str, page_url: str) -> PaginationInfo
     )
 
 
-def infer_inventory_pagination(html: str, page_url: str) -> PaginationInfo | None:
+def infer_inventory_pagination(
+    html: str,
+    page_url: str,
+    *,
+    fallback_page_size: int | None = None,
+) -> PaginationInfo | None:
     current_page = _current_page_from_url(page_url)
     return _merge_pagination_info(
         _pagination_info_from_inventory_api(html, page_url),
         _pagination_info_from_dom_summary(html, page_url),
         _pagination_info_from_page_links(html, page_url),
         fallback_current_page=current_page,
+        fallback_page_size=fallback_page_size,
     )
 
 
-def _next_page_url_from_pagination(page_url: str, pagination: PaginationInfo | None) -> str | None:
+def _next_page_url_from_pagination(
+    page_url: str,
+    pagination: PaginationInfo | None,
+    *,
+    fallback_page_size: int | None = None,
+) -> str | None:
     if pagination is None:
         return None
     current_page = pagination.current_page or _current_page_from_url(page_url)
@@ -1494,11 +1513,12 @@ def _next_page_url_from_pagination(page_url: str, pagination: PaginationInfo | N
         return None
     if pagination.total_pages is not None and current_page < pagination.total_pages:
         return synthesize_next_page_url(page_url, current_page + 1)
+    page_size = pagination.page_size or (fallback_page_size if fallback_page_size and fallback_page_size > 0 else None)
     if (
         pagination.total_results is not None
-        and pagination.page_size is not None
-        and pagination.page_size > 0
-        and current_page * pagination.page_size < pagination.total_results
+        and page_size is not None
+        and page_size > 0
+        and current_page * page_size < pagination.total_results
     ):
         return synthesize_next_page_url(page_url, current_page + 1)
     return None
@@ -1523,8 +1543,12 @@ def infer_next_page_from_inventory_api(html: str, page_url: str, vehicles_on_pag
     When anchors omit next-page links, use pagination fields from injected inventory API JSON
     (e.g. Dealer.com widget responses) to decide if another page exists.
     """
-    del vehicles_on_page
-    return _next_page_url_from_pagination(page_url, _pagination_info_from_inventory_api(html, page_url))
+    fallback_page_size = vehicles_on_page if vehicles_on_page > 0 else None
+    return _next_page_url_from_pagination(
+        page_url,
+        _pagination_info_from_inventory_api(html, page_url),
+        fallback_page_size=fallback_page_size,
+    )
 
 
 def _try_merge_pagination_shard(d: dict[str, Any], target: dict[str, int]) -> None:
@@ -1717,12 +1741,21 @@ def try_extract_vehicles_without_llm(
         key = _vehicle_merge_key(v)
         by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
-    all_vehicles = list(by_key.values())
+    all_vehicles = [apply_page_make_scope(v, page_url, make_filter) for v in by_key.values()]
     vehicles = [v for v in all_vehicles if listing_matches_filters(v, make_filter, model_filter)]
-    pagination = infer_inventory_pagination(html, page_url)
+    fallback_page_size = len(all_vehicles) if all_vehicles else None
+    pagination = infer_inventory_pagination(
+        html,
+        page_url,
+        fallback_page_size=fallback_page_size,
+    )
     next_u = find_next_page_url(html, page_url)
     if not next_u:
-        next_u = _next_page_url_from_pagination(page_url, pagination)
+        next_u = _next_page_url_from_pagination(
+            page_url,
+            pagination,
+            fallback_page_size=fallback_page_size,
+        )
     if not vehicles:
         if next_u or pagination is not None:
             return ExtractionResult(vehicles=[], next_page_url=next_u, pagination=pagination)
@@ -1778,8 +1811,25 @@ async def extract_vehicles_from_html(
     parsed = response.choices[0].message.parsed
     if not parsed:
         return ExtractionResult(vehicles=[], next_page_url=None)
-    pagination = infer_inventory_pagination(html, page_url)
-    next_u = parsed.next_page_url or find_next_page_url(html, page_url) or _next_page_url_from_pagination(page_url, pagination)
+    fallback_page_size = max(
+        len(parsed.vehicles),
+        len(extract_dom_vehicle_cards(html, page_url)),
+        len(_extract_search_result_card_vehicles(html, page_url)),
+    )
+    pagination = infer_inventory_pagination(
+        html,
+        page_url,
+        fallback_page_size=fallback_page_size or None,
+    )
+    next_u = (
+        parsed.next_page_url
+        or find_next_page_url(html, page_url)
+        or _next_page_url_from_pagination(
+            page_url,
+            pagination,
+            fallback_page_size=fallback_page_size or None,
+        )
+    )
     if next_u != parsed.next_page_url or pagination != parsed.pagination:
         parsed = parsed.model_copy(update={"next_page_url": next_u, "pagination": pagination})
     return parsed

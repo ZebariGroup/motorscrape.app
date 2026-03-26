@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
 from typing import Any
 
 from app.config import settings
@@ -80,7 +81,33 @@ async def shutdown_playwright() -> None:
             _playwright = None
 
 
-async def fetch_html_via_playwright(url: str) -> str | None:
+async def _apply_js_instructions(page: Any, js_instructions: str | None) -> None:
+    if not js_instructions:
+        return
+    try:
+        steps = json.loads(js_instructions)
+    except (TypeError, json.JSONDecodeError):
+        logger.debug("Unable to parse JS instructions JSON for %s", page.url if hasattr(page, "url") else "url")
+        return
+    if not isinstance(steps, list):
+        logger.debug("Ignoring non-list JS instructions payload for %s", page.url if hasattr(page, "url") else "url")
+        return
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        if "evaluate" in step:
+            raw_script = step.get("evaluate")
+            if isinstance(raw_script, str) and raw_script.strip():
+                try:
+                    await page.evaluate(raw_script)
+                except Exception as e:
+                    logger.debug("Playwright JS evaluate failed for %s: %s", page.url, e)
+        wait_ms = step.get("wait")
+        if isinstance(wait_ms, (int, float)) and wait_ms > 0:
+            await page.wait_for_timeout(int(wait_ms))
+
+
+async def fetch_html_via_playwright(url: str, js_instructions: str | None = None) -> str | None:
     """
     Load URL in headless Chromium and return document HTML, or None on failure.
 
@@ -119,6 +146,11 @@ async def fetch_html_via_playwright(url: str) -> str | None:
             # Wait for network idle to ensure JS renders if it's a SPA
             try:
                 await page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                pass
+            await _apply_js_instructions(page, js_instructions)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=8000)
             except Exception:
                 pass
             html = await page.content()

@@ -96,13 +96,6 @@ export function DealerProgressList({
               const isBusy = d.status === "scraping" || d.status === "parsing";
               const streamedListingCount = listingCountsByDealerKey[dealerSiteKey(d.website)] ?? 0;
               const visibleListingsFound = Math.max(d.listings_found ?? 0, streamedListingCount);
-              const pagesProgress = Math.max(d.pages_scraped ?? 0, d.current_page_number ?? 0);
-              const pageSummary =
-                d.reported_total_pages != null
-                  ? `${Math.min(Math.max(pagesProgress, 1), d.reported_total_pages).toLocaleString()} / ${d.reported_total_pages.toLocaleString()} pages`
-                  : pagesProgress > 0
-                    ? `${pagesProgress.toLocaleString()} pages`
-                    : null;
               const loadedSummary =
                 d.reported_total_results != null && visibleListingsFound > 0 && visibleListingsFound < d.reported_total_results
                   ? `${visibleListingsFound.toLocaleString()} loaded`
@@ -113,7 +106,6 @@ export function DealerProgressList({
                 d.reported_total_results != null
                   ? `${d.reported_total_results.toLocaleString()} site-reported`
                   : null;
-              const progressSummary = [reportedSummary, pageSummary].filter(Boolean).join(" · ");
               const canPin = Boolean(d.website?.trim());
               const isPinned = Boolean(
                 canPin &&
@@ -202,8 +194,8 @@ export function DealerProgressList({
                         <span className="text-zinc-500">{loadedSummary}</span>
                       ) : null}
                     </div>
-                    {progressSummary ? (
-                      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{progressSummary}</p>
+                    {reportedSummary ? (
+                      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{reportedSummary}</p>
                     ) : null}
                     {d.info ? (
                       <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{d.info}</p>

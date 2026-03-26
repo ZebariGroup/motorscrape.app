@@ -52,6 +52,27 @@ def test_try_extract_dom_msrp_and_discount_from_attributes() -> None:
     assert v.days_on_lot == 18
 
 
+def test_try_extract_applies_page_make_scope_for_make_filtered_inventory_pages() -> None:
+    html = """
+    <html><body>
+      <div class="vehicle-card" data-year="2024" data-model="Envista" data-price="28000">
+        <a href="/inventory/v1">2024 Envista Preferred</a>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/new-inventory/index.htm?make=Buick",
+        html=html,
+        make_filter="Buick",
+        model_filter="",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.make == "Buick"
+    assert v.model == "Envista"
+
+
 def test_find_next_page_dealer_on_pt_query() -> None:
     html = '<html><body><a href="searchnew.aspx?pt=2" class="pagination__next">Next</a></body></html>'
     base = "https://dealer.example/searchnew.aspx?pt=1"
@@ -127,6 +148,57 @@ def test_try_extract_synthesizes_next_from_inventory_api_json_after_page_two() -
     assert "page=3" in result.next_page_url
 
 
+def test_try_extract_synthesizes_next_from_inventory_api_total_without_page_size() -> None:
+    html = """
+    <html><body>
+    <script type="application/json" data-ms-source="inventory-api">
+    {"page":1,"totalCount":18,"vehicles":[]}
+    </script>
+    <div class="vehicle-card" data-year="2024" data-make="Buick" data-model="Envista" data-price="26000">
+      <a href="/inventory/v1">2024 Buick Envista Preferred</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="Buick" data-model="Envista" data-price="26100">
+      <a href="/inventory/v2">2024 Buick Envista Sport Touring</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="Buick" data-model="Encore GX" data-price="28000">
+      <a href="/inventory/v3">2024 Buick Encore GX Preferred</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="Buick" data-model="Encore GX" data-price="28100">
+      <a href="/inventory/v4">2024 Buick Encore GX Sport Touring</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="Buick" data-model="Enclave" data-price="42000">
+      <a href="/inventory/v5">2024 Buick Enclave Essence</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="Buick" data-model="Enclave" data-price="42100">
+      <a href="/inventory/v6">2024 Buick Enclave Avenir</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="Buick" data-model="Envision" data-price="39000">
+      <a href="/inventory/v7">2024 Buick Envision Preferred</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="Buick" data-model="Envision" data-price="39100">
+      <a href="/inventory/v8">2024 Buick Envision Essence</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="Buick" data-model="Envista" data-price="26200">
+      <a href="/inventory/v9">2024 Buick Envista Avenir</a>
+    </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/new-inventory/index.htm?make=Buick",
+        html=html,
+        make_filter="Buick",
+        model_filter="",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 9
+    assert result.next_page_url is not None
+    assert "page=2" in result.next_page_url
+    assert result.pagination is not None
+    assert result.pagination.total_results == 18
+    assert result.pagination.page_size == 9
+    assert result.pagination.total_pages == 2
+
+
 def test_try_extract_synthesizes_pt_for_dealer_on_path() -> None:
     html = """
     <script type="application/json" data-ms-source="inventory-api">
@@ -194,6 +266,57 @@ def test_try_extract_returns_empty_result_when_filters_miss_but_more_pages_exist
     assert "page=2" in result.next_page_url
     assert result.pagination is not None
     assert result.pagination.total_pages == 3
+
+
+def test_try_extract_uses_raw_page_vehicle_count_for_empty_filtered_page() -> None:
+    html = """
+    <html><body>
+    <script type="application/json" data-ms-source="inventory-api">
+    {"page":1,"totalCount":18,"vehicles":[]}
+    </script>
+    <div class="vehicle-card" data-year="2024" data-make="GMC" data-model="Acadia" data-price="41000">
+      <a href="/inventory/g1">2024 GMC Acadia Elevation</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="GMC" data-model="Terrain" data-price="33000">
+      <a href="/inventory/g2">2024 GMC Terrain SLE</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="GMC" data-model="Terrain" data-price="33100">
+      <a href="/inventory/g3">2024 GMC Terrain SLT</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="GMC" data-model="Yukon" data-price="72000">
+      <a href="/inventory/g4">2024 GMC Yukon Denali</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="GMC" data-model="Canyon" data-price="47000">
+      <a href="/inventory/g5">2024 GMC Canyon AT4</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="GMC" data-model="Sierra 1500" data-price="61000">
+      <a href="/inventory/g6">2024 GMC Sierra 1500 Elevation</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="GMC" data-model="Sierra 1500" data-price="61100">
+      <a href="/inventory/g7">2024 GMC Sierra 1500 AT4</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="GMC" data-model="Hummer EV" data-price="98000">
+      <a href="/inventory/g8">2024 GMC Hummer EV 2X</a>
+    </div>
+    <div class="vehicle-card" data-year="2024" data-make="GMC" data-model="Acadia" data-price="41100">
+      <a href="/inventory/g9">2024 GMC Acadia Denali</a>
+    </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/new-inventory/index.htm?make=Buick",
+        html=html,
+        make_filter="Buick",
+        model_filter="",
+    )
+    assert result is not None
+    assert result.vehicles == []
+    assert result.next_page_url is not None
+    assert "page=2" in result.next_page_url
+    assert result.pagination is not None
+    assert result.pagination.total_results == 18
+    assert result.pagination.page_size == 9
+    assert result.pagination.total_pages == 2
 
 
 def test_try_extract_respects_make_filter() -> None:

@@ -33,23 +33,38 @@ class PlatformDefinition:
     requires_render: bool = False
 
 
+_ONEAUDI_FALCON_LOAD_MORE_EVALUATE_JS = (
+    "const btn=Array.from(document.querySelectorAll('button,a,[role=\"button\"]')).find(el=>{"
+    "const txt=((el.innerText||el.textContent||el.getAttribute('aria-label')||'').toLowerCase()).trim();"
+    "return !el.hasAttribute('disabled')&&['load more','show more','view more','see more'].some(token=>txt.includes(token));"
+    "});"
+    "if(btn){btn.click();}"
+)
+
+
+def _oneaudi_falcon_inventory_js_instructions(rounds: int = 10) -> str:
+    # Audi SRPs often gate most inventory behind repeated "load more" batches.
+    steps: list[dict[str, int | str]] = [{"wait": 2000}]
+    for _ in range(max(1, rounds)):
+        steps.extend(
+            [
+                {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+                {"wait": 1200},
+                {"evaluate": _ONEAUDI_FALCON_LOAD_MORE_EVALUATE_JS},
+                {"wait": 1800},
+            ]
+        )
+    return json.dumps(steps, separators=(",", ":"))
+
+
 # ZenRows `js_instructions` for infinite-scroll SRPs (e.g. OneAudi Falcon) — host-based, not hard-coded in scraper.
-_ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS = """[
-    {"wait": 2000},
-    {"evaluate": "window.scrollTo(0, document.body.scrollHeight); Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click();"},
-    {"wait": 1500},
-    {"evaluate": "window.scrollTo(0, document.body.scrollHeight); Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click();"},
-    {"wait": 1500},
-    {"evaluate": "window.scrollTo(0, document.body.scrollHeight); Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click();"},
-    {"wait": 1500},
-    {"evaluate": "window.scrollTo(0, document.body.scrollHeight); Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('load more'))?.click();"},
-    {"wait": 1500}
-]"""
+_ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS = _oneaudi_falcon_inventory_js_instructions()
 
 _ONEAUDI_FALCON_INVENTORY_HOST_FRAGMENTS: frozenset[str] = frozenset(
     {
         "audi.com",
         "audinovi.com",
+        "audibirminghammi.com",
         "audirochesterhills.com",
         "audiannarbor.com",
         "audilansing.com",
@@ -58,14 +73,29 @@ _ONEAUDI_FALCON_INVENTORY_HOST_FRAGMENTS: frozenset[str] = frozenset(
 )
 
 
+def _looks_like_oneaudi_falcon_inventory_url(url: str) -> bool:
+    if not url:
+        return False
+    try:
+        parts = urlsplit(url)
+    except Exception:
+        return False
+    host = parts.netloc.lower().split("@")[-1].split(":")[0]
+    path = parts.path.lower().rstrip("/")
+    if any(fragment in host for fragment in _ONEAUDI_FALCON_INVENTORY_HOST_FRAGMENTS):
+        return True
+    if "audi" not in host:
+        return False
+    return path.endswith("/inventory/new") or path.endswith("/inventory/used") or path.endswith("/en/inventory/new") or path.endswith("/en/inventory/used")
+
+
 def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None = None) -> str | None:
     """Return platform-specific ZenRows JS instructions for inventory URLs, if any."""
     if platform_id == "oneaudi_falcon":
         return _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS.strip()
     if not url:
         return None
-    u = url.lower()
-    if any(h in u for h in _ONEAUDI_FALCON_INVENTORY_HOST_FRAGMENTS):
+    if _looks_like_oneaudi_falcon_inventory_url(url):
         return _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS.strip()
     return None
 
@@ -74,7 +104,7 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
     PlatformDefinition(
         platform_id="oneaudi_falcon",
         markers=("oneaudi-falcon", "audi.com", "vtpimages.audi.com"),
-        inventory_path_hints=("new-inventory", "used-inventory", "inventory", "new"),
+        inventory_path_hints=("new-inventory", "used-inventory", "inventory", "new", "inventory/new", "inventory/used", "en/inventory/new", "en/inventory/used"),
         extraction_mode="hybrid",
         requires_render=True,
     ),
