@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { VEHICLE_MAKES } from "@/lib/vehicleCatalog";
 
 import { MultiModelSelect } from "./MultiModelSelect";
+import { PlowTruck } from "./PlowTruck";
 
 const RADIUS_CHOICES = [10, 25, 30, 50, 75, 100, 150, 250] as const;
 const DEALER_STEPS = [4, 6, 8, 10, 12, 16, 18, 24, 30] as const;
@@ -333,22 +334,7 @@ export function SearchFormSection({
                       <div className="scrape-truck-floor" />
                       <div className="scrape-truck-ruts" />
                       <span className="scrape-truck">
-                        <span className="scrape-truck-cabin" />
-                        <span className="scrape-truck-cabin-roof" />
-                        <span className="scrape-truck-beacon" />
-                        <span className="scrape-truck-bed" />
-                        <span className="scrape-truck-chassis" />
-                        <span className="scrape-truck-plow-mount" />
-                        <span className="scrape-truck-plow-arm" />
-                        <span className="scrape-truck-plow" />
-                        <span className="scrape-truck-snow" />
-                        <span className="scrape-truck-bumper" />
-                        <span className="scrape-truck-wheel scrape-truck-wheel--rear" />
-                        <span className="scrape-truck-wheel scrape-truck-wheel--front" />
-                        <span className="scrape-truck-headlight" />
-                        <span className="scrape-truck-dirt scrape-truck-dirt--one" />
-                        <span className="scrape-truck-dirt scrape-truck-dirt--two" />
-                        <span className="scrape-truck-dirt scrape-truck-dirt--three" />
+                        <PlowTruck />
                       </span>
                     </div>
                   </div>
