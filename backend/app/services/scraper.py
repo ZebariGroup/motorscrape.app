@@ -617,6 +617,62 @@ def _inventory_page_number_from_url(url: str) -> int:
     return 1
 
 
+def _make_from_ddc_path(url_path: str) -> str | None:
+    """Extract make name from Dealer.com path patterns like /new-buick/ or /new-gmc/."""
+    import re as _re
+    m = _re.match(r"^/(new|used)-([a-z-]+?)[-/]", url_path.lower().lstrip("/").replace("_", "-") if url_path else "")
+    if not m:
+        return None
+    raw = m.group(2).replace("-", " ").strip()
+    # map slug to canonical make name
+    _SLUG_TO_MAKE = {
+        "alfa romeo": "Alfa Romeo",
+        "alfromeo": "Alfa Romeo",
+        "buick": "Buick",
+        "cadillac": "Cadillac",
+        "chevrolet": "Chevrolet",
+        "chevy": "Chevrolet",
+        "chrysler": "Chrysler",
+        "dodge": "Dodge",
+        "ford": "Ford",
+        "gmc": "GMC",
+        "jeep": "Jeep",
+        "lincoln": "Lincoln",
+        "ram": "Ram",
+        "honda": "Honda",
+        "acura": "Acura",
+        "toyota": "Toyota",
+        "lexus": "Lexus",
+        "nissan": "Nissan",
+        "infiniti": "Infiniti",
+        "hyundai": "Hyundai",
+        "kia": "Kia",
+        "bmw": "BMW",
+        "mini": "MINI",
+        "mercedes benz": "Mercedes-Benz",
+        "mercedes": "Mercedes-Benz",
+        "audi": "Audi",
+        "volkswagen": "Volkswagen",
+        "vw": "Volkswagen",
+        "volvo": "Volvo",
+        "subaru": "Subaru",
+        "mazda": "Mazda",
+        "mitsubishi": "Mitsubishi",
+        "genesis": "Genesis",
+        "porsche": "Porsche",
+        "land rover": "Land Rover",
+        "landrover": "Land Rover",
+        "jaguar": "Jaguar",
+        "fiat": "FIAT",
+        "maserati": "Maserati",
+        "ferrari": "Ferrari",
+        "lamborghini": "Lamborghini",
+        "bentley": "Bentley",
+        "rolls royce": "Rolls-Royce",
+    }
+    return _SLUG_TO_MAKE.get(raw, raw.title() if raw else None)
+
+
 def _rewrite_inventory_post_body_for_page(body: str, page_url: str) -> str:
     try:
         payload = json.loads(body)
@@ -633,6 +689,7 @@ def _rewrite_inventory_post_body_for_page(body: str, page_url: str) -> str:
         for k, v in parse_qsl(urlsplit(page_url).query, keep_blank_values=True)
         if k
     }
+    # Inject filters from query params (e.g. ?make=Buick&model=Enclave)
     for url_key, body_key in (
         ("make", "make"),
         ("model", "model"),
@@ -643,6 +700,12 @@ def _rewrite_inventory_post_body_for_page(body: str, page_url: str) -> str:
         value = page_query.get(url_key)
         if value:
             inventory_params[body_key] = value
+    # Also inject make from path-based filtering (e.g. /new-buick/vehicles-troy-mi.htm)
+    # only when the body doesn't already have a make and the query didn't provide one.
+    if not inventory_params.get("make") and not page_query.get("make"):
+        path_make = _make_from_ddc_path(urlsplit(page_url).path)
+        if path_make:
+            inventory_params["make"] = path_make
 
     page_num = _inventory_page_number_from_url(page_url)
     if page_num > 1:

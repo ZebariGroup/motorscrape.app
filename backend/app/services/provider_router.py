@@ -706,7 +706,17 @@ def resolve_inventory_url_for_provider(
                     and not (make_norm == "bmw" and _host_contains_token(generic_base, make_norm))
                 ):
                     generic_base = _with_query_params(generic_base, {"make": make})
+            elif is_canonical_srp:
+                # Canonical SRP (e.g. /new-inventory/index.htm): keep/set ?make= for multi-brand dealers.
+                generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "model", "search"})
+                if (
+                    make_norm
+                    and not best_url_make_signal
+                    and not _host_contains_token(generic_base, make_norm)
+                ):
+                    generic_base = _with_query_params(generic_base, {"make": make})
             else:
+                # Path-based make SRP (e.g. /new-buick/vehicles-troy-mi.htm): keep as-is.
                 generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "model", "search"})
             best_url = generic_base
 

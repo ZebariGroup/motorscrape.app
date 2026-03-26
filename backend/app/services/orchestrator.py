@@ -1226,12 +1226,14 @@ async def stream_search(
                     and not dealer_dot_com_make_retry_attempted
                     and current_url
                 ):
+                    dealer_dot_com_make_retry_attempted = True
+                    # If the current URL already has a query-param make filter, retry without it
+                    # (the site may not support that filter directly).
                     retry_url = _drop_query_keys(
                         current_url,
                         {"make", "model", "search", "gvbodystyle"},
                     )
                     if retry_url.rstrip("/") != current_url.rstrip("/") and retry_url not in queued_urls:
-                        dealer_dot_com_make_retry_attempted = True
                         queued_urls.add(retry_url)
                         pending_urls.insert(0, retry_url)
                         logger.info(
@@ -1240,6 +1242,29 @@ async def stream_search(
                             current_url,
                             retry_url,
                         )
+                    else:
+                        # Current URL has no removable query filter (e.g. path-based /new-buick/…).
+                        # Fall back to the canonical SRP with ?make=X so the POST body injection kicks in.
+                        from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit, parse_qsl
+                        try:
+                            parts = urlsplit(current_url)
+                            canonical = urlunsplit((
+                                parts.scheme,
+                                parts.netloc,
+                                "/new-inventory/index.htm" if vehicle_condition != "used" else "/used-inventory/index.htm",
+                                urlencode({"make": make}),
+                                "",
+                            ))
+                            if canonical not in queued_urls:
+                                queued_urls.add(canonical)
+                                pending_urls.insert(0, canonical)
+                                logger.info(
+                                    "DDC path-based make page returned zero; falling back to canonical SRP for %s: %s",
+                                    d.name,
+                                    canonical,
+                                )
+                        except Exception:
+                            pass
                 if (
                     route
                     and route.platform_id == "dealer_inspire"
