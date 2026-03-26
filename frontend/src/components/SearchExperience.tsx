@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useSearchStream } from "@/hooks/useSearchStream";
 import { useAccessSummary } from "@/hooks/useAccessSummary";
@@ -9,6 +9,7 @@ import { InventoryResultsSection } from "@/components/search/InventoryResultsSec
 import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
+import { resolveApiUrl } from "@/lib/apiBase";
 
 export function SearchExperience() {
   const { access, refresh } = useAccessSummary();
