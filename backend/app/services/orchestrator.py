@@ -24,7 +24,6 @@ from app.services.inventory_filters import (
     listing_matches_filters,
     listing_matches_inventory_scope,
     listing_matches_vehicle_condition,
-    model_filter_variants,
 )
 from app.services.inventory_result_cache import (
     get_cached_inventory_listings,
@@ -46,23 +45,14 @@ from app.services.scraper import PageKind, _looks_like_block_page, fetch_page_ht
 from app.sse import sse_pack
 
 from app.services.orchestrator_utils import (
+    dedupe_dealers_by_domain,
     domain_fetch_limiter,
     effective_search_concurrency,
-    dedupe_dealers_by_domain,
-    html_mentions_model,
     html_mentions_make,
-    prefer_https_website_url,
     guess_franchise_inventory_srp_url,
-    effective_max_pages_for_route,
+    html_mentions_model,
     pagination_progress_payload,
-)
-
-from app.services.orchestrator_utils import (
-    dedupe_dealers_by_domain,
-    html_mentions_model,
-    html_mentions_make,
     prefer_https_website_url,
-    guess_franchise_inventory_srp_url,
 )
 
 logger = logging.getLogger(__name__)

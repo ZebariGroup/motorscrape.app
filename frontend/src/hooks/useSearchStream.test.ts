@@ -8,19 +8,19 @@ class MockEventSource {
   readyState: number = 0; // CONNECTING
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
-  listeners: Record<string, ((ev: any) => void)[]> = {};
+  listeners: Record<string, ((ev: MessageEvent) => void)[]> = {};
 
   constructor(url: string) {
     this.url = url;
     MockEventSource.instances.push(this);
   }
 
-  addEventListener(type: string, listener: (ev: any) => void) {
+  addEventListener(type: string, listener: (ev: MessageEvent) => void) {
     if (!this.listeners[type]) this.listeners[type] = [];
     this.listeners[type].push(listener);
   }
 
-  removeEventListener(type: string, listener: (ev: any) => void) {
+  removeEventListener(type: string, listener: (ev: MessageEvent) => void) {
     if (!this.listeners[type]) return;
     this.listeners[type] = this.listeners[type].filter((l) => l !== listener);
   }
@@ -30,7 +30,7 @@ class MockEventSource {
   }
 
   // Helpers for tests
-  emit(type: string, data: any) {
+  emit(type: string, data: unknown) {
     const event = new MessageEvent(type, { data: typeof data === "string" ? data : JSON.stringify(data) });
     if (this.listeners[type]) {
       for (const listener of this.listeners[type]) {

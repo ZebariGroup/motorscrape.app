@@ -80,7 +80,7 @@ async def search_stream(
 
     import uuid
     correlation_id = str(uuid.uuid4())[:8]
-    
+
     async def body() -> AsyncIterator[bytes]:
         try:
             async for chunk in stream_search(
