@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -121,15 +122,37 @@ async def _resolve_location_bias(
     if lat is None or lng is None:
         return None
 
-    return {
-        "circle": {
-            "center": {"latitude": lat, "longitude": lng},
-            "radius": min(
-                int(radius_miles * METERS_PER_MILE),
-                MAX_LOCATION_BIAS_RADIUS_METERS,
-            ),
+    radius_meters = int(radius_miles * METERS_PER_MILE)
+    if radius_meters <= MAX_LOCATION_BIAS_RADIUS_METERS:
+        return {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": radius_meters,
+            }
         }
-    }
+    else:
+        # Use a rectangle for radiuses larger than the 50km circle limit
+        earth_radius_miles = 3958.8
+        lat_delta_deg = math.degrees(radius_miles / earth_radius_miles)
+        # Avoid division by zero at the poles
+        cos_lat = max(0.0001, math.cos(math.radians(lat)))
+        lng_delta_deg = math.degrees(radius_miles / (earth_radius_miles * cos_lat))
+
+        # Clamp to valid lat/lng ranges
+        low_lat = max(-90.0, lat - lat_delta_deg)
+        high_lat = min(90.0, lat + lat_delta_deg)
+        
+        # For simplicity, clamp longitude (assuming mostly continental searches).
+        # A true global solution would handle crossing the 180th meridian.
+        low_lng = max(-180.0, lng - lng_delta_deg)
+        high_lng = min(180.0, lng + lng_delta_deg)
+
+        return {
+            "rectangle": {
+                "low": {"latitude": low_lat, "longitude": low_lng},
+                "high": {"latitude": high_lat, "longitude": high_lng},
+            }
+        }
 
 
 def _normalize_dealer_website_url(website: str) -> str:
