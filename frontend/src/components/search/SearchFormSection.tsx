@@ -341,6 +341,7 @@ export function SearchFormSection({
                         <span className="scrape-truck-plow-mount" />
                         <span className="scrape-truck-plow-arm" />
                         <span className="scrape-truck-plow" />
+                        <span className="scrape-truck-snow" />
                         <span className="scrape-truck-bumper" />
                         <span className="scrape-truck-wheel scrape-truck-wheel--rear" />
                         <span className="scrape-truck-wheel scrape-truck-wheel--front" />
