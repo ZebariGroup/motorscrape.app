@@ -12,6 +12,7 @@ from app.services.orchestrator import (
     _prefer_https_website_url,
     stream_search,
 )
+from app.services.provider_router import ProviderRoute
 
 
 def test_prefer_https_website_url() -> None:
@@ -250,3 +251,104 @@ async def test_stream_search_auto_expands_pagination_from_site_counts() -> None:
     assert tail.count("https://example-dealer.test/vdp/") == 3
     assert '"listings_found": 3' in tail
     assert '"pages_scraped": 3' in tail
+
+
+@pytest.mark.asyncio
+async def test_stream_search_retries_empty_dealer_dot_com_make_query_with_generic_srp() -> None:
+    from app.schemas import ExtractionResult, VehicleListing
+
+    dealers = [
+        DealershipFound(
+            name="Golling Alfa Romeo FIAT",
+            place_id="p1",
+            address="34500 Woodward Ave",
+            website="https://www.alfaromeoofbirmingham.com",
+        )
+    ]
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="structured_api",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-inventory",),
+        inventory_url_hint="https://www.alfaromeoofbirmingham.com/new-inventory/index.htm",
+    )
+
+    async def fake_fetch(*_args, **_kwargs):
+        return "<html><body>Inventory</body></html>", "direct"
+
+    provider_results = [
+        ExtractionResult(
+            vehicles=[],
+            next_page_url=None,
+            pagination=None,
+        ),
+        ExtractionResult(
+            vehicles=[
+                VehicleListing(
+                    year=2024,
+                    make="Alfa Romeo",
+                    model="Giulia",
+                    price=48995,
+                    listing_url="https://www.alfaromeoofbirmingham.com/vdp/giulia-1",
+                )
+            ],
+            next_page_url=None,
+            pagination=None,
+        ),
+    ]
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.set_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch(
+            "app.services.orchestrator.detect_or_lookup_provider",
+            return_value=route,
+        ),
+        patch(
+            "app.services.orchestrator.resolve_inventory_url_for_provider",
+            return_value="https://www.alfaromeoofbirmingham.com/new-inventory/index.htm?make=Alfa+Romeo",
+        ),
+        patch(
+            "app.services.orchestrator.extract_with_provider",
+            side_effect=provider_results,
+        ) as mock_provider_extract,
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+        ) as mock_llm,
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "Birmingham, MI",
+            "Alfa Romeo",
+            "",
+            vehicle_condition="new",
+            max_dealerships=1,
+            max_pages_per_dealer=1,
+        ):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert mock_provider_extract.call_count == 2
+    assert mock_llm.await_count == 0
+    assert "https://www.alfaromeoofbirmingham.com/vdp/giulia-1" in tail
+    assert '"listings_found": 1' in tail

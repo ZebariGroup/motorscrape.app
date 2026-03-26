@@ -426,6 +426,7 @@ def resolve_inventory_url_for_provider(
 
     best_url = (route.inventory_url_hint if route else None) or fallback_url
     best_score = -1
+    best_url_make_signal = False
     hints = tuple(h.lower() for h in (route.inventory_path_hints if route else ()))
     make_norm = _norm(make)
     model_norm = _norm(model)
@@ -580,6 +581,7 @@ def resolve_inventory_url_for_provider(
         if score > best_score and score > 0:
             best_score = score
             best_url = urljoin(base_url, href)
+            best_url_make_signal = bool(make_norm and make_norm in combined_norm)
 
     if route and not model_norm and route.platform_id in {"nissan_infiniti_inventory", "hyundai_inventory_search"}:
         generic_base = _normalize_inventory_candidate_url(
@@ -669,7 +671,7 @@ def resolve_inventory_url_for_provider(
             if path in {"", "/"} or specific_model_landing or (not is_canonical_srp and not make_specific_path):
                 generic_base = _canonical_dealer_dot_com_inventory_url(generic_base, condition)
                 generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "make", "model", "search"})
-                if make_norm:
+                if make_norm and not best_url_make_signal:
                     generic_base = _with_query_params(generic_base, {"make": make})
             else:
                 generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "model", "search"})

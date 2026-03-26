@@ -147,3 +147,32 @@ def test_resolve_inventory_url_for_provider_avoids_model_landing_for_make_only_d
     )
     assert url == "https://www.foxbuickgmc.com/new-inventory/index.htm?make=GMC"
 
+
+def test_resolve_inventory_url_for_provider_keeps_generic_ddc_srp_when_anchor_text_is_make_scoped():
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-inventory",),
+        inventory_url_hint="https://www.alfaromeoofbirmingham.com/new-inventory/index.htm",
+    )
+    html = """
+    <html><body>
+      <a href="/new-inventory/index.htm">New Alfa Romeo Inventory</a>
+      <a href="/new-fiat/index.htm">New FIAT Inventory</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.alfaromeoofbirmingham.com/",
+        route,
+        fallback_url="https://www.alfaromeoofbirmingham.com/new-inventory/index.htm",
+        make="Alfa Romeo",
+        model="",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.alfaromeoofbirmingham.com/new-inventory/index.htm"
+

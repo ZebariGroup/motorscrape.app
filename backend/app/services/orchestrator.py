@@ -8,7 +8,7 @@ import time
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -377,6 +377,17 @@ def _pagination_progress_payload(
     if pagination.source:
         payload["pagination_source"] = pagination.source
     return payload
+
+
+def _drop_query_keys(url: str, keys: set[str]) -> str:
+    parts = urlsplit(url)
+    query_pairs = [
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if k.lower() not in keys
+    ]
+    query = urlencode(query_pairs)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
 
 def _merge_vehicle_detail(base: VehicleListing, enriched: VehicleListing) -> VehicleListing:
@@ -944,6 +955,7 @@ async def stream_search(
             total_vehicles = 0
             skip_info: str | None = None
             latest_pagination: PaginationInfo | None = None
+            dealer_dot_com_make_retry_attempted = False
             queued_urls: set[str] = {current_url} if current_url else set()
             pending_urls: list[str] = []
             emitted_listing_keys: set[str] = set()
@@ -1198,6 +1210,29 @@ async def stream_search(
                             },
                         )
                     )
+                if (
+                    route
+                    and route.platform_id == "dealer_dot_com"
+                    and make.strip()
+                    and not model.strip()
+                    and not normalized_vehicles
+                    and not dealer_dot_com_make_retry_attempted
+                    and current_url
+                ):
+                    retry_url = _drop_query_keys(
+                        current_url,
+                        {"make", "model", "search", "gvbodystyle"},
+                    )
+                    if retry_url.rstrip("/") != current_url.rstrip("/") and retry_url not in queued_urls:
+                        dealer_dot_com_make_retry_attempted = True
+                        queued_urls.add(retry_url)
+                        pending_urls.insert(0, retry_url)
+                        logger.info(
+                            "Retrying Dealer.com make search without query filter for %s: %s -> %s",
+                            d.name,
+                            current_url,
+                            retry_url,
+                        )
                 if (
                     route
                     and route.platform_id == "dealer_inspire"
