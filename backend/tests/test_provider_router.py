@@ -89,3 +89,32 @@ def test_resolve_inventory_url_for_provider_keeps_existing_ddc_srp():
     )
     assert url == "https://www.hodgessubaru.com/new-inventory/index.htm"
 
+
+def test_resolve_inventory_url_for_provider_prefers_make_specific_ddc_srp_when_model_empty():
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-inventory",),
+        inventory_url_hint="https://www.suburbanbuickgmcoftroy.com/new-inventory/index.htm",
+    )
+    html = """
+    <html><body>
+      <a href="/new-inventory/index.htm">New Inventory</a>
+      <a href="/new-gmc/vehicles-troy-mi.htm">Search New GMC</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.suburbanbuickgmcoftroy.com/new-inventory/index.htm?search=&model=Acadia&gvBodyStyle=SUV",
+        route,
+        fallback_url="https://www.suburbanbuickgmcoftroy.com/new-inventory/index.htm",
+        make="GMC",
+        model="",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.suburbanbuickgmcoftroy.com/new-gmc/vehicles-troy-mi.htm"
+

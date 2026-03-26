@@ -121,6 +121,13 @@ def _looks_like_dealer_dot_com_srp(url: str, condition: str) -> bool:
     return path.endswith("/inventory/index.htm")
 
 
+def _url_path_contains_token(url: str, token_norm: str) -> bool:
+    if not token_norm:
+        return False
+    path = urlsplit(url).path
+    return token_norm in _norm(path)
+
+
 def _dealer_on_condition_matches(url: str, condition: str) -> bool:
     path = urlsplit(url).path.lower()
     if condition == "new":
@@ -418,7 +425,9 @@ def resolve_inventory_url_for_provider(
         best_score = 90
     if route and route.platform_id == "dealer_dot_com" and _looks_like_dealer_dot_com_srp(current_url, condition):
         best_url = _drop_query_keys(current_url, {"gvBodyStyle", "make", "model", "search"})
-        best_score = 120
+        # With make-only searches, leave room for make-specific SRP links
+        # such as /new-gmc/vehicles-*.htm to outrank the generic index URL.
+        best_score = 25 if (make_norm and not model_norm) else 120
 
     for a in soup.find_all("a", href=True):
         href = _normalize_inventory_candidate_url(str(a["href"]))
@@ -432,6 +441,15 @@ def resolve_inventory_url_for_provider(
 
         if make_norm and make_norm in combined_norm:
             score += 30
+        if (
+            route
+            and route.platform_id == "dealer_dot_com"
+            and not model_norm
+            and make_norm
+            and _url_path_contains_token(href, make_norm)
+        ):
+            # Prefer make-family SRPs like /new-gmc/vehicles-*.htm over generic index pages.
+            score += 90
         score += _model_href_match_score(href_lower, text, model_norm)
 
         if "for-sale" in href_lower:
@@ -530,6 +548,35 @@ def resolve_inventory_url_for_provider(
 
     if route and not model_norm and route.platform_id == "dealer_dot_com":
         hint = best_url if best_score > 0 else (route.inventory_url_hint if route else None) or fallback_url
+        if make_norm:
+            make_hint_url: str | None = None
+            make_hint_score = -1
+            for a in soup.find_all("a", href=True):
+                href = _normalize_inventory_candidate_url(str(a["href"]))
+                href_lower = href.lower()
+                text = a.get_text(strip=True).lower()
+                if not _url_path_contains_token(href, make_norm):
+                    continue
+                if condition == "new" and ("used" in href_lower or "pre-owned" in text or "used" in text):
+                    continue
+                if condition == "used" and "used" not in href_lower and "pre-owned" not in href_lower and "used" not in text:
+                    continue
+                score = 30
+                if "inventory" in href_lower:
+                    score += 20
+                if "vehicles" in href_lower:
+                    score += 10
+                if condition == "new" and ("new" in href_lower or "new" in text):
+                    score += 15
+                if condition == "used" and ("used" in href_lower or "pre-owned" in href_lower):
+                    score += 15
+                if any(token in href_lower for token in ("model=", "gvbodystyle=", "bodystyle=")):
+                    score -= 45
+                if score > make_hint_score:
+                    make_hint_score = score
+                    make_hint_url = urljoin(base_url, href)
+            if make_hint_url:
+                hint = make_hint_url
         # If the hint is an express.* retail URL, it will likely 403 or 404 when swapped to www.
         # Force it to a known good www.* path based on condition.
         try:
@@ -548,7 +595,7 @@ def resolve_inventory_url_for_provider(
         generic_base = _normalize_inventory_candidate_url(hint)
         if generic_base:
             path = urlsplit(generic_base).path.lower().rstrip("/")
-            if path in {"", "/"} or not any(
+            is_canonical_srp = any(
                 token in path
                 for token in (
                     "/new-inventory/index.htm",
@@ -557,9 +604,16 @@ def resolve_inventory_url_for_provider(
                     "/searchnew.aspx",
                     "/searchused.aspx",
                 )
-            ):
+            )
+            make_specific_path = bool(make_norm) and _url_path_contains_token(generic_base, make_norm)
+            if path in {"", "/"} or (not is_canonical_srp and not make_specific_path):
                 generic_base = _canonical_dealer_dot_com_inventory_url(generic_base, condition)
-            best_url = _drop_query_keys(generic_base, {"gvBodyStyle", "make", "model", "search"})
+                generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "make", "model", "search"})
+                if make_norm:
+                    generic_base = _with_query_params(generic_base, {"make": make})
+            else:
+                generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "model", "search"})
+            best_url = generic_base
 
     if route and not model_norm and route.platform_id == "dealer_on":
         generic_base = _normalize_inventory_candidate_url(
