@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.scraper import (
     _host_is_express_retail,
+    _rewrite_inventory_get_query_for_page,
     _rewrite_inventory_post_body_for_page,
     _should_prefer_zenrows_render,
     _should_retry_zenrows_with_premium_proxy,
@@ -52,3 +53,23 @@ def test_rewrite_inventory_post_body_for_page_uses_start_offset() -> None:
     )
     assert '"start":"18"' in rewritten
     assert '"page":"2"' not in rewritten
+
+
+def test_rewrite_inventory_get_query_for_page_merges_filter_scope() -> None:
+    rewritten = _rewrite_inventory_get_query_for_page(
+        {"make": "Jeep", "sortBy": "price", "params": "make=Jeep&sortBy=price"},
+        "https://dealer.example/new-inventory/index.htm?make=Chrysler",
+    )
+    assert rewritten["make"] == "Chrysler"
+    assert "make=Chrysler" in rewritten["params"]
+
+
+def test_rewrite_inventory_get_query_for_page_rewrites_page_and_start() -> None:
+    rewritten = _rewrite_inventory_get_query_for_page(
+        {"pageSize": "9", "start": "0", "params": "pageSize=9&start=0"},
+        "https://dealer.example/new-inventory/index.htm?make=Buick&page=2",
+    )
+    assert rewritten["pageSize"] == "9"
+    assert rewritten["start"] == "9"
+    assert rewritten["make"] == "Buick"
+    assert "start=9" in rewritten["params"]

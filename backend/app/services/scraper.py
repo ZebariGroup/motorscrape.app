@@ -642,6 +642,71 @@ def _rewrite_inventory_post_body_for_page(body: str, page_url: str) -> str:
     return json.dumps(payload, separators=(",", ":"))
 
 
+def _rewrite_inventory_get_query_for_page(
+    query: dict[str, str],
+    page_url: str,
+) -> dict[str, str]:
+    rewritten = dict(query or {})
+    page_pairs = [(k, v) for k, v in parse_qsl(urlsplit(page_url).query, keep_blank_values=True) if k]
+    if not rewritten and not page_pairs:
+        return rewritten
+
+    lower_to_key = {k.lower(): k for k in rewritten if k != "params"}
+    page_key_name: str | None = None
+    page_key_value: str | None = None
+    for key, value in page_pairs:
+        lower = key.lower()
+        if lower in {"page", "pt", "_p", "pn", "currentpage"}:
+            page_key_name = key
+            page_key_value = value
+            continue
+        existing_key = lower_to_key.get(lower)
+        if existing_key:
+            rewritten[existing_key] = value
+        else:
+            rewritten[key] = value
+            lower_to_key[lower] = key
+
+    page_num = _inventory_page_number_from_url(page_url)
+    if page_num > 1:
+        page_param_keys = ("page", "pt", "_p", "pn", "currentpage")
+        page_size_keys = ("pagesize", "size", "limit", "hitsperpage", "perpage", "resultsperpage", "recordsperpage")
+        offset_keys = ("start", "offset", "from", "recordstart")
+        page_size: int | None = None
+        for lower in page_size_keys:
+            existing_key = lower_to_key.get(lower)
+            if not existing_key:
+                continue
+            try:
+                page_size = int(str(rewritten.get(existing_key, "")).strip())
+                if page_size > 0:
+                    break
+            except ValueError:
+                continue
+        page_key = next((lower_to_key.get(lower) for lower in page_param_keys if lower_to_key.get(lower)), None)
+        if page_key:
+            rewritten[page_key] = str(page_num)
+        elif page_key_name and page_key_value:
+            rewritten[page_key_name] = str(page_num)
+            lower_to_key[page_key_name.lower()] = page_key_name
+        elif page_size is not None:
+            rewritten["page"] = str(page_num)
+            lower_to_key["page"] = "page"
+        if page_size is not None:
+            start_value = str(max(0, (page_num - 1) * page_size))
+            for lower in offset_keys:
+                existing_key = lower_to_key.get(lower)
+                if existing_key:
+                    rewritten[existing_key] = start_value
+
+    params_pairs = [(k, v) for k, v in rewritten.items() if k != "params" and k]
+    if params_pairs:
+        rewritten["params"] = urlencode(params_pairs)
+    else:
+        rewritten.pop("params", None)
+    return rewritten
+
+
 def _extract_inventory_get_requests(html: str, base_url: str) -> list[tuple[str, dict[str, str]]]:
     requests: list[tuple[str, dict[str, str]]] = []
     for match in _DDC_WIDGET_INVENTORY_PAIR_RE.finditer(html):
@@ -722,11 +787,12 @@ async def _maybe_append_inventory_api_data(
             return html + injected
         for api_url, query in api_gets[:2]:
             try:
-                r = await client.get(api_url, params=query or None, headers=_browser_headers())
+                rewritten_query = _rewrite_inventory_get_query_for_page(query, page_url)
+                r = await client.get(api_url, params=rewritten_query or None, headers=_browser_headers())
                 if r.status_code == 403 and settings.zenrows_api_key:
                     full_url = api_url
-                    if query:
-                        full_url = f"{api_url}?{urlencode(query)}"
+                    if rewritten_query:
+                        full_url = f"{api_url}?{urlencode(rewritten_query)}"
                     content = await _zenrows_fetch(full_url, timeout, js_render=False)
                     payloads.append(content)
                     continue

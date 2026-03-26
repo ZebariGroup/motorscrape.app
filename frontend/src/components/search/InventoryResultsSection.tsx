@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { downloadCsv, listingsToCsv } from "@/lib/csvExport";
-import { formatMoney, locationBadge } from "@/lib/inventoryFormat";
+import { formatMoney, listingIdentityKey, locationBadge } from "@/lib/inventoryFormat";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { ListingSortOrder } from "@/hooks/useSearchStream";
 
@@ -126,7 +126,7 @@ export function InventoryResultsSection({
         <div className="grid gap-4 sm:grid-cols-2">
           {filteredListings.map((v, idx) => (
             <article
-              key={`${v.dealership}-${v.vin ?? v.listing_url ?? v.raw_title ?? idx}`}
+              key={`inventory-${listingIdentityKey(v, `${idx}`)}`}
               className="flex flex-row sm:flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 cursor-pointer hover:border-emerald-300 hover:ring-1 hover:ring-emerald-500/20 transition-all"
               onClick={() => setSelectedListing(v)}
             >

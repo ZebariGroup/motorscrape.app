@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clampPercent, formatMoney } from "./inventoryFormat";
+import { clampPercent, formatMoney, listingIdentityKey } from "./inventoryFormat";
 
 describe("inventoryFormat", () => {
   it("formatMoney returns em dash for undefined", () => {
@@ -11,5 +11,20 @@ describe("inventoryFormat", () => {
     expect(clampPercent(-5)).toBe(0);
     expect(clampPercent(50)).toBe(50);
     expect(clampPercent(150)).toBe(100);
+  });
+
+  it("listingIdentityKey uses stable listing identifiers before fallback", () => {
+    expect(
+      listingIdentityKey({
+        dealership: "BMW of Ann Arbor",
+        dealership_website: "https://www.bmwofannarbor.com/",
+        raw_title: "2025 BMW X3 xDrive30",
+        price: 52995,
+      }, "fallback-1"),
+    ).toContain("bmwofannarbor.com");
+  });
+
+  it("listingIdentityKey falls back when listing is otherwise blank", () => {
+    expect(listingIdentityKey({}, "fallback-blank")).toBe("fallback-blank");
   });
 });

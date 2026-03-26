@@ -46,6 +46,23 @@ export function dealerSiteKey(site: string): string {
   }
 }
 
+export function listingIdentityKey(v: Partial<AggregatedListing>, fallback = ""): string {
+  const keyParts = [
+    dealerSiteKey(v.dealership_website ?? ""),
+    (v.dealership ?? "").trim().toLowerCase(),
+    (v.vin ?? "").trim().toLowerCase(),
+    (v.listing_url ?? "").trim().toLowerCase(),
+    (v.raw_title ?? "").trim().toLowerCase(),
+    v.year != null ? String(v.year) : "",
+    (v.make ?? "").trim().toLowerCase(),
+    (v.model ?? "").trim().toLowerCase(),
+    (v.trim ?? "").trim().toLowerCase(),
+    v.price != null ? String(v.price) : "",
+    v.mileage != null ? String(v.mileage) : "",
+  ].filter(Boolean);
+  return keyParts.join("|") || fallback;
+}
+
 export function sliderStep(min: number, max: number, fallback: number) {
   const span = Math.max(0, max - min);
   if (span <= 0) return fallback;

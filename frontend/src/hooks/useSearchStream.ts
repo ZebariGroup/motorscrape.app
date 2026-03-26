@@ -102,6 +102,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const [running, setRunning] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const esRef = useRef<EventSource | null>(null);
+  const streamSessionRef = useRef(0);
 
   const dealerList = useMemo(
     () => Object.values(dealers).sort((a, b) => a.index - b.index),
@@ -302,6 +303,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   }, [running]);
 
   const stopStream = useCallback(() => {
+    streamSessionRef.current += 1;
     esRef.current?.close();
     esRef.current = null;
     setRunning(false);
@@ -329,11 +331,15 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     });
     const url = `${streamUrl}?${params.toString()}`;
 
+    const streamSessionId = streamSessionRef.current + 1;
+    streamSessionRef.current = streamSessionId;
     setRunning(true);
     const es = new EventSource(url);
     esRef.current = es;
+    const isStaleSession = () => streamSessionRef.current !== streamSessionId;
 
     const onStatus = (ev: MessageEvent) => {
+      if (isStaleSession()) return;
       try {
         const data = JSON.parse(ev.data) as { message?: string };
         if (data.message) setStatus(data.message);
@@ -343,6 +349,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     };
 
     const onDealership = (ev: MessageEvent) => {
+      if (isStaleSession()) return;
       try {
         const d = JSON.parse(ev.data) as DealershipProgress;
         const key = d.website || `${d.name}-${d.index}`;
@@ -358,6 +365,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     };
 
     const onVehicles = (ev: MessageEvent) => {
+      if (isStaleSession()) return;
       try {
         const data = JSON.parse(ev.data) as {
           dealership?: string;
@@ -381,6 +389,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     };
 
     const onError = (ev: MessageEvent) => {
+      if (isStaleSession()) return;
       try {
         const data = JSON.parse(ev.data) as { message?: string };
         if (data.message) setErrors((e) => [...e, data.message!]);
@@ -390,6 +399,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     };
 
     const onDone = (ev: Event) => {
+      if (isStaleSession()) return;
       const me = ev as MessageEvent;
       try {
         const data = JSON.parse(me.data) as {
@@ -423,6 +433,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     es.addEventListener("done", onDone);
 
     es.onerror = () => {
+      if (isStaleSession()) return;
       setErrors((e) => [...e, "Connection to search stream lost or failed."]);
       stopStream();
     };

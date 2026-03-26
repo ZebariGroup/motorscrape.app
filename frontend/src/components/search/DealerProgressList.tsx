@@ -96,16 +96,7 @@ export function DealerProgressList({
               const isBusy = d.status === "scraping" || d.status === "parsing";
               const streamedListingCount = listingCountsByDealerKey[dealerSiteKey(d.website)] ?? 0;
               const visibleListingsFound = Math.max(d.listings_found ?? 0, streamedListingCount);
-              const loadedSummary =
-                d.reported_total_results != null && visibleListingsFound > 0 && visibleListingsFound < d.reported_total_results
-                  ? `${visibleListingsFound.toLocaleString()} loaded`
-                  : visibleListingsFound > 0
-                    ? `${visibleListingsFound.toLocaleString()} listings`
-                    : null;
-              const reportedSummary =
-                d.reported_total_results != null
-                  ? `${d.reported_total_results.toLocaleString()} site-reported`
-                  : null;
+              const listingSummary = visibleListingsFound > 0 ? `${visibleListingsFound.toLocaleString()} listings` : null;
               const canPin = Boolean(d.website?.trim());
               const isPinned = Boolean(
                 canPin &&
@@ -190,13 +181,10 @@ export function DealerProgressList({
                       {d.status === "scraping" ? (
                         <span className="text-zinc-500">Fetching… {phaseSec}s</span>
                       ) : null}
-                      {loadedSummary ? (
-                        <span className="text-zinc-500">{loadedSummary}</span>
+                      {listingSummary ? (
+                        <span className="text-zinc-500">{listingSummary}</span>
                       ) : null}
                     </div>
-                    {reportedSummary ? (
-                      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{reportedSummary}</p>
-                    ) : null}
                     {d.info ? (
                       <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{d.info}</p>
                     ) : null}
