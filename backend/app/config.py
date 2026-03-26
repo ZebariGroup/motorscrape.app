@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     zenrows_premium_proxy: bool = False
     # Milliseconds to wait after JS render (only when js_render=true); lower saves time/credits.
     zenrows_wait_ms: int = 3000
+    # Max concurrent in-flight ZenRows API calls (match or stay below plan's Concurrency-Limit).
+    zenrows_max_concurrency: int = 5
     scrapingbee_api_key: str = ""
     scrapingbee_wait_ms: int = 3000
     # Self-hosted headless Chromium (Playwright). Runs after direct HTTP fails or HTML is

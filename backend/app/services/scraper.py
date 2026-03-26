@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import logging
@@ -18,6 +19,18 @@ from app.services.dealer_platforms import zenrows_inventory_js_instructions_for_
 from app.services.scraper_strategies import zenrows_try_once
 
 logger = logging.getLogger(__name__)
+
+_zenrows_semaphore: asyncio.Semaphore | None = None
+_zenrows_sem_lock = asyncio.Lock()
+
+
+async def _zenrows_concurrency_gate() -> asyncio.Semaphore:
+    global _zenrows_semaphore
+    if _zenrows_semaphore is None:
+        async with _zenrows_sem_lock:
+            if _zenrows_semaphore is None:
+                _zenrows_semaphore = asyncio.Semaphore(max(1, settings.zenrows_max_concurrency))
+    return _zenrows_semaphore
 
 PageKind = Literal["homepage", "inventory"]
 
@@ -549,10 +562,12 @@ async def _zenrows_fetch(
         params["js_instructions"] = js_instructions
     if settings.zenrows_premium_proxy or premium_proxy:
         params["premium_proxy"] = "true"
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        r = await client.get(api_url, params=params)
-        r.raise_for_status()
-        return r.text
+    sem = await _zenrows_concurrency_gate()
+    async with sem:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            r = await client.get(api_url, params=params)
+            r.raise_for_status()
+            return r.text
 
 
 async def _scrapingbee_fetch(

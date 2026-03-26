@@ -31,6 +31,7 @@ def _fresh_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.services.scraper.settings", s)
     monkeypatch.setattr("app.services.scraper_strategies.settings", s)
     monkeypatch.setattr("app.services.playwright_fetch.settings", s)
+    monkeypatch.setattr("app.services.scraper._zenrows_semaphore", None)
 
 
 @pytest.fixture
@@ -207,3 +208,42 @@ async def test_fetch_page_html_all_fail_raises(zenrows_key: None) -> None:
 
     with pytest.raises(RuntimeError, match="All fetch methods failed"):
         await fetch_page_html("https://fail.example/", page_kind="homepage")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_zenrows_concurrency_gate_limits_parallel_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    monkeypatch.setenv("ZENROWS_API_KEY", "zr-test-key")
+    monkeypatch.setenv("ZENROWS_MAX_CONCURRENCY", "2")
+    monkeypatch.setenv("PLAYWRIGHT_ENABLED", "false")
+    _fresh_settings(monkeypatch)
+
+    peak = 0
+    inflight = 0
+    lock = asyncio.Lock()
+
+    async def slow_zenrows(request: httpx.Request) -> Response:
+        nonlocal peak, inflight
+        async with lock:
+            inflight += 1
+            peak = max(peak, inflight)
+        await asyncio.sleep(0.05)
+        async with lock:
+            inflight -= 1
+        return Response(200, text="<html><body>" + _inventory_html() + "</body></html>")
+
+    respx.get("https://api.zenrows.com/v1/").mock(side_effect=slow_zenrows)
+    for i in range(4):
+        respx.get(f"https://dealer{i}.example/").mock(return_value=Response(403, text="denied"))
+
+    results = await asyncio.gather(
+        *[fetch_page_html(f"https://dealer{i}.example/", page_kind="homepage") for i in range(4)],
+        return_exceptions=True,
+    )
+    successes = [r for r in results if not isinstance(r, Exception)]
+    assert len(successes) >= 1
+    assert peak <= 2, f"Peak concurrency {peak} exceeded limit of 2"
