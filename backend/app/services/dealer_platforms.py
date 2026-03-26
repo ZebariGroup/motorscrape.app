@@ -174,8 +174,29 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
     PlatformDefinition(
         platform_id="team_velocity",
         markers=("teamvelocity", "tvs", "team velocity"),
-        inventory_path_hints=("new-inventory", "used-inventory", "inventory", "new"),
+        inventory_path_hints=(
+            "inventory/new",
+            "inventory/used",
+            "new-inventory",
+            "used-inventory",
+            "inventory",
+            "new",
+            "certified",
+            "pre-owned",
+        ),
         extraction_mode="hybrid",
+    ),
+    PlatformDefinition(
+        platform_id="d2c_media",
+        markers=(
+            "d2c media",
+            "autoaubaine",
+            "##linkrules##",
+            "{$name}",
+            "member of the autoaubaine network",
+        ),
+        inventory_path_hints=("new/inventory/search.html", "used/search.html", "new/inventory", "used"),
+        extraction_mode="structured_html",
     ),
     PlatformDefinition(
         platform_id="fusionzone",

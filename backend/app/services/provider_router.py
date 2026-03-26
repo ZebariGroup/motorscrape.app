@@ -292,6 +292,23 @@ def _team_velocity_inventory_path_score(url: str, condition: str) -> int:
     return 0
 
 
+def _d2c_media_inventory_path_score(url: str, condition: str) -> int:
+    path = urlsplit(url).path.lower().rstrip("/")
+    if condition == "new":
+        if path == "/new/inventory/search.html":
+            return 110
+        if path.startswith("/new/inventory/") and path.endswith(".html"):
+            return -40
+        if path == "/new/new.html":
+            return 25
+    if condition == "used":
+        if path == "/used/search.html":
+            return 110
+        if path.startswith("/used/") and path.endswith(".html") and path != "/used/search.html":
+            return -40
+    return 0
+
+
 def _hyundai_inventory_path_score(url: str, condition: str) -> int:
     parts = urlsplit(url)
     path = parts.path.lower().rstrip("/")
@@ -603,6 +620,8 @@ def resolve_inventory_url_for_provider(
             score += _family_inventory_path_score(href, condition)
         if route and route.platform_id == "team_velocity" and not model_norm:
             score += _team_velocity_inventory_path_score(href, condition)
+        if route and route.platform_id == "d2c_media" and not model_norm:
+            score += _d2c_media_inventory_path_score(href, condition)
         if route and route.platform_id == "hyundai_inventory_search" and not model_norm:
             score += _hyundai_inventory_path_score(href, condition)
         if condition == "new":

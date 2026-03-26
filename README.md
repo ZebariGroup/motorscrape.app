@@ -106,7 +106,7 @@ The terminal SSE `done` event includes **`duration_ms`** and **`economics`** (`c
 ## Platform-aware routing
 
 - The backend fingerprints dealer websites and routes them through a provider-specific strategy before generic parsing.
-- Known platforms currently include **Dealer.com**, **DealerOn**, **Dealer Inspire**, **CDK / DealerFire**, **Team Velocity**, **fusionZONE**, **Shift Digital**, **PureCars**, and **Jazel**.
+- Known platforms currently include **Dealer.com**, **DealerOn**, **Dealer Inspire**, **CDK / DealerFire**, **Team Velocity**, **D2C Media / AutoAubaine**, **fusionZONE**, **Shift Digital**, **PureCars**, and **Jazel**.
 - Platform detection is cached by normalized dealer domain using the path configured by **`PLATFORM_CACHE_PATH`**.
 - The cache stores the detected platform, extraction mode, whether render is usually required, and the last successful inventory URL hint.
 - On repeated searches, cached platform hits let the backend skip rediscovering the extraction path for the same dealer.

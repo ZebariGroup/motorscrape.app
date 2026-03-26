@@ -1,6 +1,10 @@
 import json
 
-from app.services.dealer_platforms import zenrows_inventory_js_instructions_for_url
+from app.services.dealer_platforms import (
+    detect_platform_profile,
+    inventory_hints_for_platform,
+    zenrows_inventory_js_instructions_for_url,
+)
 
 _ZENROWS_JS_INSTRUCTIONS_WAIT_LIMIT_MS = 30_000
 
@@ -28,3 +32,24 @@ def test_oneaudi_js_instructions_do_not_match_non_audi_inventory_url() -> None:
         "https://www.example-subaru.com/inventory/new/"
     )
     assert instructions is None
+
+
+def test_detect_platform_profile_matches_d2c_media_homepage_markers() -> None:
+    html = """
+    <html><body>
+      <a href="/new/inventory/search.html">New Inventory (149)</a>
+      <a href="/used/search.html">Pre-Owned Inventory (33)</a>
+      <div>##LINKRULES##</div>
+      <footer>Member of the AutoAubaine network - D2C Media</footer>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.erinmillsacura.ca/")
+    assert profile is not None
+    assert profile.platform_id == "d2c_media"
+    assert profile.extraction_mode == "structured_html"
+
+
+def test_team_velocity_inventory_hints_cover_inventory_new_paths() -> None:
+    hints = inventory_hints_for_platform("team_velocity")
+    assert "inventory/new" in hints
+    assert "inventory/used" in hints

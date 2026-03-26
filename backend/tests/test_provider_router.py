@@ -285,3 +285,43 @@ def test_resolve_inventory_url_for_provider_handles_multi_model_filter_as_make_o
     assert "Model" not in query
     assert "ModelAndTrim" not in query
 
+
+def test_resolve_inventory_url_for_provider_prefers_d2c_search_pages() -> None:
+    route = ProviderRoute(
+        platform_id="d2c_media",
+        confidence=1.0,
+        extraction_mode="structured_html",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new/inventory/search.html", "used/search.html"),
+        inventory_url_hint="https://www.erinmillsacura.ca/new/inventory/search.html",
+    )
+    html = """
+    <html><body>
+      <a href="/new/new.html">New Vehicles</a>
+      <a href="/new/inventory/search.html">New Inventory (149)</a>
+      <a href="/new/2026-Acura-MDX.html">2026 Acura MDX</a>
+      <a href="/used/search.html">Pre-Owned Inventory (33)</a>
+      <a href="/used/2024-Acura-RDX.html">2024 Acura RDX</a>
+    </body></html>
+    """
+
+    new_url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.erinmillsacura.ca/",
+        route,
+        fallback_url="https://www.erinmillsacura.ca/",
+        vehicle_condition="new",
+    )
+    used_url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.erinmillsacura.ca/",
+        route,
+        fallback_url="https://www.erinmillsacura.ca/",
+        vehicle_condition="used",
+    )
+
+    assert new_url == "https://www.erinmillsacura.ca/new/inventory/search.html"
+    assert used_url == "https://www.erinmillsacura.ca/used/search.html"
+
