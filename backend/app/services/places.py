@@ -141,7 +141,7 @@ async def _resolve_location_bias(
         # Clamp to valid lat/lng ranges
         low_lat = max(-90.0, lat - lat_delta_deg)
         high_lat = min(90.0, lat + lat_delta_deg)
-        
+
         # For simplicity, clamp longitude (assuming mostly continental searches).
         # A true global solution would handle crossing the 180th meridian.
         low_lng = max(-180.0, lng - lng_delta_deg)

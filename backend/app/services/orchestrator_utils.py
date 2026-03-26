@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from app.config import settings
 from app.schemas import DealershipFound, PaginationInfo

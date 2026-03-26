@@ -30,6 +30,15 @@ from app.services.inventory_result_cache import (
     inventory_listings_cache_key,
     set_cached_inventory_listings,
 )
+from app.services.orchestrator_utils import (
+    dedupe_dealers_by_domain,
+    domain_fetch_limiter,
+    effective_search_concurrency,
+    guess_franchise_inventory_srp_url,
+    html_mentions_make,
+    html_mentions_model,
+    prefer_https_website_url,
+)
 from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.places import find_car_dealerships
 from app.services.platform_store import normalize_dealer_domain
@@ -43,17 +52,6 @@ from app.services.provider_router import (
 from app.services.providers import extract_with_provider
 from app.services.scraper import PageKind, _looks_like_block_page, fetch_page_html
 from app.sse import sse_pack
-
-from app.services.orchestrator_utils import (
-    dedupe_dealers_by_domain,
-    domain_fetch_limiter,
-    effective_search_concurrency,
-    html_mentions_make,
-    guess_franchise_inventory_srp_url,
-    html_mentions_model,
-    pagination_progress_payload,
-    prefer_https_website_url,
-)
 
 logger = logging.getLogger(__name__)
 _STREAM_LISTING_BATCH_SIZE = 8
