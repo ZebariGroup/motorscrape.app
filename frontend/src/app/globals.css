@@ -188,7 +188,7 @@ body {
   height: 0.07rem;
   background: linear-gradient(90deg, rgb(39, 39, 42), rgb(82, 82, 91), rgb(39, 39, 42));
   transform-origin: 0.02rem 0.04rem;
-  animation: scrape-plow-sweep 1.8s ease-in-out infinite;
+  transform: rotate(-15deg);
 }
 
 .scrape-truck-plow {
@@ -201,7 +201,7 @@ body {
   border-radius: 0 0 0.22rem 0.04rem;
   clip-path: polygon(0 12%, 98% 2%, 100% 100%, 0 88%);
   transform-origin: 0.03rem 0.68rem;
-  animation: scrape-plow-sweep 1.8s ease-in-out infinite;
+  transform: rotate(-12deg);
 }
 
 .scrape-truck-plow::before {
