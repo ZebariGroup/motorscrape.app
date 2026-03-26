@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.config import settings
 from app.db.account_store import get_account_store
+from app.main import app
 
 
 def _signup_and_promote(client: TestClient) -> str:

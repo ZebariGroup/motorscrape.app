@@ -11,13 +11,13 @@ from app.services.orchestrator import (
     _bounded_phase_timeout,
     stream_search,
 )
+from app.services.provider_router import ProviderRoute
 from app.services.orchestrator_utils import (
     effective_search_concurrency,
     effective_max_pages_for_route,
     guess_franchise_inventory_srp_url,
     prefer_https_website_url,
 )
-from app.services.provider_router import ProviderRoute
 
 
 def test_prefer_https_website_url() -> None:
