@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { resolveApiUrl } from "@/lib/apiBase";
+import type { AccessSummary } from "@/types/access";
 
 type MeResponse = {
   id: string;
