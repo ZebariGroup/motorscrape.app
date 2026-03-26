@@ -388,8 +388,17 @@ async def fetch_page_html(
         failures.append(f"direct_retry: {err_str}")
 
         # If the fallback attempt succeeded but was thin, return it
-        if "html_fallback" in locals() and html_fallback and len(html_fallback) > 10 and not _has_block_markers(html_fallback):
-            if "site currently not available" not in html_fallback.lower() and "seite vorübergehend" not in html_fallback.lower() and "denied" not in html_fallback.lower():
+        if (
+            "html_fallback" in locals()
+            and html_fallback
+            and len(html_fallback) > 10
+            and not _has_block_markers(html_fallback)
+        ):
+            if (
+                "site currently not available" not in html_fallback.lower()
+                and "seite vorübergehend" not in html_fallback.lower()
+                and "denied" not in html_fallback.lower()
+            ):
                 _m("direct_fallback_ok")
                 return html_fallback, "direct_fallback"
 

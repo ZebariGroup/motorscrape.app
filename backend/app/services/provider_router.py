@@ -18,6 +18,41 @@ from app.services.platform_store import PlatformCacheEntry, platform_store
 
 logger = logging.getLogger(__name__)
 
+_KNOWN_BRAND_TOKENS: frozenset[str] = frozenset(
+    {
+        "acura",
+        "alfaromeo",
+        "audi",
+        "bmw",
+        "buick",
+        "cadillac",
+        "chevrolet",
+        "chevy",
+        "chrysler",
+        "dodge",
+        "fiat",
+        "ford",
+        "gmc",
+        "honda",
+        "hyundai",
+        "infiniti",
+        "jeep",
+        "kia",
+        "lexus",
+        "lincoln",
+        "mazda",
+        "mini",
+        "mitsubishi",
+        "nissan",
+        "ram",
+        "subaru",
+        "toyota",
+        "volkswagen",
+        "volvo",
+        "vw",
+    }
+)
+
 
 @dataclass(slots=True)
 class ProviderRoute:
@@ -45,14 +80,14 @@ def _with_query_params(url: str, updates: dict[str, str]) -> str:
 def _normalize_inventory_candidate_url(url: str) -> str:
     if ".htm&" in url and "?" not in url:
         url = url.replace(".htm&", ".htm?", 1)
-    
-    # Ensure OneAudi Falcon /inventory/new URLs have a trailing slash, 
+
+    # Ensure OneAudi Falcon /inventory/new URLs have a trailing slash,
     # otherwise some of their CDN edge nodes return 404 instead of 301
     parts = urlsplit(url)
     path_lower = parts.path.lower()
     if path_lower.endswith("/inventory/new") or path_lower.endswith("/inventory/used"):
         url = urlunsplit((parts.scheme, parts.netloc, parts.path + "/", parts.query, parts.fragment))
-        
+
     return url
 
 
@@ -121,13 +156,21 @@ def _looks_like_dealer_on_srp(url: str) -> bool:
     return path.endswith("/searchnew.aspx") or path.endswith("/searchused.aspx")
 
 
-def _host_contains_token(url: str, token_norm: str) -> bool:
-    if not token_norm:
-        return False
+def _dealer_dot_com_host_brand_tokens(url: str) -> set[str]:
     host = urlsplit(url).netloc.lower().split("@")[-1].split(":")[0]
     if host.startswith("www."):
         host = host.removeprefix("www.")
-    return token_norm in _norm(host)
+    host_norm = _norm(host)
+    return {token for token in _KNOWN_BRAND_TOKENS if token in host_norm}
+
+
+def _dealer_dot_com_host_is_multi_brand(url: str, make_norm: str) -> bool:
+    if not make_norm:
+        return False
+    host_tokens = _dealer_dot_com_host_brand_tokens(url)
+    if make_norm not in host_tokens:
+        return False
+    return any(token != make_norm for token in host_tokens)
 
 
 def _canonical_dealer_dot_com_inventory_url(url: str, condition: str) -> str:
@@ -455,11 +498,11 @@ def resolve_inventory_url_for_provider(
 
     best_url = (route.inventory_url_hint if route else None) or fallback_url
     best_score = -1
-    best_url_make_signal = False
     hints = tuple(h.lower() for h in (route.inventory_path_hints if route else ()))
     make_norm = _norm(make)
     model = (model or "").strip()
-    if "," in model:
+    multi_model_filter = "," in model
+    if multi_model_filter:
         model = ""
     model_norm = _norm(model)
     current_url = _normalize_inventory_candidate_url(base_url)
@@ -613,7 +656,6 @@ def resolve_inventory_url_for_provider(
         if score > best_score and score > 0:
             best_score = score
             best_url = urljoin(base_url, href)
-            best_url_make_signal = bool(make_norm and make_norm in combined_norm)
 
     if route and not model_norm and route.platform_id in {"nissan_infiniti_inventory", "hyundai_inventory_search"}:
         generic_base = _normalize_inventory_candidate_url(
@@ -688,6 +730,9 @@ def resolve_inventory_url_for_provider(
         generic_base = _normalize_inventory_candidate_url(hint)
         if generic_base:
             path = urlsplit(generic_base).path.lower().rstrip("/")
+            make_query_needed = bool(make_norm) and (
+                _dealer_dot_com_host_is_multi_brand(generic_base, make_norm) or multi_model_filter
+            )
             is_canonical_srp = any(
                 token in path
                 for token in (
@@ -703,11 +748,11 @@ def resolve_inventory_url_for_provider(
             if path in {"", "/"} or specific_model_landing or (not is_canonical_srp and not make_specific_path):
                 generic_base = _canonical_dealer_dot_com_inventory_url(generic_base, condition)
                 generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "make", "model", "search"})
-                if make_norm and not best_url_make_signal:
+                if make_query_needed:
                     generic_base = _with_query_params(generic_base, {"make": make})
             elif is_canonical_srp:
                 generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "model", "search"})
-                if make_norm and not best_url_make_signal:
+                if make_query_needed:
                     generic_base = _with_query_params(generic_base, {"make": make})
             else:
                 generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "model", "search"})

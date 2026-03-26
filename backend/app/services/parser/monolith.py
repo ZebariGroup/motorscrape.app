@@ -1410,7 +1410,7 @@ def _pagination_info_from_inventory_api(html: str, page_url: str) -> PaginationI
         _walk_merge_inventory_pagination(blob, meta, depth=0)
     if not meta:
         return None
-    current_page = meta.get("cur") or _current_page_from_url(page_url)
+    current_page = max(meta.get("cur") or 0, _current_page_from_url(page_url))
     return _pagination_info(
         current_page=current_page,
         page_size=meta.get("size"),

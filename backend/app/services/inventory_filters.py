@@ -73,8 +73,8 @@ def apply_page_make_scope(v: VehicleListing, page_url: str, requested_make: str)
     if not scoped_make:
         return v
     current_make_norm = normalize_model_text(v.make or "")
-    scoped_make_norm = normalize_model_text(scoped_make)
-    if current_make_norm == scoped_make_norm:
+    current_model_norm = normalize_model_text(v.model or "")
+    if current_make_norm and current_make_norm != current_model_norm:
         return v
     return v.model_copy(update={"make": scoped_make})
 
@@ -110,7 +110,7 @@ def listing_matches_filters(v: VehicleListing, make_f: str, model_f: str) -> boo
         models = [m.strip() for m in model_f.split(",") if m.strip()]
         if not models:
             return True
-            
+
         matched_any_model = False
         for m_str in models:
             vars_ = model_filter_variants(m_str)
@@ -123,10 +123,10 @@ def listing_matches_filters(v: VehicleListing, make_f: str, model_f: str) -> boo
             elif vars_ and any(x in blob for x in vars_):
                 matched_any_model = True
                 break
-                
+
         if not matched_any_model:
             return False
-            
+
     return True
 
 

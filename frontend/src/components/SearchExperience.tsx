@@ -41,7 +41,6 @@ export function SearchExperience() {
       setUpgradeModalOpen(true);
       setUpgradeError(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- modal should open once per new quota hit
   }, [search.errors, upgradeModalOpen, dismissedQuotaMessage]);
 
   const startCheckout = async (tier: "standard" | "premium") => {

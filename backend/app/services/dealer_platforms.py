@@ -33,24 +33,31 @@ class PlatformDefinition:
     requires_render: bool = False
 
 
-_ONEAUDI_FALCON_LOAD_MORE_EVALUATE_JS = (
-    "const btn=Array.from(document.querySelectorAll('button,a,[role=\"button\"]')).find(el=>{"
-    "const txt=((el.innerText||el.textContent||el.getAttribute('aria-label')||'').toLowerCase()).trim();"
-    "return !el.hasAttribute('disabled')&&['load more','show more','view more','see more'].some(token=>txt.includes(token));"
-    "});"
-    "if(btn){btn.click();}"
+_ONEAUDI_FALCON_DEFINE_LOAD_MORE_HELPER_JS = (
+    "window.__zrClickMore=()=>{"
+    "for(const e of document.querySelectorAll('button,a,[role=\"button\"]')){"
+    "if(e.disabled||e.hasAttribute('disabled'))continue;"
+    "const t=(e.innerText||e.textContent||e.getAttribute('aria-label')||'').toLowerCase();"
+    "if(/(load|show|view|see) more/.test(t)){e.click();break}"
+    "}"
+    "}"
 )
+_ONEAUDI_FALCON_SCROLL_BOTTOM_JS = "window.scrollTo(0,document.body.scrollHeight)"
+_ONEAUDI_FALCON_CLICK_LOAD_MORE_JS = "window.__zrClickMore&&window.__zrClickMore()"
 
 
 def _oneaudi_falcon_inventory_js_instructions(rounds: int = 10) -> str:
-    # Audi SRPs often gate most inventory behind repeated "load more" batches.
-    steps: list[dict[str, int | str]] = [{"wait": 2000}]
+    # Define the helper once so the ZenRows query string stays comfortably below common URL limits.
+    steps: list[dict[str, int | str]] = [
+        {"evaluate": _ONEAUDI_FALCON_DEFINE_LOAD_MORE_HELPER_JS},
+        {"wait": 2000},
+    ]
     for _ in range(max(1, rounds)):
         steps.extend(
             [
-                {"evaluate": "window.scrollTo(0, document.body.scrollHeight)"},
+                {"evaluate": _ONEAUDI_FALCON_SCROLL_BOTTOM_JS},
                 {"wait": 1200},
-                {"evaluate": _ONEAUDI_FALCON_LOAD_MORE_EVALUATE_JS},
+                {"evaluate": _ONEAUDI_FALCON_CLICK_LOAD_MORE_JS},
                 {"wait": 1800},
             ]
         )
@@ -104,7 +111,16 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
     PlatformDefinition(
         platform_id="oneaudi_falcon",
         markers=("oneaudi-falcon", "audi.com", "vtpimages.audi.com"),
-        inventory_path_hints=("new-inventory", "used-inventory", "inventory", "new", "inventory/new", "inventory/used", "en/inventory/new", "en/inventory/used"),
+        inventory_path_hints=(
+            "new-inventory",
+            "used-inventory",
+            "inventory",
+            "new",
+            "inventory/new",
+            "inventory/used",
+            "en/inventory/new",
+            "en/inventory/used",
+        ),
         extraction_mode="hybrid",
         requires_render=True,
     ),

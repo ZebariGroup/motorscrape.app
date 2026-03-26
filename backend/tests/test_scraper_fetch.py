@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 import respx
 from app.services.scraper import fetch_page_html
@@ -28,6 +29,7 @@ def _fresh_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 
     s = Settings()
     monkeypatch.setattr("app.services.scraper.settings", s)
+    monkeypatch.setattr("app.services.scraper_strategies.settings", s)
     monkeypatch.setattr("app.services.playwright_fetch.settings", s)
 
 
@@ -110,13 +112,71 @@ async def test_fetch_page_html_zenrows_static_after_direct_fails(zenrows_key: No
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_oneaudi_uses_compact_zenrows_instructions(
+    zenrows_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ZENROWS_PREMIUM_PROXY", "false")
+    _fresh_settings(monkeypatch)
+    url = "https://www.audibirminghammi.com/en/inventory/new/"
+    respx.get(url).mock(return_value=Response(403, text="denied"))
+    captured: dict[str, str | None] = {}
+
+    def zenrows_route(request: httpx.Request) -> Response:
+        captured["js_instructions"] = request.url.params.get("js_instructions")
+        return Response(200, text="<html><body>" + _inventory_html() + "</body></html>")
+
+    respx.get("https://api.zenrows.com/v1/").mock(side_effect=zenrows_route)
+
+    html, method = await fetch_page_html(
+        url,
+        page_kind="inventory",
+        prefer_render=True,
+        platform_id="oneaudi_falcon",
+    )
+
+    assert method == "zenrows_rendered"
+    assert "vehicle-card" in html
+    instructions = captured["js_instructions"]
+    assert instructions is not None
+    assert len(instructions) < 2500
+    assert instructions.count("window.__zrClickMore=()=>") == 1
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_page_html_zenrows_static_retries_with_premium_on_disconnect(
+    zenrows_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ZENROWS_PREMIUM_PROXY", "false")
+    _fresh_settings(monkeypatch)
+    respx.get("https://blocked.example/").mock(return_value=Response(403, text="denied"))
+    calls: list[str] = []
+
+    def zenrows_route(request: httpx.Request) -> Response:
+        premium = request.url.params.get("premium_proxy") == "true"
+        calls.append("premium" if premium else "standard")
+        if not premium:
+            raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+        return Response(200, text="<html><body>" + _inventory_html() + "</body></html>")
+
+    respx.get("https://api.zenrows.com/v1/").mock(side_effect=zenrows_route)
+
+    html, method = await fetch_page_html("https://blocked.example/", page_kind="homepage")
+
+    assert method == "zenrows_static"
+    assert "vehicle-card" in html or "inventory" in html
+    assert calls == ["standard", "premium"]
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_playwright_before_zenrows(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ZENROWS_API_KEY", "zr-test-key")
     monkeypatch.setenv("PLAYWRIGHT_ENABLED", "true")
     _fresh_settings(monkeypatch)
     calls: list[str] = []
 
-    async def fake_pw(url: str) -> str:
+    async def fake_pw(url: str, js_instructions: str | None = None) -> str:
         calls.append("pw")
         return _inventory_html()
 

@@ -169,14 +169,14 @@ export function SearchFormSection({
                               } else {
                                 setLocation(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
                               }
-                            } catch (e) {
+                            } catch {
                               // Fallback to coordinates if the fetch fails
                               setLocation(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
                             }
                           },
                           () => alert("Unable to retrieve your location. Please check your browser permissions.")
                         );
-                      } catch (e) {
+                      } catch {
                         alert("Geolocation is not supported by your browser.");
                       }
                     }

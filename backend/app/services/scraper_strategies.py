@@ -19,6 +19,48 @@ logger = logging.getLogger(__name__)
 PageKind = Literal["homepage", "inventory"]
 
 
+def _zenrows_response_detail(response: httpx.Response) -> str:
+    detail = ""
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        parts: list[str] = []
+        for key in ("title", "detail", "code", "message", "error"):
+            value = payload.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text and text not in parts:
+                parts.append(text)
+        detail = " | ".join(parts)
+    if not detail:
+        detail = response.text.strip()
+    detail = " ".join(detail.split())
+    if len(detail) > 240:
+        return detail[:237] + "..."
+    return detail
+
+
+def _zenrows_error_string(error: Exception) -> str:
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        reason = error.response.reason_phrase
+        detail = _zenrows_response_detail(error.response)
+        return f"{status} {reason}: {detail}" if detail else f"{status} {reason}"
+    return error.__class__.__name__ if not str(error) else str(error)
+
+
+def _should_retry_zenrows_error_with_premium_proxy(error: Exception) -> bool:
+    if settings.zenrows_premium_proxy:
+        return False
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code in {403, 404, 422, 429}
+    lowered = _zenrows_error_string(error).lower()
+    return "server disconnected" in lowered or "remoteprotocolerror" in lowered
+
+
 @runtime_checkable
 class HtmlFetchStrategy(Protocol):
     """One ordered step in the scrape pipeline; returns (html, method) or None."""
@@ -65,11 +107,11 @@ async def zenrows_try_once(
         metric_bump(f"{metric_prefix}_insufficient")
         needs_premium = _should_retry_zenrows_with_premium_proxy(html, page_kind=page_kind)
     except Exception as e:
-        err_str = e.__class__.__name__ if not str(e) else str(e)
+        err_str = _zenrows_error_string(e)
         sanitized = err_str.replace(settings.zenrows_api_key, "***")
         logger.warning("ZenRows %s failed for %s: %s", failure_label, url, sanitized)
         failures.append(f"{failure_label}: {sanitized}")
-        if "403" in err_str or "404" in err_str or "422" in err_str or "429" in err_str:
+        if _should_retry_zenrows_error_with_premium_proxy(e):
             needs_premium = True
 
     if not needs_premium or settings.zenrows_premium_proxy:
@@ -90,7 +132,7 @@ async def zenrows_try_once(
             return premium_html
         metric_bump(f"{metric_prefix}_premium_insufficient")
     except Exception as e:
-        err_str = e.__class__.__name__ if not str(e) else str(e)
+        err_str = _zenrows_error_string(e)
         sanitized = err_str.replace(settings.zenrows_api_key, "***")
         logger.warning("ZenRows %s with premium proxy failed for %s: %s", failure_label, url, sanitized)
         failures.append(f"{failure_label}_premium: {sanitized}")

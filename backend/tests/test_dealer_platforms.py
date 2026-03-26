@@ -9,9 +9,10 @@ def test_oneaudi_js_instructions_match_audi_birmingham_inventory_url() -> None:
     )
     assert instructions is not None
     steps = json.loads(instructions)
-    evaluate_steps = [step["evaluate"] for step in steps if "evaluate" in step]
     assert len(steps) >= 40
-    assert any("load more" in script.lower() for script in evaluate_steps)
+    assert len(instructions) < 2500
+    assert steps[0]["evaluate"].startswith("window.__zrClickMore=()=>")
+    assert sum(1 for step in steps if step.get("evaluate") == "window.__zrClickMore&&window.__zrClickMore()") >= 8
 
 
 def test_oneaudi_js_instructions_do_not_match_non_audi_inventory_url() -> None:

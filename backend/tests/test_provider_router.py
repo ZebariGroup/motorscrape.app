@@ -1,4 +1,5 @@
 from urllib.parse import parse_qs, urlsplit
+
 from app.services.provider_router import ProviderRoute, resolve_inventory_url_for_provider
 
 
