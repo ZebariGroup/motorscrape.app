@@ -17,6 +17,12 @@ def _inventory_html() -> str:
     </body></html>"""
 
 
+def _generic_ld_json_html() -> str:
+    return """<!DOCTYPE html><html><head>
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"AutoDealer","name":"Dealer Example"}</script>
+    </head><body><h1>Dealer Homepage Shell</h1></body></html>"""
+
+
 def _fresh_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config import Settings
 
@@ -57,6 +63,16 @@ async def test_fetch_page_html_direct_insufficient_then_fallback(clear_scraper_k
     html, method = await fetch_page_html("https://dealer.example/inv.htm", page_kind="inventory")
     assert method == "direct_fallback"
     assert thin in html or html == thin
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_page_html_generic_ld_json_not_treated_as_inventory_ready(clear_scraper_keys: None) -> None:
+    shell = _generic_ld_json_html()
+    respx.get("https://dealer.example/new-inventory/index.htm").mock(return_value=Response(200, text=shell))
+    html, method = await fetch_page_html("https://dealer.example/new-inventory/index.htm", page_kind="inventory")
+    assert method == "direct_fallback"
+    assert html == shell
 
 
 @respx.mock

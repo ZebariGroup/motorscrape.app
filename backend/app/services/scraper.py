@@ -70,7 +70,6 @@ _STRUCTURE_HINTS = (
     '"inventory":',
     '"inventoryapiurl"',
     "__next_data__",
-    "application/ld+json",
     '"@type":"vehicle"',
     '"@type": "vehicle"',
     '"vehicleidentificationnumber"',
@@ -585,22 +584,6 @@ def _extract_inventory_api_urls(html: str, base_url: str) -> list[str]:
     return urls
 
 
-def _inject_inventory_api_payload(html: str, payload: str) -> str:
-    """
-    Inject inventory payload markers in a parser-safe location.
-
-    When appended after </html>, BeautifulSoup (lxml) can ignore the script.
-    Inject before </body> when possible, then </html>, and fallback to the end.
-    """
-    injected = f"\n{payload}\n"
-    lower_html = html.lower()
-    for marker in ("</body>", "</html>"):
-        idx = lower_html.find(marker)
-        if idx != -1:
-            return html[:idx] + injected + html[idx:]
-    return html + injected
-
-
 def _extract_inventory_post_requests(html: str, base_url: str) -> list[tuple[str, str]]:
     requests: list[tuple[str, str]] = []
     for m in _WS_INV_FETCH_RE.finditer(html):
@@ -728,7 +711,7 @@ async def _maybe_append_inventory_api_data(
             payloads.append(content)
         if payloads:
             injected = "".join(
-                f'<script type="application/json" data-ms-source="inventory-api">{p}</script>'
+                f'\n<script type="application/json" data-ms-source="inventory-api">{p}</script>\n'
                 for p in payloads
             )
             logger.info(
@@ -736,7 +719,7 @@ async def _maybe_append_inventory_api_data(
                 page_url,
                 len(payloads),
             )
-            return _inject_inventory_api_payload(html, injected)
+            return html + injected
         for api_url, query in api_gets[:2]:
             try:
                 r = await client.get(api_url, params=query or None, headers=_browser_headers())
@@ -771,7 +754,7 @@ async def _maybe_append_inventory_api_data(
         return html
 
     injected = "".join(
-        f'<script type="application/json" data-ms-source="inventory-api">{p}</script>'
+        f'\n<script type="application/json" data-ms-source="inventory-api">{p}</script>\n'
         for p in payloads
     )
     logger.info(
@@ -779,4 +762,4 @@ async def _maybe_append_inventory_api_data(
         page_url,
         len(payloads),
     )
-    return _inject_inventory_api_payload(html, injected)
+    return html + injected
