@@ -617,60 +617,67 @@ def _inventory_page_number_from_url(url: str) -> int:
     return 1
 
 
+_DDC_PATH_SLUG_TO_MAKE: dict[str, str] = {
+    "alfa-romeo": "Alfa Romeo",
+    "buick": "Buick",
+    "cadillac": "Cadillac",
+    "chevrolet": "Chevrolet",
+    "chevy": "Chevrolet",
+    "chrysler": "Chrysler",
+    "dodge": "Dodge",
+    "ford": "Ford",
+    "gmc": "GMC",
+    "jeep": "Jeep",
+    "lincoln": "Lincoln",
+    "ram": "Ram",
+    "honda": "Honda",
+    "acura": "Acura",
+    "toyota": "Toyota",
+    "lexus": "Lexus",
+    "nissan": "Nissan",
+    "infiniti": "Infiniti",
+    "hyundai": "Hyundai",
+    "kia": "Kia",
+    "bmw": "BMW",
+    "mini": "MINI",
+    "mercedes-benz": "Mercedes-Benz",
+    "audi": "Audi",
+    "volkswagen": "Volkswagen",
+    "vw": "Volkswagen",
+    "volvo": "Volvo",
+    "subaru": "Subaru",
+    "mazda": "Mazda",
+    "mitsubishi": "Mitsubishi",
+    "genesis": "Genesis",
+    "porsche": "Porsche",
+    "land-rover": "Land Rover",
+    "jaguar": "Jaguar",
+    "fiat": "FIAT",
+    "maserati": "Maserati",
+    "ferrari": "Ferrari",
+    "lamborghini": "Lamborghini",
+    "bentley": "Bentley",
+    "rolls-royce": "Rolls-Royce",
+}
+
+
 def _make_from_ddc_path(url_path: str) -> str | None:
     """Extract make name from Dealer.com path patterns like /new-buick/ or /new-gmc/."""
     import re as _re
-    m = _re.match(r"^/(new|used)-([a-z-]+?)[-/]", url_path.lower().lstrip("/").replace("_", "-") if url_path else "")
+    path = (url_path or "").lower().strip("/")
+    m = _re.match(r"^(new|used)-(.+?)(?:/|$)", path)
     if not m:
         return None
-    raw = m.group(2).replace("-", " ").strip()
-    # map slug to canonical make name
-    _SLUG_TO_MAKE = {
-        "alfa romeo": "Alfa Romeo",
-        "alfromeo": "Alfa Romeo",
-        "buick": "Buick",
-        "cadillac": "Cadillac",
-        "chevrolet": "Chevrolet",
-        "chevy": "Chevrolet",
-        "chrysler": "Chrysler",
-        "dodge": "Dodge",
-        "ford": "Ford",
-        "gmc": "GMC",
-        "jeep": "Jeep",
-        "lincoln": "Lincoln",
-        "ram": "Ram",
-        "honda": "Honda",
-        "acura": "Acura",
-        "toyota": "Toyota",
-        "lexus": "Lexus",
-        "nissan": "Nissan",
-        "infiniti": "Infiniti",
-        "hyundai": "Hyundai",
-        "kia": "Kia",
-        "bmw": "BMW",
-        "mini": "MINI",
-        "mercedes benz": "Mercedes-Benz",
-        "mercedes": "Mercedes-Benz",
-        "audi": "Audi",
-        "volkswagen": "Volkswagen",
-        "vw": "Volkswagen",
-        "volvo": "Volvo",
-        "subaru": "Subaru",
-        "mazda": "Mazda",
-        "mitsubishi": "Mitsubishi",
-        "genesis": "Genesis",
-        "porsche": "Porsche",
-        "land rover": "Land Rover",
-        "landrover": "Land Rover",
-        "jaguar": "Jaguar",
-        "fiat": "FIAT",
-        "maserati": "Maserati",
-        "ferrari": "Ferrari",
-        "lamborghini": "Lamborghini",
-        "bentley": "Bentley",
-        "rolls royce": "Rolls-Royce",
-    }
-    return _SLUG_TO_MAKE.get(raw, raw.title() if raw else None)
+    slug = m.group(2)
+    if slug in ("inventory", "vehicles", "specials", "featured"):
+        return None
+    if slug in _DDC_PATH_SLUG_TO_MAKE:
+        return _DDC_PATH_SLUG_TO_MAKE[slug]
+    simple = slug.replace("-", " ").strip()
+    for known_slug, make_name in _DDC_PATH_SLUG_TO_MAKE.items():
+        if simple == known_slug.replace("-", " "):
+            return make_name
+    return None
 
 
 def _rewrite_inventory_post_body_for_page(body: str, page_url: str) -> str:
