@@ -281,6 +281,7 @@ async def fetch_page_html(
                 out.append(wait)
         return tuple(out)
 
+    effective_url = url
     inventory_js_instructions = (
         zenrows_inventory_js_instructions_for_url(url, platform_id=platform_id)
         if page_kind == "inventory"
@@ -336,25 +337,42 @@ async def fetch_page_html(
                     logger.warning("ScrapingBee preferred rendered fetch failed for %s: %s", url, err_str)
                     failures.append(f"scrapingbee_rendered_preferred: {err_str}")
 
-    # 1) Direct first (cheapest)
-    try:
-        html = await _direct_get_with_express_www_fallback(url, timeout)
-        html = await _maybe_append_inventory_api_data(url, html, timeout)
-        if _direct_html_sufficient(html, page_kind=page_kind):
-            _m("direct_ok")
-            return html, "direct"
-        if _should_prefer_zenrows_render(html, page_kind=page_kind):
-            prefer_render = True
-        logger.info("Direct fetch insufficient for %s (%s), escalating to managed scrapers", url, page_kind)
-        _m("direct_insufficient")
-    except Exception as e:
-        err_str = e.__class__.__name__ if not str(e) else str(e)
-        failures.append(f"direct: {err_str}")
-        logger.debug("Direct fetch failed for %s: %s", url, err_str)
-        _m("direct_failed")
+    direct_urls = [url]
+    if page_kind == "inventory":
+        sanitized_url = _sanitize_inventory_query_url(url)
+        if sanitized_url.rstrip("/") != url.rstrip("/"):
+            direct_urls.append(sanitized_url)
+
+    # 1) Direct first (cheapest), with optional inventory URL sanitization retry.
+    for idx, direct_url in enumerate(direct_urls):
+        try:
+            html = await _direct_get_with_express_www_fallback(direct_url, timeout)
+            html = await _maybe_append_inventory_api_data(direct_url, html, timeout)
+            effective_url = direct_url
+            if _direct_html_sufficient(html, page_kind=page_kind):
+                if idx > 0:
+                    logger.info("Direct fetch recovered via sanitized URL: %s -> %s", url, direct_url)
+                _m("direct_ok")
+                return html, "direct"
+            if _should_prefer_zenrows_render(html, page_kind=page_kind):
+                prefer_render = True
+            logger.info(
+                "Direct fetch insufficient for %s (%s), escalating to managed scrapers",
+                direct_url,
+                page_kind,
+            )
+            _m("direct_insufficient")
+            break
+        except Exception as e:
+            err_str = e.__class__.__name__ if not str(e) else str(e)
+            failures.append(f"direct: {err_str}")
+            logger.debug("Direct fetch failed for %s: %s", direct_url, err_str)
+            _m("direct_failed")
+            if idx + 1 < len(direct_urls):
+                continue
 
     pw_result = await _playwright_pass(
-        url,
+        effective_url,
         timeout,
         page_kind=page_kind,
         failures=failures,
@@ -368,7 +386,7 @@ async def fetch_page_html(
     if settings.zenrows_api_key:
         if not prefer_render:
             html = await zenrows_try_once(
-                url=url,
+                url=effective_url,
                 timeout=timeout,
                 page_kind=page_kind,
                 failures=failures,
@@ -382,10 +400,13 @@ async def fetch_page_html(
 
         if allow_managed_js_render:
             for wait_ms in _retry_waits(settings.zenrows_wait_ms):
-                js_instructions = zenrows_inventory_js_instructions_for_url(url, platform_id=platform_id)
+                js_instructions = zenrows_inventory_js_instructions_for_url(
+                    effective_url,
+                    platform_id=platform_id,
+                )
 
                 html = await zenrows_try_once(
-                    url=url,
+                    url=effective_url,
                     timeout=timeout,
                     page_kind=page_kind,
                     failures=failures,
@@ -402,8 +423,8 @@ async def fetch_page_html(
     # 3) ScrapingBee: static then rendered
     if settings.scrapingbee_api_key:
         try:
-            html = await _scrapingbee_fetch(url, timeout, render_js=False)
-            html = await _maybe_append_inventory_api_data(url, html, timeout)
+            html = await _scrapingbee_fetch(effective_url, timeout, render_js=False)
+            html = await _maybe_append_inventory_api_data(effective_url, html, timeout)
             if _direct_html_sufficient(html, page_kind=page_kind):
                 _m("scrapingbee_static_ok")
                 return html, "scrapingbee_static"
@@ -416,12 +437,12 @@ async def fetch_page_html(
             for wait_ms in _retry_waits(settings.scrapingbee_wait_ms):
                 try:
                     html = await _scrapingbee_fetch(
-                        url,
+                        effective_url,
                         timeout,
                         render_js=True,
                         wait_ms=wait_ms,
                     )
-                    html = await _maybe_append_inventory_api_data(url, html, timeout)
+                    html = await _maybe_append_inventory_api_data(effective_url, html, timeout)
                     if _direct_html_sufficient(html, page_kind=page_kind):
                         _m("scrapingbee_rendered_ok")
                         return html, "scrapingbee_rendered"
@@ -433,8 +454,8 @@ async def fetch_page_html(
 
     # 4) If we had a direct body that was "insufficient", return it rather than failing completely
     try:
-        html_fallback = await _direct_get_with_express_www_fallback(url, timeout)
-        html_fallback = await _maybe_append_inventory_api_data(url, html_fallback, timeout)
+        html_fallback = await _direct_get_with_express_www_fallback(effective_url, timeout)
+        html_fallback = await _maybe_append_inventory_api_data(effective_url, html_fallback, timeout)
         if _has_block_markers(html_fallback):
             raise RuntimeError("blocked")
         if "site currently not available" in html_fallback.lower() or "seite vorübergehend" in html_fallback.lower():
@@ -469,7 +490,7 @@ async def fetch_page_html(
             return html, "direct_fallback"
 
     detail = " | ".join(failures)
-    raise RuntimeError(f"All fetch methods failed for {url}: {detail}") from None
+    raise RuntimeError(f"All fetch methods failed for {effective_url}: {detail}") from None
 
 
 def _looks_like_block_page(html: str) -> bool:
@@ -733,6 +754,65 @@ def _inventory_page_number_from_url(url: str) -> int:
         if page_num > 0:
             return page_num
     return 1
+
+
+def _sanitize_inventory_query_url(url: str) -> str:
+    """
+    Strip site-specific facet filters that can trigger 403s on public SRP links.
+    Keep explicit make/model/paging/sort keys.
+    """
+    try:
+        parts = urlsplit(url)
+        if not parts.query:
+            return url
+        keep_explicit = {
+            "make",
+            "model",
+            "supermodel",
+            "trim",
+            "year",
+            "condition",
+            "type",
+            "inventorytype",
+            "search",
+            "q",
+            "page",
+            "pageindex",
+            "pt",
+            "_p",
+            "pn",
+            "p",
+            "currentpage",
+            "sort",
+            "orderby",
+            "order",
+            "view",
+            "perpage",
+            "pagesize",
+            "page_size",
+            "size",
+            "limit",
+            "offset",
+            "start",
+        }
+        in_pairs = parse_qsl(parts.query, keep_blank_values=True)
+        out_pairs: list[tuple[str, str]] = []
+        dropped = False
+        for key, value in in_pairs:
+            lower = key.lower()
+            if lower in keep_explicit:
+                out_pairs.append((key, value))
+                continue
+            if lower.startswith("_dfr[") or "[" in key or "]" in key:
+                dropped = True
+                continue
+            out_pairs.append((key, value))
+        if not dropped:
+            return url
+        query = urlencode(out_pairs, doseq=True)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+    except Exception:
+        return url
 
 
 def _normalize_embedded_inventory_value(raw: str, *, decode_query: bool = False) -> str:

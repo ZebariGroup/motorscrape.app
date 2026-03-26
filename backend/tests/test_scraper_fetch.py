@@ -103,6 +103,22 @@ async def test_fetch_page_html_express_403_www_retry(clear_scraper_keys: None) -
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_inventory_strips_dfr_query_on_direct_retry(clear_scraper_keys: None) -> None:
+    noisy = (
+        "https://dealer.example/new-vehicles/"
+        "?_dFR%5Bfueltype%5D%5B0%5D=Electric&_dFR%5Btype%5D%5B0%5D=New&page=1"
+    )
+    sanitized = "https://dealer.example/new-vehicles/?page=1"
+    respx.get(noisy).mock(return_value=Response(403, text="denied"))
+    respx.get(sanitized).mock(return_value=Response(200, text=_inventory_html()))
+
+    html, method = await fetch_page_html(noisy, page_kind="inventory")
+    assert method == "direct"
+    assert "vehicle-card" in html
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_zenrows_static_after_direct_fails(zenrows_key: None) -> None:
     respx.get("https://blocked.example/").mock(return_value=Response(403, text="denied"))
     respx.get("https://api.zenrows.com/v1/").mock(
