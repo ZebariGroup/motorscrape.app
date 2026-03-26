@@ -75,6 +75,13 @@ export function SearchExperience() {
   const scopePremium = lim?.inventory_scope_premium ?? true;
   const csvOk = lim?.csv_export ?? true;
 
+  // Avoid duplicating the same "quota reached" message: we show it via the modal instead.
+  const visibleErrors = search.errors.filter(
+    (e) =>
+      !e.includes("Monthly free search limit reached") &&
+      !e.includes("Monthly included searches are used up"),
+  );
+
   useEffect(
     () => {
       const cap = maxDealersCap;
@@ -144,7 +151,7 @@ export function SearchExperience() {
             (access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom" || form.model.trim().length > 0)
           }
           status={search.status}
-          errors={search.errors}
+          errors={visibleErrors}
           discoveredDealerPercent={dealers.discoveredDealerPercent}
           completedDealerPercent={dealers.completedDealerPercent}
           dealerListLength={dealers.dealerList.length}
