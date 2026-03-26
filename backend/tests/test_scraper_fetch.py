@@ -154,6 +154,38 @@ async def test_fetch_page_html_zenrows_static_after_direct_fails(zenrows_key: No
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_homepage_zenrows_resp001_escalates_to_rendered(
+    zenrows_key: None,
+) -> None:
+    respx.get("https://blocked.example/").mock(return_value=Response(403, text="denied"))
+    calls: list[str] = []
+
+    def zenrows_route(request: httpx.Request) -> Response:
+        js_render = request.url.params.get("js_render") == "true"
+        calls.append("rendered" if js_render else "static")
+        if not js_render:
+            return Response(
+                422,
+                json={
+                    "code": "RESP001",
+                    "detail": "Could not get content. try enabling javascript rendering for a higher success rate",
+                },
+            )
+        body = "<html><body><a href='/inventory'>Inventory</a>" + ("x" * 2200) + "</body></html>"
+        return Response(200, text=body)
+
+    respx.get("https://api.zenrows.com/v1/").mock(side_effect=zenrows_route)
+
+    html, method = await fetch_page_html("https://blocked.example/", page_kind="homepage")
+    assert method == "zenrows_rendered"
+    assert "Inventory" in html
+    assert calls.count("rendered") == 1
+    assert calls.count("static") >= 1
+    assert calls[-1] == "rendered"
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_homepage_skips_managed_js_render_by_default(zenrows_key: None) -> None:
     respx.get("https://blocked.example/").mock(return_value=Response(403, text="denied"))
     seen_js_render: list[str] = []

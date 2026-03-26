@@ -393,6 +393,7 @@ async def fetch_page_html(
     # 2) ZenRows: static then rendered
     if settings.zenrows_api_key:
         if not prefer_render:
+            failure_count_before_static = len(failures)
             html = await zenrows_try_once(
                 url=effective_url,
                 timeout=timeout,
@@ -405,6 +406,16 @@ async def fetch_page_html(
             )
             if html is not None:
                 return html, "zenrows_static"
+            # ZenRows RESP001 means static mode could not get page content and JS render is required.
+            # Allow homepage rendered fallback in this case even when homepage_managed_js_render is off.
+            if not allow_managed_js_render and page_kind == "homepage":
+                recent_failures = " | ".join(failures[failure_count_before_static:])
+                if "resp001" in recent_failures.lower() or "javascript rendering" in recent_failures.lower():
+                    allow_managed_js_render = True
+                    logger.info(
+                        "ZenRows static indicated JS requirement for homepage %s; enabling rendered fallback",
+                        effective_url,
+                    )
 
         if allow_managed_js_render:
             for wait_ms in _retry_waits(settings.zenrows_wait_ms):
