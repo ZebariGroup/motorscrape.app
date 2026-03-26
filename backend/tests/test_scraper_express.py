@@ -55,6 +55,38 @@ def test_rewrite_inventory_post_body_for_page_uses_start_offset() -> None:
     assert '"page":"2"' not in rewritten
 
 
+def test_rewrite_inventory_post_body_injects_make_from_page_url() -> None:
+    body = (
+        '{"inventoryParameters":{"condition":"New"},'
+        '"preferences":{"pageSize":"18"},'
+        '"pageAlias":"INVENTORY_LISTING_DEFAULT_AUTO_NEW"}'
+    )
+    rewritten = _rewrite_inventory_post_body_for_page(
+        body,
+        "https://www.suburbanbuickgmcoftroy.com/new-inventory/index.htm?make=Buick",
+    )
+    import json
+    payload = json.loads(rewritten)
+    assert payload["inventoryParameters"]["make"] == "Buick"
+    assert payload["inventoryParameters"]["condition"] == "New"
+
+
+def test_rewrite_inventory_post_body_injects_make_and_model_from_page_url() -> None:
+    body = (
+        '{"inventoryParameters":{"condition":"New"},'
+        '"preferences":{"pageSize":"18"},'
+        '"pageAlias":"INVENTORY_LISTING_DEFAULT_AUTO_NEW"}'
+    )
+    rewritten = _rewrite_inventory_post_body_for_page(
+        body,
+        "https://dealer.example/new-inventory/index.htm?make=Chrysler&model=Pacifica",
+    )
+    import json
+    payload = json.loads(rewritten)
+    assert payload["inventoryParameters"]["make"] == "Chrysler"
+    assert payload["inventoryParameters"]["model"] == "Pacifica"
+
+
 def test_rewrite_inventory_get_query_for_page_merges_filter_scope() -> None:
     rewritten = _rewrite_inventory_get_query_for_page(
         {"make": "Jeep", "sortBy": "price", "params": "make=Jeep&sortBy=price"},

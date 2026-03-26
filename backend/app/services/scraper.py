@@ -618,9 +618,6 @@ def _inventory_page_number_from_url(url: str) -> int:
 
 
 def _rewrite_inventory_post_body_for_page(body: str, page_url: str) -> str:
-    page_num = _inventory_page_number_from_url(page_url)
-    if page_num <= 1:
-        return body
     try:
         payload = json.loads(body)
     except (json.JSONDecodeError, TypeError, ValueError):
@@ -630,15 +627,35 @@ def _rewrite_inventory_post_body_for_page(body: str, page_url: str) -> str:
     inventory_params = payload.get("inventoryParameters")
     if not isinstance(inventory_params, dict):
         return body
-    prefs = payload.get("preferences")
-    page_size_raw = prefs.get("pageSize") if isinstance(prefs, dict) else None
-    try:
-        page_size = int(str(page_size_raw).strip()) if page_size_raw is not None else 12
-    except ValueError:
-        page_size = 12
-    start = max(0, (page_num - 1) * max(1, page_size))
-    inventory_params.pop("page", None)
-    inventory_params["start"] = str(start)
+
+    page_query = {
+        k.lower(): v
+        for k, v in parse_qsl(urlsplit(page_url).query, keep_blank_values=True)
+        if k
+    }
+    for url_key, body_key in (
+        ("make", "make"),
+        ("model", "model"),
+        ("supermodel", "superModel"),
+        ("gvbodystyle", "gvBodyStyle"),
+        ("bodystyle", "bodyStyle"),
+    ):
+        value = page_query.get(url_key)
+        if value:
+            inventory_params[body_key] = value
+
+    page_num = _inventory_page_number_from_url(page_url)
+    if page_num > 1:
+        prefs = payload.get("preferences")
+        page_size_raw = prefs.get("pageSize") if isinstance(prefs, dict) else None
+        try:
+            page_size = int(str(page_size_raw).strip()) if page_size_raw is not None else 12
+        except ValueError:
+            page_size = 12
+        start = max(0, (page_num - 1) * max(1, page_size))
+        inventory_params.pop("page", None)
+        inventory_params["start"] = str(start)
+
     return json.dumps(payload, separators=(",", ":"))
 
 
