@@ -32,8 +32,12 @@ class SearchRequest(BaseModel):
     max_pages_per_dealer: int | None = Field(
         default=None,
         ge=1,
-        le=20,
-        description="Optional per-search override for pagination depth per dealership (also capped by server settings).",
+        le=50,
+        description=(
+            "Optional per-search override for the initial pagination depth per dealership. "
+            "The scraper may continue deeper when the site exposes more result pages, "
+            "subject to server safety caps."
+        ),
     )
 
 
@@ -101,11 +105,38 @@ class VehicleListing(BaseModel):
         return []
 
 
+class PaginationInfo(BaseModel):
+    current_page: int | None = Field(
+        default=None,
+        description="Current page number when it can be inferred from the SRP URL or page metadata.",
+    )
+    page_size: int | None = Field(
+        default=None,
+        description="Expected number of results per page when the site exposes a page size.",
+    )
+    total_pages: int | None = Field(
+        default=None,
+        description="Total number of inventory result pages when the site exposes it.",
+    )
+    total_results: int | None = Field(
+        default=None,
+        description="Total matching inventory results reported by the site for this search.",
+    )
+    source: str | None = Field(
+        default=None,
+        description="Where pagination metadata came from, such as inventory_api, dom_summary, or page_links.",
+    )
+
+
 class ExtractionResult(BaseModel):
     vehicles: list[VehicleListing] = Field(description="List of vehicles found on the page.")
     next_page_url: str | None = Field(
         default=None,
         description="Absolute URL to the NEXT page of inventory results, if pagination exists. Must be a valid URL or null."
+    )
+    pagination: PaginationInfo | None = Field(
+        default=None,
+        description="Normalized pagination metadata inferred from the page or embedded inventory APIs.",
     )
 
 

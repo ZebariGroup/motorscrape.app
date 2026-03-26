@@ -124,3 +124,129 @@ async def test_stream_search_done_includes_fetch_metrics() -> None:
     assert "fetch_direct" in tail
     assert "extraction_metrics" in tail
     assert "pages_llm" in tail
+
+
+@pytest.mark.asyncio
+async def test_stream_search_auto_expands_pagination_from_site_counts() -> None:
+    from app.schemas import ExtractionResult, PaginationInfo, VehicleListing
+
+    dealers = [
+        DealershipFound(
+            name="Test Dealer",
+            place_id="p1",
+            address="1 Main St",
+            website="https://example-dealer.test",
+        )
+    ]
+    homepage_html = '<html><body><a href="/inventory?page=1">Inventory</a></body></html>'
+    inventory_html = "<html><body><div>Inventory</div></body></html>"
+
+    async def fake_fetch(url, *_args, **_kwargs):
+        if url == "https://example-dealer.test":
+            return homepage_html, "direct"
+        return inventory_html, "direct"
+
+    structured_results = [
+        ExtractionResult(
+            vehicles=[
+                VehicleListing(
+                    year=2024,
+                    make="Toyota",
+                    model="Camry",
+                    price=25001,
+                    listing_url="https://example-dealer.test/vdp/1",
+                )
+            ],
+            next_page_url="https://example-dealer.test/inventory?page=2",
+            pagination=PaginationInfo(
+                current_page=1,
+                total_pages=3,
+                page_size=24,
+                total_results=72,
+                source="inventory_api",
+            ),
+        ),
+        ExtractionResult(
+            vehicles=[
+                VehicleListing(
+                    year=2024,
+                    make="Toyota",
+                    model="Camry",
+                    price=25002,
+                    listing_url="https://example-dealer.test/vdp/2",
+                )
+            ],
+            next_page_url="https://example-dealer.test/inventory?page=3",
+            pagination=PaginationInfo(
+                current_page=2,
+                total_pages=3,
+                page_size=24,
+                total_results=72,
+                source="inventory_api",
+            ),
+        ),
+        ExtractionResult(
+            vehicles=[
+                VehicleListing(
+                    year=2024,
+                    make="Toyota",
+                    model="Camry",
+                    price=25003,
+                    listing_url="https://example-dealer.test/vdp/3",
+                )
+            ],
+            next_page_url=None,
+            pagination=PaginationInfo(
+                current_page=3,
+                total_pages=3,
+                page_size=24,
+                total_results=72,
+                source="inventory_api",
+            ),
+        ),
+    ]
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.set_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            side_effect=structured_results,
+        ) as mock_structured,
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+        ) as mock_llm,
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "Detroit",
+            "",
+            "",
+            max_dealerships=1,
+            max_pages_per_dealer=1,
+        ):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert mock_structured.call_count == 3
+    assert mock_llm.await_count == 0
+    assert tail.count("https://example-dealer.test/vdp/") == 3
+    assert '"listings_found": 3' in tail
+    assert '"pages_scraped": 3' in tail

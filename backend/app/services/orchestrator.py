@@ -14,7 +14,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
-from app.schemas import DealershipFound, VehicleListing
+from app.schemas import DealershipFound, PaginationInfo, VehicleListing
 from app.services.dealer_platforms import detect_platform_profile
 from app.services.economics import build_search_economics, log_economics_line
 from app.services.inventory_discovery import discover_sitemap_inventory_urls
@@ -312,15 +312,71 @@ def _effective_max_pages_for_route(
     route: ProviderRoute | None,
 ) -> int:
     """
-    Respect the caller's page budget.
+    Return the initial page budget before site-driven auto-expansion.
 
-    The previous logic silently expanded some providers (including Dealer.com)
-    beyond the requested page count, which increased search latency and caused
-    dealership workers to time out before emitting any buffered results.
+    Searches still start from the caller's requested depth so short searches stay
+    short when pagination clues are absent, but the pagination loop may raise the
+    budget later when the site explicitly reports more result pages.
     """
     if requested_pages <= 0:
         return 1
     return requested_pages
+
+
+def _pagination_target_pages(pagination: PaginationInfo | None) -> int | None:
+    if pagination is None:
+        return None
+    if pagination.total_pages is not None and pagination.total_pages > 0:
+        return pagination.total_pages
+    if (
+        pagination.total_results is not None
+        and pagination.page_size is not None
+        and pagination.page_size > 0
+    ):
+        return max(1, (pagination.total_results + pagination.page_size - 1) // pagination.page_size)
+    return None
+
+
+def _expand_page_budget(
+    current_budget: int,
+    *,
+    pagination: PaginationInfo | None,
+    has_pending_urls: bool,
+    absolute_cap: int,
+) -> int:
+    budget = max(1, min(current_budget, absolute_cap))
+    target_pages = _pagination_target_pages(pagination)
+    if target_pages is not None:
+        budget = max(budget, min(target_pages, absolute_cap))
+    elif has_pending_urls and budget < absolute_cap:
+        budget += 1
+    return budget
+
+
+def _pagination_progress_payload(
+    pagination: PaginationInfo | None,
+    *,
+    pages_scraped: int | None = None,
+) -> dict[str, Any]:
+    if pagination is None and pages_scraped is None:
+        return {}
+    payload: dict[str, Any] = {}
+    if pages_scraped is not None and pages_scraped >= 0:
+        payload["pages_scraped"] = pages_scraped
+    if pagination is None:
+        return payload
+    target_pages = _pagination_target_pages(pagination)
+    if pagination.current_page is not None:
+        payload["current_page_number"] = pagination.current_page
+    if target_pages is not None:
+        payload["reported_total_pages"] = target_pages
+    if pagination.total_results is not None:
+        payload["reported_total_results"] = pagination.total_results
+    if pagination.page_size is not None:
+        payload["reported_page_size"] = pagination.page_size
+    if pagination.source:
+        payload["pagination_source"] = pagination.source
+    return payload
 
 
 def _merge_vehicle_detail(base: VehicleListing, enriched: VehicleListing) -> VehicleListing:
@@ -883,9 +939,11 @@ async def stream_search(
             # 2. Pagination loop
             current_url = inv_url
             pages_scraped = 0
-            max_pages = _effective_max_pages_for_route(requested_pages, route)
+            absolute_page_cap = max(1, settings.search_max_pages_per_dealer_cap)
+            page_budget = min(_effective_max_pages_for_route(requested_pages, route), absolute_page_cap)
             total_vehicles = 0
             skip_info: str | None = None
+            latest_pagination: PaginationInfo | None = None
             queued_urls: set[str] = {current_url} if current_url else set()
             pending_urls: list[str] = []
             emitted_listing_keys: set[str] = set()
@@ -919,7 +977,7 @@ async def stream_search(
                 else []
             )
 
-            while current_url and pages_scraped < max_pages:
+            while current_url and pages_scraped < page_budget:
                 if pages_scraped > 0:
                     chunks.append(
                         sse_pack(
@@ -1083,6 +1141,8 @@ async def stream_search(
                     )
                     for v in ext_result.vehicles
                 ]
+                if ext_result.pagination is not None:
+                    latest_pagination = ext_result.pagination
                 filtered = [
                     v
                     for v in normalized_vehicles
@@ -1095,6 +1155,10 @@ async def stream_search(
                         *[_enrich_vehicle_from_vdp(v) for v in filtered[:12]]
                     )
                     filtered = list(enriched_prefix) + filtered[12:]
+                page_progress_payload = _pagination_progress_payload(
+                    latest_pagination,
+                    pages_scraped=pages_scraped + 1,
+                )
                 deduped_filtered = []
                 for v in filtered:
                     key = _listing_emit_key(v)
@@ -1111,7 +1175,7 @@ async def stream_search(
                     route.platform_id if route else "",
                     current_url or "",
                     pages_scraped,
-                    max_pages,
+                    page_budget,
                     len(normalized_vehicles),
                     len(filtered),
                     len(deduped_filtered),
@@ -1119,6 +1183,21 @@ async def stream_search(
                     extraction_mode or "",
                     current_method,
                 )
+                if page_progress_payload:
+                    chunks.append(
+                        sse_pack(
+                            "dealership",
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "current_url": current_url,
+                                "status": "parsing",
+                                **page_progress_payload,
+                            },
+                        )
+                    )
                 if (
                     route
                     and route.platform_id == "dealer_inspire"
@@ -1186,12 +1265,23 @@ async def stream_search(
                 if next_url and next_url not in queued_urls:
                     queued_urls.add(next_url)
                     pending_urls.append(next_url)
+                page_budget = _expand_page_budget(
+                    page_budget,
+                    pagination=ext_result.pagination,
+                    has_pending_urls=bool(pending_urls),
+                    absolute_cap=absolute_page_cap,
+                )
 
                 current_url = pending_urls.pop(0) if pending_urls else None
                 pages_scraped += 1
 
                 if not vdicts and current_url is None:
                     break  # Stop pagination if no vehicles found
+            if current_url and pages_scraped >= page_budget and page_budget >= absolute_page_cap and not skip_info:
+                skip_info = (
+                    f"Stopped after {absolute_page_cap} pages at the pagination safety cap; "
+                    "additional inventory pages may remain."
+                )
 
             done_payload: dict[str, Any] = {
                 "index": index,
@@ -1204,6 +1294,7 @@ async def stream_search(
                 "platform_id": route.platform_id if 'route' in locals() and route else None,
                 "platform_source": route.cache_status if 'route' in locals() and route else None,
                 "strategy_used": route.extraction_mode if 'route' in locals() and route else None,
+                **_pagination_progress_payload(latest_pagination, pages_scraped=pages_scraped),
             }
             if skip_info:
                 done_payload["info"] = skip_info

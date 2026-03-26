@@ -50,6 +50,12 @@ export type DealershipProgress = {
   /** Per-dealer sequence of fetch modes (e.g. direct, zenrows_rendered) */
   fetch_methods?: string[];
   listings_found?: number;
+  pages_scraped?: number;
+  current_page_number?: number;
+  reported_total_pages?: number;
+  reported_total_results?: number;
+  reported_page_size?: number;
+  pagination_source?: string;
   /** Client-only: when the current status phase started (ms since epoch). */
   phaseSince?: number;
 };

@@ -100,6 +100,9 @@ def test_try_extract_synthesizes_next_from_inventory_api_json() -> None:
     assert result is not None
     assert result.next_page_url is not None
     assert "page=2" in result.next_page_url
+    assert result.pagination is not None
+    assert result.pagination.total_pages == 4
+    assert result.pagination.page_size == 12
 
 
 def test_try_extract_synthesizes_next_from_inventory_api_json_after_page_two() -> None:
@@ -142,6 +145,55 @@ def test_try_extract_synthesizes_pt_for_dealer_on_path() -> None:
     assert result is not None
     assert result.next_page_url is not None
     assert "pt=2" in result.next_page_url
+
+
+def test_try_extract_synthesizes_next_from_dom_summary_counts() -> None:
+    html = """
+    <html><body>
+      <div>Showing 1-24 of 137 Results</div>
+      <div class="vehicle-card" data-year="2024" data-make="Toyota" data-model="Camry" data-price="28000">
+        <a href="/inventory/v1">2024 Toyota Camry LE</a>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/inventory?page=1",
+        html=html,
+        make_filter="",
+        model_filter="",
+    )
+    assert result is not None
+    assert result.next_page_url is not None
+    assert "page=2" in result.next_page_url
+    assert result.pagination is not None
+    assert result.pagination.total_results == 137
+    assert result.pagination.page_size == 24
+    assert result.pagination.total_pages == 6
+
+
+def test_try_extract_returns_empty_result_when_filters_miss_but_more_pages_exist() -> None:
+    html = """
+    <html><body>
+    <script type="application/json" data-ms-source="inventory-api">
+    {"page":1,"totalPages":3,"pageSize":12,"vehicles":[]}
+    </script>
+    <div class="vehicle-card" data-year="2024" data-make="Honda" data-model="Civic" data-price="24000">
+      <a href="/inventory/h1">2024 Honda Civic</a>
+    </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/inventory?page=1",
+        html=html,
+        make_filter="Toyota",
+        model_filter="Camry",
+    )
+    assert result is not None
+    assert result.vehicles == []
+    assert result.next_page_url is not None
+    assert "page=2" in result.next_page_url
+    assert result.pagination is not None
+    assert result.pagination.total_pages == 3
 
 
 def test_try_extract_respects_make_filter() -> None:

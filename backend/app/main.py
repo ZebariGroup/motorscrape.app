@@ -47,7 +47,7 @@ async def search_stream(
     max_pages_per_dealer: int | None = Query(
         default=None,
         ge=1,
-        le=20,
+        le=50,
     ),
 ) -> StreamingResponse:
     store = get_account_store(settings.accounts_db_path)

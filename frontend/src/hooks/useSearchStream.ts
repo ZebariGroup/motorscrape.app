@@ -10,7 +10,6 @@ import type { DealershipProgress, VehicleListing } from "@/types/inventory";
 
 /** Client-side result ordering (applied after filters). */
 export type ListingSortOrder = "price_asc" | "price_desc" | "mileage_asc" | "year_desc";
-const DEFAULT_MAX_PAGES_PER_DEALER = "2";
 
 function listingSortTieBreak(a: AggregatedListing, b: AggregatedListing) {
   const ka = `${a.vin ?? ""}|${a.listing_url ?? ""}|${a.raw_title ?? ""}|${a.dealership ?? ""}`;
@@ -327,7 +326,6 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       radius_miles: radiusMiles,
       inventory_scope: inventoryScope,
       max_dealerships: maxDealerships,
-      max_pages_per_dealer: DEFAULT_MAX_PAGES_PER_DEALER,
     });
     const url = `${streamUrl}?${params.toString()}`;
 

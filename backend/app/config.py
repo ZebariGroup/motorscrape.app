@@ -80,8 +80,9 @@ class Settings(BaseSettings):
     dealership_timeout: float = 150.0
     # Max pages to follow per dealership inventory (default raised for better SRP coverage).
     max_pages_per_dealer: int = 3
-    # Hard cap for API/query overrides so one search cannot paginate unbounded on serverless.
-    search_max_pages_per_dealer_cap: int = 10
+    # Absolute safety cap for auto-pagination so searches can keep following real result pages
+    # without running unbounded on pathological sites.
+    search_max_pages_per_dealer_cap: int = 50
     # Max HTML chars sent to the LLM per page (smaller = cheaper/faster).
     max_html_chars: int = 60_000
     # HTTP timeout for each scraper call (seconds).

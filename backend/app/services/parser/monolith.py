@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
 
 from app.config import settings
-from app.schemas import ExtractionResult, VehicleListing
+from app.schemas import ExtractionResult, PaginationInfo, VehicleListing
 from app.services.dealer_platforms import provider_enriched_vehicle_dicts
 from app.services.inventory_filters import listing_matches_filters, normalize_vehicle_condition
 
@@ -84,6 +84,18 @@ _SPACE_VEHICLES_JSON_RE = re.compile(
     r"space_vehicles_json\s*=\s*JSON\.parse\(\s*\"(?P<body>(?:\\.|[^\"])*)\"\s*\)",
     re.S,
 )
+_DISPLAY_RANGE_TOTAL_RES = (
+    re.compile(
+        r"\bshowing\s+(?P<start>\d{1,5})\s*(?:-|to|–|—)\s*(?P<end>\d{1,5})\s+of\s+(?P<total>\d{1,7})\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?P<start>\d{1,5})\s*(?:-|to|–|—)\s*(?P<end>\d{1,5})\s+of\s+"
+        r"(?P<total>\d{1,7})\s+(?:results?|vehicles?|listings?|matches?)\b",
+        re.I,
+    ),
+)
+_PAGE_OF_TOTAL_RE = re.compile(r"\bpage\s+(?P<page>\d{1,5})\s+of\s+(?P<total>\d{1,5})\b", re.I)
 
 
 def _truncate(text: str, max_chars: int) -> str:
@@ -1038,7 +1050,7 @@ def _extract_search_result_card_vehicles(html: str, page_url: str) -> list[Vehic
     vehicles: list[VehicleListing] = []
     seen: set[str] = set()
 
-    for anchor in soup.select('a.car[href*="/detail/"]'):
+    for anchor in soup.select('a.car[href*="/detail/"], a.c-widget--vehicle'):
         href = str(anchor.get("href") or "").strip()
         if not href:
             continue
@@ -1123,6 +1135,9 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
         ".vehicle-box",
         ".vehicle-specials",
         "[data-vehicle-vin]",
+        ".c-widget--vehicle",
+        "li[data-component='result-tile']",
+        "[data-component='result-tile']",
     )
     for card in soup.select(", ".join(selectors)):
         classes = set(card.get("class") or [])
@@ -1221,6 +1236,8 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             or payload_title
             or payload.get("title")
             or payload.get("name")
+            or card.get("title")
+            or card.get("aria-label")
         )
         if not raw_title and card_text:
             raw_title = re.split(
@@ -1315,6 +1332,178 @@ def _current_page_from_url(url: str) -> int:
     return 1
 
 
+def _pagination_info(
+    *,
+    current_page: int | None = None,
+    page_size: int | None = None,
+    total_pages: int | None = None,
+    total_results: int | None = None,
+    source: str | None = None,
+) -> PaginationInfo | None:
+    payload: dict[str, int | str] = {}
+    if current_page is not None and current_page > 0:
+        payload["current_page"] = current_page
+    if page_size is not None and page_size > 0:
+        payload["page_size"] = page_size
+    if total_pages is not None and total_pages > 0:
+        payload["total_pages"] = total_pages
+    if total_results is not None and total_results >= 0:
+        payload["total_results"] = total_results
+    if source:
+        payload["source"] = source
+    return PaginationInfo(**payload) if payload else None
+
+
+def _merge_pagination_info(
+    *infos: PaginationInfo | None,
+    fallback_current_page: int | None = None,
+) -> PaginationInfo | None:
+    merged: dict[str, int | str] = {}
+    for info in infos:
+        if info is None:
+            continue
+        for key, value in info.model_dump(exclude_none=True).items():
+            if key not in merged:
+                merged[key] = value
+    if not merged:
+        return None
+    if fallback_current_page and fallback_current_page > 1 and "current_page" not in merged:
+        merged["current_page"] = fallback_current_page
+    total_results = _coerce_int(merged.get("total_results"))
+    page_size = _coerce_int(merged.get("page_size"))
+    total_pages = _coerce_int(merged.get("total_pages"))
+    current_page = _coerce_int(merged.get("current_page"))
+    if total_pages is None and total_results is not None and page_size is not None and page_size > 0:
+        merged["total_pages"] = max(1, (total_results + page_size - 1) // page_size)
+        total_pages = _coerce_int(merged.get("total_pages"))
+    if current_page is not None and total_pages is not None and total_pages < current_page:
+        merged["total_pages"] = current_page
+    return PaginationInfo(**merged)
+
+
+def _pagination_info_from_inventory_api(html: str, page_url: str) -> PaginationInfo | None:
+    meta: dict[str, int] = {}
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return None
+    for script in soup.find_all("script"):
+        stype = (script.get("type") or "").lower()
+        dsrc = (script.get("data-ms-source") or "").lower()
+        if "application/json" not in stype and "inventory" not in dsrc:
+            continue
+        raw = script.string
+        if not raw or len(raw) < 40:
+            continue
+        try:
+            blob = json.loads(raw.strip(), strict=False)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        _walk_merge_inventory_pagination(blob, meta, depth=0)
+    if not meta:
+        return None
+    current_page = meta.get("cur") or _current_page_from_url(page_url)
+    return _pagination_info(
+        current_page=current_page,
+        page_size=meta.get("size"),
+        total_pages=meta.get("tp"),
+        total_results=meta.get("total"),
+        source="inventory_api",
+    )
+
+
+def _pagination_info_from_dom_summary(html: str, page_url: str) -> PaginationInfo | None:
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return None
+    text = " ".join(soup.stripped_strings)
+    for pattern in _DISPLAY_RANGE_TOTAL_RES:
+        match = pattern.search(text)
+        if not match:
+            continue
+        start = _coerce_int(match.group("start"))
+        end = _coerce_int(match.group("end"))
+        total = _coerce_int(match.group("total"))
+        if start is None or end is None or total is None or start <= 0 or end < start or total < end:
+            continue
+        page_size = end - start + 1
+        current_page = ((start - 1) // page_size) + 1 if page_size > 0 else _current_page_from_url(page_url)
+        return _pagination_info(
+            current_page=current_page,
+            page_size=page_size,
+            total_results=total,
+            source="dom_summary",
+        )
+    match = _PAGE_OF_TOTAL_RE.search(text)
+    if not match:
+        return None
+    current_page = _coerce_int(match.group("page"))
+    total_pages = _coerce_int(match.group("total"))
+    return _pagination_info(
+        current_page=current_page or _current_page_from_url(page_url),
+        total_pages=total_pages,
+        source="dom_summary",
+    )
+
+
+def _pagination_info_from_page_links(html: str, page_url: str) -> PaginationInfo | None:
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return None
+    page_numbers: set[int] = set()
+    for a in soup.find_all("a", href=True):
+        parsed = urljoin(page_url, str(a["href"]))
+        q = _query_lower_dict(parsed)
+        raw = q.get("page") or q.get("pt") or q.get("_p") or q.get("pn") or q.get("currentpage")
+        if not raw:
+            continue
+        try:
+            page_num = int(raw)
+        except ValueError:
+            continue
+        if page_num > 0:
+            page_numbers.add(page_num)
+    next_link = find_next_page_url(html, page_url)
+    if not page_numbers and not next_link:
+        return None
+    total_pages = max(page_numbers) if page_numbers else None
+    return _pagination_info(
+        current_page=_current_page_from_url(page_url),
+        total_pages=total_pages,
+        source="page_links",
+    )
+
+
+def infer_inventory_pagination(html: str, page_url: str) -> PaginationInfo | None:
+    current_page = _current_page_from_url(page_url)
+    return _merge_pagination_info(
+        _pagination_info_from_inventory_api(html, page_url),
+        _pagination_info_from_dom_summary(html, page_url),
+        _pagination_info_from_page_links(html, page_url),
+        fallback_current_page=current_page,
+    )
+
+
+def _next_page_url_from_pagination(page_url: str, pagination: PaginationInfo | None) -> str | None:
+    if pagination is None:
+        return None
+    current_page = pagination.current_page or _current_page_from_url(page_url)
+    if current_page <= 0:
+        return None
+    if pagination.total_pages is not None and current_page < pagination.total_pages:
+        return synthesize_next_page_url(page_url, current_page + 1)
+    if (
+        pagination.total_results is not None
+        and pagination.page_size is not None
+        and pagination.page_size > 0
+        and current_page * pagination.page_size < pagination.total_results
+    ):
+        return synthesize_next_page_url(page_url, current_page + 1)
+    return None
+
+
 def _pagination_link_tokens() -> tuple[str, ...]:
     return (
         "page=",
@@ -1334,47 +1523,14 @@ def infer_next_page_from_inventory_api(html: str, page_url: str, vehicles_on_pag
     When anchors omit next-page links, use pagination fields from injected inventory API JSON
     (e.g. Dealer.com widget responses) to decide if another page exists.
     """
-    meta: dict[str, int] = {}
-    try:
-        soup = BeautifulSoup(html, "lxml")
-    except Exception:
-        return None
-    for script in soup.find_all("script"):
-        stype = (script.get("type") or "").lower()
-        dsrc = (script.get("data-ms-source") or "").lower()
-        if "application/json" not in stype and "inventory" not in dsrc:
-            continue
-        raw = script.string
-        if not raw or len(raw) < 40:
-            continue
-        try:
-            blob = json.loads(raw.strip(), strict=False)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        _walk_merge_inventory_pagination(blob, meta, depth=0)
-
-    if not meta:
-        return None
-    cur = max(meta.get("cur") or 1, _current_page_from_url(page_url))
-    tp = meta.get("tp")
-    total = meta.get("total")
-    size = meta.get("size") or (vehicles_on_page if vehicles_on_page > 0 else 12)
-
-    has_next = False
-    if tp is not None:
-        has_next = cur < tp
-    elif total is not None and size > 0:
-        consumed = (cur - 1) * size + max(vehicles_on_page, 0)
-        has_next = consumed < total
-    if not has_next:
-        return None
-    return synthesize_next_page_url(page_url, cur + 1)
+    del vehicles_on_page
+    return _next_page_url_from_pagination(page_url, _pagination_info_from_inventory_api(html, page_url))
 
 
 def _try_merge_pagination_shard(d: dict[str, Any], target: dict[str, int]) -> None:
     lk = {str(k).lower(): v for k, v in d.items()}
     shard: dict[str, int] = {}
-    for pk in ("page", "pagenumber", "currentpage", "number"):
+    for pk in ("page", "pagenumber", "currentpage", "number", "pageindex"):
         if pk not in lk:
             continue
         v = lk[pk]
@@ -1385,7 +1541,7 @@ def _try_merge_pagination_shard(d: dict[str, Any], target: dict[str, int]) -> No
             break
         except (ValueError, TypeError):
             continue
-    for pk in ("pagesize", "size", "limit", "hitsperpage", "perpage"):
+    for pk in ("pagesize", "size", "limit", "hitsperpage", "perpage", "resultsperpage", "recordsperpage"):
         if pk not in lk:
             continue
         v = lk[pk]
@@ -1394,7 +1550,7 @@ def _try_merge_pagination_shard(d: dict[str, Any], target: dict[str, int]) -> No
             break
         except (ValueError, TypeError):
             continue
-    for pk in ("totalpages", "pagecount"):
+    for pk in ("totalpages", "pagecount", "nbpages", "pagetotal"):
         if pk not in lk:
             continue
         v = lk[pk]
@@ -1403,7 +1559,7 @@ def _try_merge_pagination_shard(d: dict[str, Any], target: dict[str, int]) -> No
             break
         except (ValueError, TypeError):
             continue
-    for pk in ("totalcount", "totalrecords", "totalhits", "total"):
+    for pk in ("totalcount", "totalrecords", "totalhits", "total", "recordcount", "resultcount", "numfound", "nbhits", "found"):
         if pk not in lk:
             continue
         v = lk[pk]
@@ -1414,8 +1570,26 @@ def _try_merge_pagination_shard(d: dict[str, Any], target: dict[str, int]) -> No
             break
         except (ValueError, TypeError):
             continue
-    if "tp" in shard or "total" in shard:
-        target.update(shard)
+    for pk in ("start", "offset", "from", "recordstart"):
+        if pk not in lk:
+            continue
+        v = lk[pk]
+        try:
+            shard["start"] = int(v) if isinstance(v, int) else int(float(str(v).strip()))
+            break
+        except (ValueError, TypeError):
+            continue
+    if "cur" not in shard and "start" in shard and "size" in shard and shard["size"] > 0:
+        shard["cur"] = shard["start"] // shard["size"] + 1
+    if len(shard) < 2 and "tp" not in shard and "total" not in shard:
+        return
+    for key, value in shard.items():
+        if value < 0:
+            continue
+        if key in {"tp", "total", "size"}:
+            target[key] = max(target.get(key, 0), value)
+        elif key not in target or target[key] <= 0:
+            target[key] = value
 
 
 def _walk_merge_inventory_pagination(obj: Any, target: dict[str, int], depth: int) -> None:
@@ -1528,40 +1702,39 @@ def try_extract_vehicles_without_llm(
         from app.services.parser.factory import inventory_parser_for_platform
 
         dicts = inventory_parser_for_platform(platform_id).normalize_pricing_dicts(dicts)
-    vehicles: list[VehicleListing] = []
     by_key: dict[str, VehicleListing] = {}
     for d in dicts:
         v = dict_to_vehicle_listing(d, page_url)
-        if v and listing_matches_filters(v, make_filter, model_filter):
+        if v:
             key = _vehicle_merge_key(v)
             by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
     for v in extract_dom_vehicle_cards(html, page_url):
-        if not listing_matches_filters(v, make_filter, model_filter):
-            continue
         key = _vehicle_merge_key(v)
         by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
     for v in _extract_search_result_card_vehicles(html, page_url):
-        if not listing_matches_filters(v, make_filter, model_filter):
-            continue
         key = _vehicle_merge_key(v)
         by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
-    vehicles = list(by_key.values())
-
-    if not vehicles:
-        return None
-
+    all_vehicles = list(by_key.values())
+    vehicles = [v for v in all_vehicles if listing_matches_filters(v, make_filter, model_filter)]
+    pagination = infer_inventory_pagination(html, page_url)
     next_u = find_next_page_url(html, page_url)
     if not next_u:
-        next_u = infer_next_page_from_inventory_api(html, page_url, len(vehicles))
+        next_u = _next_page_url_from_pagination(page_url, pagination)
+    if not vehicles:
+        if next_u or pagination is not None:
+            return ExtractionResult(vehicles=[], next_page_url=next_u, pagination=pagination)
+        return None
+
     logger.info(
-        "Structured extraction: %d vehicle(s) without LLM for %s",
+        "Structured extraction: %d filtered vehicle(s) (%d raw) without LLM for %s",
         len(vehicles),
+        len(all_vehicles),
         page_url,
     )
-    return ExtractionResult(vehicles=vehicles, next_page_url=next_u)
+    return ExtractionResult(vehicles=vehicles, next_page_url=next_u, pagination=pagination)
 
 
 async def extract_vehicles_from_html(
@@ -1605,11 +1778,8 @@ async def extract_vehicles_from_html(
     parsed = response.choices[0].message.parsed
     if not parsed:
         return ExtractionResult(vehicles=[], next_page_url=None)
-    next_u = parsed.next_page_url
-    if not next_u:
-        next_u = find_next_page_url(html, page_url)
-    if not next_u:
-        next_u = infer_next_page_from_inventory_api(html, page_url, len(parsed.vehicles))
-    if next_u != parsed.next_page_url:
-        parsed = parsed.model_copy(update={"next_page_url": next_u})
+    pagination = infer_inventory_pagination(html, page_url)
+    next_u = parsed.next_page_url or find_next_page_url(html, page_url) or _next_page_url_from_pagination(page_url, pagination)
+    if next_u != parsed.next_page_url or pagination != parsed.pagination:
+        parsed = parsed.model_copy(update={"next_page_url": next_u, "pagination": pagination})
     return parsed
