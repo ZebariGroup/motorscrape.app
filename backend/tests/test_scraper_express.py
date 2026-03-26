@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from app.services.scraper import (
     _host_is_express_retail,
+    _extract_inventory_api_urls,
+    _extract_inventory_get_requests,
     _rewrite_inventory_get_query_for_page,
     _rewrite_inventory_post_body_for_page,
     _should_prefer_zenrows_render,
@@ -104,4 +106,40 @@ def test_rewrite_inventory_get_query_for_page_rewrites_page_and_start() -> None:
     assert rewritten["pageSize"] == "9"
     assert rewritten["start"] == "9"
     assert rewritten["make"] == "Buick"
+    assert "start=9" in rewritten["params"]
+
+
+def test_extract_inventory_api_urls_normalizes_single_quoted_escaped_urls() -> None:
+    html = """
+    <script>
+      {"inventoryApiUrl":"https:\\/\\/www.suburbanvolvocars.com\\/api\\/widget\\/ws-inv-data\\/getInventory","make":"Suburban"}
+    </script>
+    """
+    urls = _extract_inventory_api_urls(html, "https://www.suburbanvolvocars.com/new-inventory/index.htm")
+    assert urls == ["https://www.suburbanvolvocars.com/api/widget/ws-inv-data/getInventory"]
+
+
+def test_extract_inventory_get_requests_handles_single_quote_and_param_order() -> None:
+    html = """
+    <script>
+      DDC.WidgetData[0].props = {"params":"page=1&amp;pageSize=9&amp;start=0","inventoryApiUrl":'https://api.example.com/inventory'}
+    </script>
+    """
+    requests = _extract_inventory_get_requests(html, "https://dealer.example/new-inventory/index.htm")
+    assert len(requests) == 1
+    api_url, query = requests[0]
+    assert api_url == "https://api.example.com/inventory"
+    assert query["page"] == "1"
+    assert query["pageSize"] == "9"
+    assert query["start"] == "0"
+    assert query["params"] == "page=1&pageSize=9&start=0"
+
+
+def test_rewrite_inventory_get_query_for_page_from_params_only() -> None:
+    rewritten = _rewrite_inventory_get_query_for_page(
+        {"params": "page=1&amp;pageSize=9&amp;start=0"},
+        "https://dealer.example/new-inventory/index.htm?page=2",
+    )
+    assert rewritten["page"] == "2"
+    assert rewritten["start"] == "9"
     assert "start=9" in rewritten["params"]

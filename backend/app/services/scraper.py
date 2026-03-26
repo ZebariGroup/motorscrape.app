@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import re
@@ -20,27 +21,34 @@ logger = logging.getLogger(__name__)
 
 PageKind = Literal["homepage", "inventory"]
 
-_INVENTORY_URL_RE = re.compile(r'"inventoryApiURL"\s*:\s*"(?P<url>[^"]+)"')
+_INVENTORY_URL_RE = re.compile(r'["\']inventoryApiURL["\']\s*:\s*["\'](?P<url>[^"\']+)["\']', re.I)
 # Extra embedded config keys seen on dealer SPAs
 _EXTRA_API_RES = (
-    re.compile(r'"inventoryApiUrl"\s*:\s*"(?P<url>[^"]+)"', re.I),
-    re.compile(r'"inventory_url"\s*:\s*"(?P<url>[^"]+)"', re.I),
-    re.compile(r'"inventoryEndpoint"\s*:\s*"(?P<url>[^"]+)"', re.I),
-    re.compile(r"vehicle_data_url\s*=\s*['\"](?P<url>[^'\"]+)['\"]", re.I),
+    re.compile(r'["\']inventoryApiUrl["\']\s*:\s*["\'](?P<url>[^"\']+)["\']', re.I),
+    re.compile(r'["\']inventoryApiURL["\']\s*:\s*["\'](?P<url>[^"\']+)["\']', re.I),
+    re.compile(r'["\']inventory_url["\']\s*:\s*["\'](?P<url>[^"\']+)["\']', re.I),
+    re.compile(r'["\']inventoryEndpoint["\']\s*:\s*["\'](?P<url>[^"\']+)["\']', re.I),
+    re.compile(r'vehicle_data_url\s*=\s*[\'"](?P<url>[^\'"]+)[\'"]', re.I),
 )
 _WS_INV_FETCH_RE = re.compile(
     r'fetch\("(?P<url>/api/widget/ws-inv-data/getInventory)".*?body:decodeURI\("(?P<body>.*?)"\)',
     re.S,
 )
 _DDC_WIDGET_PROPS_RE = re.compile(
-    r'DDC\.WidgetData\[[^\]]+\]\.props\s*=\s*\{(?P<body>.*?)\n\}\s*</script>',
+    r'DDC\.WidgetData\[[^\]]+\]\.props\s*=\s*\{(?P<body>.*?)\}\s*</script>',
     re.S,
 )
 # Looser pairing for Toyota/Lexus-style Dealer.com SPAs: API URL + params may sit outside WidgetData blocks.
 _DDC_WIDGET_INVENTORY_PAIR_RE = re.compile(
-    r'"(?:inventoryApiURL|inventoryApiUrl)"\s*:\s*"(?P<url>[^"]+)"'
-    r"[\s\S]{0,900}?"
-    r'"(?:params|widgetParams|inventoryParams)"\s*:\s*"(?P<params>[^"]*)"',
+    r'["\'](?:inventoryApiURL|inventoryApiUrl)["\']\s*:\s*["\'](?P<url>[^"\']+)["\']'
+    r"[\s\S]{0,2400}?"
+    r'["\'](?:params|widgetParams|inventoryParams)["\']\s*:\s*["\'](?P<params>[^"\']*)["\']',
+    re.I,
+)
+_DDC_WIDGET_INVENTORY_PAIR_RE_REVERSE = re.compile(
+    r'["\'](?:params|widgetParams|inventoryParams)["\']\s*:\s*["\'](?P<params>[^"\']*)["\']'
+    r"[\s\S]{0,2400}?"
+    r'["\'](?:inventoryApiURL|inventoryApiUrl)["\']\s*:\s*["\'](?P<url>[^"\']+)["\']',
     re.I,
 )
 _INVENTORY_HINTS = (
@@ -570,14 +578,14 @@ def _extract_inventory_api_urls(html: str, base_url: str) -> list[str]:
     urls: list[str] = []
     for m in _INVENTORY_URL_RE.finditer(html):
         raw = m.group("url")
-        fixed = raw.replace("\\/", "/")
+        fixed = _normalize_embedded_inventory_value(raw)
         abs_url = urljoin(base_url, fixed)
         if abs_url not in urls:
             urls.append(abs_url)
     for cre in _EXTRA_API_RES:
         for m in cre.finditer(html):
             raw = m.group("url")
-            fixed = raw.replace("\\/", "/")
+            fixed = _normalize_embedded_inventory_value(raw)
             abs_url = urljoin(base_url, fixed)
             if abs_url not in urls:
                 urls.append(abs_url)
@@ -604,7 +612,7 @@ def _inventory_page_number_from_url(url: str) -> int:
         query = {k.lower(): v for k, v in parse_qsl(urlsplit(url).query, keep_blank_values=True)}
     except Exception:
         return 1
-    for key in ("page", "pt", "_p", "pn", "currentpage"):
+    for key in ("page", "pageindex", "pt", "_p", "pn", "p", "currentpage"):
         raw = query.get(key)
         if not raw:
             continue
@@ -615,6 +623,19 @@ def _inventory_page_number_from_url(url: str) -> int:
         if page_num > 0:
             return page_num
     return 1
+
+
+def _normalize_embedded_inventory_value(raw: str, *, decode_query: bool = False) -> str:
+    if not raw:
+        return ""
+    fixed = raw.replace("\\/", "/").replace("\\u002f", "/").replace("\\u0026", "&")
+    fixed = html.unescape(fixed)
+    if decode_query:
+        try:
+            fixed = unquote(fixed)
+        except Exception:
+            pass
+    return fixed
 
 
 _DDC_PATH_SLUG_TO_MAKE: dict[str, str] = {
@@ -738,12 +759,23 @@ def _rewrite_inventory_get_query_for_page(
     if not rewritten and not page_pairs:
         return rewritten
 
+    raw_params = rewritten.get("params")
+    if isinstance(raw_params, str):
+        decoded_params = _normalize_embedded_inventory_value(raw_params, decode_query=True)
+        if decoded_params:
+            for key, value in parse_qsl(decoded_params, keep_blank_values=True):
+                if not key:
+                    continue
+                existing_key = {k.lower(): k for k in rewritten if k != "params"}.get(key.lower())
+                if existing_key is None:
+                    rewritten[key] = value
+
     lower_to_key = {k.lower(): k for k in rewritten if k != "params"}
     page_key_name: str | None = None
     page_key_value: str | None = None
     for key, value in page_pairs:
         lower = key.lower()
-        if lower in {"page", "pt", "_p", "pn", "currentpage"}:
+        if lower in {"page", "pageindex", "pt", "_p", "pn", "p", "currentpage"}:
             page_key_name = key
             page_key_value = value
             continue
@@ -756,9 +788,18 @@ def _rewrite_inventory_get_query_for_page(
 
     page_num = _inventory_page_number_from_url(page_url)
     if page_num > 1:
-        page_param_keys = ("page", "pt", "_p", "pn", "currentpage")
-        page_size_keys = ("pagesize", "size", "limit", "hitsperpage", "perpage", "resultsperpage", "recordsperpage")
-        offset_keys = ("start", "offset", "from", "recordstart")
+        page_param_keys = ("page", "pt", "_p", "pn", "currentpage", "pageindex", "p")
+        page_size_keys = (
+            "page_size",
+            "pagesize",
+            "size",
+            "limit",
+            "hitsperpage",
+            "perpage",
+            "resultsperpage",
+            "recordsperpage",
+        )
+        offset_keys = ("start", "offset", "from", "recordstart", "skip", "startrow")
         page_size: int | None = None
         for lower in page_size_keys:
             existing_key = lower_to_key.get(lower)
@@ -796,29 +837,39 @@ def _rewrite_inventory_get_query_for_page(
 
 def _extract_inventory_get_requests(html: str, base_url: str) -> list[tuple[str, dict[str, str]]]:
     requests: list[tuple[str, dict[str, str]]] = []
-    for match in _DDC_WIDGET_INVENTORY_PAIR_RE.finditer(html):
-        raw = match.group("url").replace("\\/", "/")
-        abs_url = urljoin(base_url, raw)
-        raw_params = match.group("params").replace("\\u0026", "&")
-        query: dict[str, str] = {k: v for k, v in parse_qsl(raw_params, keep_blank_values=True) if k}
-        if raw_params:
-            query["params"] = raw_params
-        req = (abs_url, query)
-        if req not in requests:
-            requests.append(req)
+    for pattern in (_DDC_WIDGET_INVENTORY_PAIR_RE, _DDC_WIDGET_INVENTORY_PAIR_RE_REVERSE):
+        for match in pattern.finditer(html):
+            raw = _normalize_embedded_inventory_value(match.group("url"))
+            abs_url = urljoin(base_url, raw)
+            raw_params = _normalize_embedded_inventory_value(
+                match.group("params"),
+                decode_query=True,
+            )
+            query: dict[str, str] = {k: v for k, v in parse_qsl(raw_params, keep_blank_values=True) if k}
+            if raw_params:
+                query["params"] = raw_params
+            req = (abs_url, query)
+            if req not in requests:
+                requests.append(req)
     for match in _DDC_WIDGET_PROPS_RE.finditer(html):
         body = match.group("body")
         api_match = _INVENTORY_URL_RE.search(body)
         if not api_match:
             continue
-        raw = api_match.group("url")
-        fixed = raw.replace("\\/", "/")
+        raw = _normalize_embedded_inventory_value(api_match.group("url"))
+        fixed = raw
         abs_url = urljoin(base_url, fixed)
 
-        params_match = re.search(r'"params"\s*:\s*"(?P<params>[^"]*)"', body)
+        params_match = re.search(
+            r'["\'](?:params|widgetParams|inventoryParams)["\']\s*:\s*["\'](?P<params>[^"\']*)["\']',
+            body,
+        )
         query: dict[str, str] = {}
         if params_match:
-            raw_params = params_match.group("params").replace("\\u0026", "&")
+            raw_params = _normalize_embedded_inventory_value(
+                params_match.group("params"),
+                decode_query=True,
+            )
             query = {k: v for k, v in parse_qsl(raw_params, keep_blank_values=True) if k}
             if raw_params:
                 query["params"] = raw_params
