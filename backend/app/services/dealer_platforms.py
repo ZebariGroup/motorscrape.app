@@ -46,8 +46,9 @@ _ONEAUDI_FALCON_SCROLL_BOTTOM_JS = "window.scrollTo(0,document.body.scrollHeight
 _ONEAUDI_FALCON_CLICK_LOAD_MORE_JS = "window.__zrClickMore&&window.__zrClickMore()"
 
 
-def _oneaudi_falcon_inventory_js_instructions(rounds: int = 10) -> str:
+def _oneaudi_falcon_inventory_js_instructions(rounds: int = 8) -> str:
     # Define the helper once so the ZenRows query string stays comfortably below common URL limits.
+    # rounds=8 keeps total js_instructions wait time at 26s, safely under ZenRows' 30s hard cap (REQS004).
     steps: list[dict[str, int | str]] = [
         {"evaluate": _ONEAUDI_FALCON_DEFINE_LOAD_MORE_HELPER_JS},
         {"wait": 2000},
