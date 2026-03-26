@@ -411,6 +411,25 @@ def _drop_query_keys(url: str, keys: set[str]) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
 
+def _bounded_phase_timeout(
+    *,
+    base_timeout: float,
+    dealer_timeout: float,
+    elapsed_seconds: float,
+    reserve_seconds: float = 8.0,
+    min_timeout: float = 5.0,
+) -> float | None:
+    """
+    Cap a phase timeout (fetch/parse) to the remaining per-dealer budget.
+
+    Returning None signals there is not enough budget left to start a safe phase.
+    """
+    remaining = max(0.0, float(dealer_timeout) - float(elapsed_seconds) - max(0.0, float(reserve_seconds)))
+    if remaining < min_timeout:
+        return None
+    return max(min_timeout, min(float(base_timeout), remaining))
+
+
 def _merge_vehicle_detail(base: VehicleListing, enriched: VehicleListing) -> VehicleListing:
     base_data = base.model_dump()
     enriched_data = enriched.model_dump()
@@ -563,13 +582,16 @@ async def stream_search(
     )
 
     sem = asyncio.Semaphore(effective_concurrency)
-    fetch_timeout = settings.scrape_timeout * 3 + 5.0
-    parse_timeout = settings.openai_timeout + 5.0
+    dealer_timeout = max(30.0, settings.dealership_timeout)
+    # Keep per-phase timeouts inside the overall dealer worker budget.
+    fetch_timeout = min(settings.scrape_timeout * 3 + 5.0, max(20.0, dealer_timeout * 0.5))
+    parse_timeout = min(settings.openai_timeout + 5.0, max(20.0, dealer_timeout * 0.35))
     metrics_lock = asyncio.Lock()
     inv_url_cache: dict[str, str] = {}
 
     async def process_one(index: int, d: DealershipFound) -> list[str]:
         chunks: list[str] = []
+        dealer_started_at = time.perf_counter()
         website = _prefer_https_website_url((d.website or "").strip())
         domain = normalize_dealer_domain(website)
         fetch_methods_used: list[str] = []
@@ -605,6 +627,21 @@ async def stream_search(
                 key = f"fetch_{method}"
                 fetch_metrics[key] += 1
             return html, method
+
+        def _phase_timeout(
+            base_timeout: float,
+            *,
+            reserve_seconds: float = 8.0,
+            min_timeout: float = 5.0,
+        ) -> float | None:
+            elapsed = time.perf_counter() - dealer_started_at
+            return _bounded_phase_timeout(
+                base_timeout=base_timeout,
+                dealer_timeout=dealer_timeout,
+                elapsed_seconds=elapsed,
+                reserve_seconds=reserve_seconds,
+                min_timeout=min_timeout,
+            )
 
         chunks.append(
             sse_pack(
@@ -662,9 +699,25 @@ async def stream_search(
             # 1. Fetch homepage to find inventory link
             base_url = website
             try:
+                homepage_timeout = _phase_timeout(fetch_timeout)
+                if homepage_timeout is None:
+                    chunks.append(
+                        sse_pack(
+                            "dealership",
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "status": "error",
+                                "error": "Timed out while processing this dealership. Skipping to keep search moving.",
+                            },
+                        )
+                    )
+                    return chunks
                 html, method = await asyncio.wait_for(
                     _fetch(website, "homepage"),
-                    timeout=fetch_timeout,
+                    timeout=homepage_timeout,
                 )
 
                 # If the homepage has a canonical link, it likely redirected to a different domain.
@@ -769,6 +822,23 @@ async def stream_search(
                     )
                 )
                 try:
+                    inv_timeout = _phase_timeout(fetch_timeout)
+                    if inv_timeout is None:
+                        chunks.append(
+                            sse_pack(
+                                "dealership",
+                                {
+                                    "index": index,
+                                    "total": len(dealers),
+                                    "name": d.name,
+                                    "website": website,
+                                    "current_url": inv_url,
+                                    "status": "error",
+                                    "error": "Timed out while processing this dealership. Skipping to keep search moving.",
+                                },
+                            )
+                        )
+                        return chunks
                     current_html, current_method = await asyncio.wait_for(
                         _fetch(
                             inv_url,
@@ -776,7 +846,7 @@ async def stream_search(
                             prefer_render=bool(route and route.requires_render),
                             platform_id=route.platform_id if route else None,
                         ),
-                        timeout=fetch_timeout,
+                        timeout=inv_timeout,
                     )
                 except asyncio.TimeoutError:
                     logger.warning("Initial inventory scrape timed out for %s", inv_url)
@@ -820,6 +890,9 @@ async def stream_search(
                     return chunks
             elif route and route.requires_render:
                 try:
+                    render_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                    if render_timeout is None:
+                        raise RuntimeError("dealer_time_budget_exhausted")
                     current_html, current_method = await asyncio.wait_for(
                         _fetch(
                             inv_url or base_url,
@@ -827,7 +900,7 @@ async def stream_search(
                             prefer_render=True,
                             platform_id=route.platform_id,
                         ),
-                        timeout=fetch_timeout,
+                        timeout=render_timeout,
                     )
                 except Exception as e:
                     logger.debug("Preferred rendered refetch skipped for %s: %s", inv_url or base_url, e)
@@ -858,9 +931,12 @@ async def stream_search(
                         )
                     )
                     try:
+                        rescue_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                        if rescue_timeout is None:
+                            raise RuntimeError("dealer_time_budget_exhausted")
                         rescue_html, rescue_method = await asyncio.wait_for(
                             _fetch(guess_inv, "inventory", prefer_render=True),
-                            timeout=fetch_timeout,
+                            timeout=rescue_timeout,
                         )
                         if not _looks_like_block_page(rescue_html):
                             current_html = rescue_html
@@ -885,9 +961,12 @@ async def stream_search(
                 and route is None
             ):
                 try:
+                    rendered_home_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                    if rendered_home_timeout is None:
+                        raise RuntimeError("dealer_time_budget_exhausted")
                     rendered_home_html, rendered_home_method = await asyncio.wait_for(
                         _fetch(base_url, "inventory", prefer_render=True),
-                        timeout=fetch_timeout,
+                        timeout=rendered_home_timeout,
                     )
                     rendered_profile = detect_platform_profile(rendered_home_html, page_url=base_url)
                     if rendered_profile:
@@ -935,7 +1014,7 @@ async def stream_search(
                                     prefer_render=route.requires_render,
                                     platform_id=route.platform_id,
                                 ),
-                                timeout=fetch_timeout,
+                                timeout=rendered_home_timeout,
                             )
                             inv_url = rendered_inv_url
                         else:
@@ -1027,6 +1106,9 @@ async def stream_search(
                         )
                     )
                     try:
+                        page_timeout = _phase_timeout(fetch_timeout)
+                        if page_timeout is None:
+                            break
                         current_html, current_method = await asyncio.wait_for(
                             _fetch(
                                 current_url,
@@ -1034,7 +1116,7 @@ async def stream_search(
                                 prefer_render=bool(route and route.requires_render),
                                 platform_id=route.platform_id if route else None,
                             ),
-                            timeout=fetch_timeout,
+                            timeout=page_timeout,
                         )
                     except asyncio.TimeoutError:
                         logger.warning("Pagination scrape timed out for %s", current_url)
@@ -1113,6 +1195,24 @@ async def stream_search(
                 )
                 if ext_result is None:
                     try:
+                        llm_timeout = _phase_timeout(parse_timeout)
+                        if llm_timeout is None:
+                            if pages_scraped == 0:
+                                chunks.append(
+                                    sse_pack(
+                                        "dealership",
+                                        {
+                                            "index": index,
+                                            "total": len(dealers),
+                                            "name": d.name,
+                                            "website": website,
+                                            "current_url": current_url,
+                                            "status": "error",
+                                            "error": "Timed out while processing this dealership. Skipping to keep search moving.",
+                                        },
+                                    )
+                                )
+                            break
                         ext_result = await asyncio.wait_for(
                             extract_vehicles_from_html(
                                 page_url=current_url,
@@ -1120,7 +1220,7 @@ async def stream_search(
                                 make_filter=make,
                                 model_filter=model,
                             ),
-                            timeout=parse_timeout,
+                            timeout=llm_timeout,
                         )
                         async with metrics_lock:
                             extraction_metrics["pages_llm"] += 1
@@ -1405,7 +1505,7 @@ async def stream_search(
         try:
             return await asyncio.wait_for(
                 process_one(index, d),
-                timeout=settings.dealership_timeout,
+                timeout=dealer_timeout,
             )
         except asyncio.TimeoutError:
             website = d.website or ""

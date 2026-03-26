@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.schemas import DealershipFound
 from app.services.orchestrator import (
+    _bounded_phase_timeout,
     _effective_search_concurrency,
     _effective_max_pages_for_route,
     _guess_franchise_inventory_srp_url,
@@ -40,6 +41,28 @@ def test_effective_max_pages_for_route_respects_requested_pages() -> None:
     route = None
     assert _effective_max_pages_for_route(1, route) == 1
     assert _effective_max_pages_for_route(3, route) == 3
+
+
+def test_bounded_phase_timeout_caps_to_remaining_budget() -> None:
+    timeout = _bounded_phase_timeout(
+        base_timeout=275.0,
+        dealer_timeout=240.0,
+        elapsed_seconds=100.0,
+        reserve_seconds=10.0,
+        min_timeout=5.0,
+    )
+    assert timeout == 130.0
+
+
+def test_bounded_phase_timeout_returns_none_when_budget_exhausted() -> None:
+    timeout = _bounded_phase_timeout(
+        base_timeout=90.0,
+        dealer_timeout=120.0,
+        elapsed_seconds=116.0,
+        reserve_seconds=8.0,
+        min_timeout=5.0,
+    )
+    assert timeout is None
 
 
 def test_effective_search_concurrency_uses_config_without_managed_keys(monkeypatch: pytest.MonkeyPatch) -> None:
