@@ -119,6 +119,7 @@ async def _playwright_pass(
     page_kind: PageKind,
     failures: list[str],
     metric_bump: Callable[[str], None],
+    js_instructions: str | None = None,
 ) -> tuple[str, str] | None:
     if not settings.playwright_enabled:
         return None
@@ -129,7 +130,7 @@ async def _playwright_pass(
         metric_bump("playwright_import_error")
         return None
     try:
-        html = await fetch_html_via_playwright(url)
+        html = await fetch_html_via_playwright(url, js_instructions=js_instructions)
     except Exception as e:
         err_str = e.__class__.__name__ if not str(e) else str(e)
         failures.append(f"playwright: {err_str}")
@@ -215,16 +216,21 @@ async def fetch_page_html(
                 out.append(wait)
         return tuple(out)
 
+    inventory_js_instructions = (
+        zenrows_inventory_js_instructions_for_url(url, platform_id=platform_id)
+        if page_kind == "inventory"
+        else None
+    )
+
     if prefer_render and page_kind == "inventory":
         # OneAudi Falcon (and similar): try local browser before paid JS render APIs.
-        js_instructions = zenrows_inventory_js_instructions_for_url(url, platform_id=platform_id)
-
         pw_early = await _playwright_pass(
             url,
             timeout,
             page_kind=page_kind,
             failures=failures,
             metric_bump=_m,
+            js_instructions=inventory_js_instructions,
         )
         if pw_early is not None:
             return pw_early
@@ -241,7 +247,7 @@ async def fetch_page_html(
                     wait_ms=wait_ms,
                     metric_prefix="zenrows_rendered",
                     failure_label="zenrows_rendered_preferred",
-                    js_instructions=js_instructions,
+                    js_instructions=inventory_js_instructions,
                 )
                 if html is not None:
                     return html, "zenrows_rendered"
@@ -288,6 +294,7 @@ async def fetch_page_html(
         page_kind=page_kind,
         failures=failures,
         metric_bump=_m,
+        js_instructions=inventory_js_instructions if page_kind == "inventory" else None,
     )
     if pw_result is not None:
         return pw_result
@@ -429,6 +436,17 @@ def _looks_like_empty_inventory_shell(html: str) -> bool:
     return True
 
 
+def _has_dom_inventory_result_tiles(html: str) -> bool:
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return False
+    return (
+        soup.find("li", attrs={"data-component": "result-tile"}) is not None
+        or soup.select_one("[data-component='result-tile']") is not None
+    )
+
+
 def _should_prefer_zenrows_render(html: str, *, page_kind: PageKind) -> bool:
     if page_kind != "inventory":
         return False
@@ -546,7 +564,7 @@ async def _scrapingbee_fetch(
 
 def _html_looks_inventory_ready(html: str) -> bool:
     lower = html.lower()
-    return any(marker in lower for marker in _INVENTORY_HINTS)
+    return any(marker in lower for marker in _INVENTORY_HINTS) or _has_dom_inventory_result_tiles(html)
 
 
 def _extract_inventory_api_urls(html: str, base_url: str) -> list[str]:
@@ -565,6 +583,22 @@ def _extract_inventory_api_urls(html: str, base_url: str) -> list[str]:
             if abs_url not in urls:
                 urls.append(abs_url)
     return urls
+
+
+def _inject_inventory_api_payload(html: str, payload: str) -> str:
+    """
+    Inject inventory payload markers in a parser-safe location.
+
+    When appended after </html>, BeautifulSoup (lxml) can ignore the script.
+    Inject before </body> when possible, then </html>, and fallback to the end.
+    """
+    injected = f"\n{payload}\n"
+    lower_html = html.lower()
+    for marker in ("</body>", "</html>"):
+        idx = lower_html.find(marker)
+        if idx != -1:
+            return html[:idx] + injected + html[idx:]
+    return html + injected
 
 
 def _extract_inventory_post_requests(html: str, base_url: str) -> list[tuple[str, str]]:
@@ -694,7 +728,7 @@ async def _maybe_append_inventory_api_data(
             payloads.append(content)
         if payloads:
             injected = "".join(
-                f'\n<script type="application/json" data-ms-source="inventory-api">{p}</script>\n'
+                f'<script type="application/json" data-ms-source="inventory-api">{p}</script>'
                 for p in payloads
             )
             logger.info(
@@ -702,7 +736,7 @@ async def _maybe_append_inventory_api_data(
                 page_url,
                 len(payloads),
             )
-            return html + injected
+            return _inject_inventory_api_payload(html, injected)
         for api_url, query in api_gets[:2]:
             try:
                 r = await client.get(api_url, params=query or None, headers=_browser_headers())
@@ -737,7 +771,7 @@ async def _maybe_append_inventory_api_data(
         return html
 
     injected = "".join(
-        f'\n<script type="application/json" data-ms-source="inventory-api">{p}</script>\n'
+        f'<script type="application/json" data-ms-source="inventory-api">{p}</script>'
         for p in payloads
     )
     logger.info(
@@ -745,4 +779,4 @@ async def _maybe_append_inventory_api_data(
         page_url,
         len(payloads),
     )
-    return html + injected
+    return _inject_inventory_api_payload(html, injected)
