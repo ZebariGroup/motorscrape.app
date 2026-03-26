@@ -1245,7 +1245,6 @@ async def stream_search(
                     else:
                         # Current URL has no removable query filter (e.g. path-based /new-buick/…).
                         # Fall back to the canonical SRP with ?make=X so the POST body injection kicks in.
-                        from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit, parse_qsl
                         try:
                             parts = urlsplit(current_url)
                             canonical = urlunsplit((
