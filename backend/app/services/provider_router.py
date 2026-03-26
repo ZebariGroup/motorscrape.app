@@ -458,6 +458,9 @@ def resolve_inventory_url_for_provider(
     best_url_make_signal = False
     hints = tuple(h.lower() for h in (route.inventory_path_hints if route else ()))
     make_norm = _norm(make)
+    model = (model or "").strip()
+    if "," in model:
+        model = ""
     model_norm = _norm(model)
     current_url = _normalize_inventory_candidate_url(base_url)
 

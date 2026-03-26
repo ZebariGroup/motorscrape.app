@@ -334,12 +334,17 @@ export function SearchFormSection({
                       <div className="scrape-truck-ruts" />
                       <span className="scrape-truck">
                         <span className="scrape-truck-cabin" />
+                        <span className="scrape-truck-cabin-roof" />
                         <span className="scrape-truck-bed" />
                         <span className="scrape-truck-bed-hood" />
+                        <span className="scrape-truck-chassis" />
                         <span className="scrape-truck-plow-mount" />
+                        <span className="scrape-truck-plow-arm" />
                         <span className="scrape-truck-plow" />
+                        <span className="scrape-truck-bumper" />
                         <span className="scrape-truck-wheel scrape-truck-wheel--rear" />
                         <span className="scrape-truck-wheel scrape-truck-wheel--front" />
+                        <span className="scrape-truck-headlight" />
                         <span className="scrape-truck-dirt scrape-truck-dirt--one" />
                         <span className="scrape-truck-dirt scrape-truck-dirt--two" />
                         <span className="scrape-truck-dirt scrape-truck-dirt--three" />

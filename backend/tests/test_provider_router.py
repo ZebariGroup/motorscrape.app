@@ -1,3 +1,4 @@
+from urllib.parse import parse_qs, urlsplit
 from app.services.provider_router import ProviderRoute, resolve_inventory_url_for_provider
 
 
@@ -227,4 +228,59 @@ def test_resolve_inventory_url_for_provider_canonicalizes_stale_dealer_on_invent
         vehicle_condition="new",
     )
     assert url == "https://www.bmwgrandblanc.com/searchnew.aspx?Make=BMW"
+
+
+def test_resolve_inventory_url_for_provider_handles_multi_model_filter_as_make_only_for_ddc() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory",),
+        inventory_url_hint="https://www.patmillikenford.com/inventory/",
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html></html>",
+        "https://www.patmillikenford.com/inventory/",
+        route,
+        fallback_url="https://www.patmillikenford.com/inventory/",
+        make="Ford",
+        model="F-150,F-150 Lightning",
+        vehicle_condition="all",
+    )
+    parsed = urlsplit(url)
+    assert parsed.path.endswith("/inventory/index.htm")
+    query = parse_qs(parsed.query)
+    assert query.get("make") == ["Ford"]
+    assert "model" not in query
+
+
+def test_resolve_inventory_url_for_provider_handles_multi_model_filter_as_make_only_for_dealer_on() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_on",
+        confidence=1.0,
+        extraction_mode="rendered_dom",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("searchnew.aspx", "searchused.aspx"),
+        inventory_url_hint="https://www.patmillikenford.com/inventory/",
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html></html>",
+        "https://www.patmillikenford.com/inventory/",
+        route,
+        fallback_url="https://www.patmillikenford.com/inventory/",
+        make="Ford",
+        model="F-150,F-150 Lightning",
+        vehicle_condition="all",
+    )
+    parsed = urlsplit(url)
+    assert parsed.path.endswith("/searchall.aspx")
+    query = parse_qs(parsed.query)
+    assert query.get("Make") == ["Ford"]
+    assert "Model" not in query
+    assert "ModelAndTrim" not in query
 
