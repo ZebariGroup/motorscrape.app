@@ -328,6 +328,24 @@ export function SearchFormSection({
                       />
                     </div>
                   </div>
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 px-2" aria-hidden>
+                    <div className="scrape-truck-track">
+                      <div className="scrape-truck-floor" />
+                      <div className="scrape-truck-ruts" />
+                      <span className="scrape-truck">
+                        <span className="scrape-truck-cabin" />
+                        <span className="scrape-truck-bed" />
+                        <span className="scrape-truck-bed-hood" />
+                        <span className="scrape-truck-plow-mount" />
+                        <span className="scrape-truck-plow" />
+                        <span className="scrape-truck-wheel scrape-truck-wheel--rear" />
+                        <span className="scrape-truck-wheel scrape-truck-wheel--front" />
+                        <span className="scrape-truck-dirt scrape-truck-dirt--one" />
+                        <span className="scrape-truck-dirt scrape-truck-dirt--two" />
+                        <span className="scrape-truck-dirt scrape-truck-dirt--three" />
+                      </span>
+                    </div>
+                  </div>
                   <span className="relative z-10 flex flex-col items-center gap-0.5 pb-1.5">
                     <span>Scraping…</span>
                     <span className="max-w-full truncate px-1 text-center text-[11px] font-normal text-white/90">
