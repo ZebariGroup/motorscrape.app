@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.schemas import DealershipFound
 from app.services.orchestrator import (
+    _effective_max_pages_for_route,
     _guess_franchise_inventory_srp_url,
     _prefer_https_website_url,
     stream_search,
@@ -31,6 +32,12 @@ def test_guess_franchise_inventory_srp_url() -> None:
     assert _guess_franchise_inventory_srp_url("https://www.dealer.example", "all") == (
         "https://www.dealer.example/inventory/new"
     )
+
+
+def test_effective_max_pages_for_route_respects_requested_pages() -> None:
+    route = None
+    assert _effective_max_pages_for_route(1, route) == 1
+    assert _effective_max_pages_for_route(3, route) == 3
 
 
 @pytest.mark.asyncio

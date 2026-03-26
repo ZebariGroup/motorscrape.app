@@ -307,6 +307,22 @@ def _needs_vdp_enrichment(vehicles: list[VehicleListing]) -> bool:
     return missing_details >= max(1, len(vehicles) // 2)
 
 
+def _effective_max_pages_for_route(
+    requested_pages: int,
+    route: ProviderRoute | None,
+) -> int:
+    """
+    Respect the caller's page budget.
+
+    The previous logic silently expanded some providers (including Dealer.com)
+    beyond the requested page count, which increased search latency and caused
+    dealership workers to time out before emitting any buffered results.
+    """
+    if requested_pages <= 0:
+        return 1
+    return requested_pages
+
+
 def _merge_vehicle_detail(base: VehicleListing, enriched: VehicleListing) -> VehicleListing:
     base_data = base.model_dump()
     enriched_data = enriched.model_dump()
@@ -867,40 +883,7 @@ async def stream_search(
             # 2. Pagination loop
             current_url = inv_url
             pages_scraped = 0
-            max_pages = (
-                max(
-                    requested_pages,
-                        8
-                        if route
-                        and route.platform_id in {
-                            "dealer_inspire",
-                            "team_velocity",
-                            "nissan_infiniti_inventory",
-                            "dealer_dot_com",
-                        }
-                        and not model.strip()
-                        and vehicle_condition == "new"
-                        else 4,
-                )
-                if route and route.platform_id in {
-                    "nissan_infiniti_inventory",
-                    "honda_acura_inventory",
-                    "kia_inventory",
-                    "dealer_inspire",
-                    "team_velocity",
-                    "dealer_dot_com",
-                    "dealer_on",
-                    "ford_family_inventory",
-                    "gm_family_inventory",
-                    "toyota_lexus_oem_inventory",
-                    "cdk_dealerfire",
-                    "fusionzone",
-                    "shift_digital",
-                    "purecars",
-                    "jazel",
-                }
-                else requested_pages
-            )
+            max_pages = _effective_max_pages_for_route(requested_pages, route)
             total_vehicles = 0
             skip_info: str | None = None
             queued_urls: set[str] = {current_url} if current_url else set()
