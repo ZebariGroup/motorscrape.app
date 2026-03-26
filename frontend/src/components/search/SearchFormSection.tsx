@@ -335,8 +335,8 @@ export function SearchFormSection({
                       <span className="scrape-truck">
                         <span className="scrape-truck-cabin" />
                         <span className="scrape-truck-cabin-roof" />
+                        <span className="scrape-truck-beacon" />
                         <span className="scrape-truck-bed" />
-                        <span className="scrape-truck-bed-hood" />
                         <span className="scrape-truck-chassis" />
                         <span className="scrape-truck-plow-mount" />
                         <span className="scrape-truck-plow-arm" />

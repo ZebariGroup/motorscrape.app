@@ -66,142 +66,172 @@ body {
   position: absolute;
   left: -4.2rem;
   bottom: 0.2rem;
-  width: 4.05rem;
-  height: 1.15rem;
+  width: 4.38rem;
+  height: 1.22rem;
   animation: scrape-truck-drive 4.6s linear infinite;
+}
+
+/* Motion streaks behind the cab (illustration-style) */
+.scrape-truck::before {
+  content: "";
+  position: absolute;
+  left: -0.34rem;
+  bottom: 0.92rem;
+  width: 0.26rem;
+  height: 0.035rem;
+  border-radius: 9999px;
+  background: rgb(15, 23, 42);
+  opacity: 0.4;
+  box-shadow:
+    0 0.08rem 0 0 rgb(15, 23, 42),
+    0 0.16rem 0 0 rgb(15, 23, 42),
+    0.1rem 0.04rem 0 0 rgb(15, 23, 42),
+    0.1rem 0.12rem 0 0 rgb(15, 23, 42);
 }
 
 .scrape-truck-cabin {
   position: absolute;
-  left: 0.35rem;
-  bottom: 1.05rem;
-  width: 1rem;
-  height: 0.74rem;
-  border-radius: 0.2rem 0.2rem 0.08rem 0.08rem;
-  background: linear-gradient(180deg, rgb(22, 163, 74), rgb(17, 128, 89));
-  box-shadow: inset -1px -1px 0 rgba(255, 255, 255, 0.2);
+  left: 0.22rem;
+  bottom: 0.9rem;
+  width: 0.84rem;
+  height: 0.55rem;
+  border-radius: 0.05rem 0.05rem 0.04rem 0.04rem;
+  border: 1px solid rgb(15, 23, 42);
+  background: linear-gradient(180deg, rgb(126, 138, 158), rgb(84, 96, 118));
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.12);
 }
 
 .scrape-truck-cabin::before {
   content: "";
   position: absolute;
-  left: 0.14rem;
-  top: 0.16rem;
-  width: 0.48rem;
-  height: 0.28rem;
-  border-radius: 0.1rem 0.08rem 0.08rem 0.08rem;
-  border: 1px solid rgba(255, 255, 255, 0.38);
-  box-shadow: inset 0 0 0 1px rgba(2, 44, 34, 0.3);
-  background: linear-gradient(180deg, rgba(13, 165, 87, 0.95), rgba(8, 105, 64, 0.88));
+  left: 0.12rem;
+  top: 0.12rem;
+  width: 0.44rem;
+  height: 0.24rem;
+  border-radius: 0.05rem;
+  border: 1px solid rgb(15, 23, 42);
+  background: linear-gradient(180deg, rgb(186, 230, 253), rgb(125, 211, 252));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .scrape-truck-cabin::after {
   content: "";
   position: absolute;
-  left: 0.08rem;
-  bottom: 0.16rem;
-  width: 0.72rem;
-  height: 0.22rem;
-  border-radius: 0.08rem 0.08rem 0.03rem 0.03rem;
-  background: linear-gradient(180deg, rgb(5, 87, 56), rgb(3, 59, 39));
+  left: 0.06rem;
+  bottom: 0.08rem;
+  width: 0.68rem;
+  height: 0.16rem;
+  border-radius: 0.03rem;
+  border: 1px solid rgb(15, 23, 42);
+  background: linear-gradient(180deg, rgb(55, 65, 81), rgb(38, 48, 64));
 }
 
 .scrape-truck-cabin-roof {
   position: absolute;
-  left: 0.35rem;
-  bottom: 1.32rem;
-  width: 0.82rem;
-  height: 0.12rem;
-  border-radius: 0.2rem 0.2rem 0 0;
-  background: linear-gradient(90deg, rgb(17, 24, 39), rgb(55, 65, 81));
+  left: 0.24rem;
+  bottom: 1.43rem;
+  width: 0.72rem;
+  height: 0.08rem;
+  border-radius: 0.04rem 0.04rem 0 0;
+  border: 1px solid rgb(15, 23, 42);
+  border-bottom: none;
+  background: linear-gradient(90deg, rgb(71, 85, 105), rgb(100, 116, 139));
+}
+
+.scrape-truck-beacon {
+  position: absolute;
+  left: 0.52rem;
+  bottom: 1.51rem;
+  width: 0.11rem;
+  height: 0.09rem;
+  border-radius: 9999px;
+  border: 1px solid rgb(15, 23, 42);
+  background: radial-gradient(circle at 35% 30%, rgb(254, 249, 195), rgb(250, 204, 21) 55%, rgb(217, 119, 6));
 }
 
 .scrape-truck-bed {
   position: absolute;
-  left: 1.18rem;
-  bottom: 0.62rem;
-  width: 2.24rem;
-  height: 0.42rem;
-  border-radius: 0.2rem;
-  background: linear-gradient(180deg, rgb(16, 185, 129), rgb(4, 120, 87));
-  box-shadow: inset 0 -1px 0 rgba(6, 95, 70, 0.5);
+  left: 1.02rem;
+  bottom: 0.5rem;
+  width: 1.48rem;
+  height: 0.46rem;
+  border-radius: 0 0.04rem 0.04rem 0.04rem;
+  border: 1px solid rgb(15, 23, 42);
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 0.23rem,
+      rgba(30, 41, 59, 0.58) 0.23rem,
+      rgba(30, 41, 59, 0.58) 0.26rem
+    ),
+    linear-gradient(180deg, rgb(108, 120, 141), rgb(78, 90, 112));
+  box-shadow: inset 0 -2px 0 rgba(15, 23, 42, 0.12);
 }
 
 .scrape-truck-bed::before {
   content: "";
   position: absolute;
-  inset: 0.08rem -0.02rem 0.02rem;
-  border-radius: 0.16rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.32);
-  opacity: 0.5;
-}
-
-.scrape-truck-bed::after {
-  content: "";
-  position: absolute;
-  left: -0.07rem;
-  top: -0.06rem;
-  width: 0.08rem;
-  height: 0.3rem;
-  border-radius: 0 0.03rem 0.03rem 0;
-  background: linear-gradient(180deg, rgba(8, 145, 95, 0.95), rgba(7, 99, 69, 0.75));
-}
-
-.scrape-truck-bed-hood {
-  position: absolute;
-  left: 1.02rem;
-  bottom: 1.04rem;
-  width: 1.25rem;
-  height: 0.22rem;
-  border-radius: 0.12rem 0.12rem 0.06rem 0.06rem;
-  background: linear-gradient(180deg, rgb(8, 147, 79), rgb(5, 120, 87));
-  box-shadow: inset 0 -1px 0 rgba(6, 95, 70, 0.55);
+  left: -1px;
+  right: -1px;
+  top: -0.08rem;
+  height: 0.085rem;
+  border-radius: 0.05rem 0.05rem 0 0;
+  border: 1px solid rgb(15, 23, 42);
+  border-bottom: none;
+  background: linear-gradient(180deg, rgb(253, 224, 71), rgb(234, 179, 8));
 }
 
 .scrape-truck-chassis {
   position: absolute;
-  left: 1.13rem;
-  bottom: 0.52rem;
-  width: 2.48rem;
-  height: 0.08rem;
+  left: 0.88rem;
+  bottom: 0.46rem;
+  width: 2.82rem;
+  height: 0.09rem;
   border-radius: 9999px;
-  background: linear-gradient(90deg, rgb(39, 39, 42), rgb(63, 63, 70), rgb(39, 39, 42));
-  opacity: 0.95;
+  border: 1px solid rgb(15, 23, 42);
+  background: linear-gradient(90deg, rgb(51, 65, 85), rgb(71, 85, 105), rgb(51, 65, 85));
 }
 
 .scrape-truck-plow-mount {
   position: absolute;
-  left: 2.84rem;
-  bottom: 0.58rem;
-  width: 0.45rem;
-  height: 0.24rem;
-  border-radius: 0.16rem;
-  background: linear-gradient(180deg, rgb(6, 95, 70), rgb(4, 120, 87));
+  left: 2.68rem;
+  bottom: 0.54rem;
+  width: 0.42rem;
+  height: 0.22rem;
+  border-radius: 0.12rem;
+  border: 1px solid rgb(15, 23, 42);
+  background: linear-gradient(180deg, rgb(71, 85, 105), rgb(51, 65, 85));
   transform-origin: left center;
 }
 
 .scrape-truck-plow-arm {
   position: absolute;
-  left: 3.12rem;
-  bottom: 0.74rem;
-  width: 0.78rem;
-  height: 0.07rem;
-  background: linear-gradient(90deg, rgb(39, 39, 42), rgb(82, 82, 91), rgb(39, 39, 42));
+  left: 2.96rem;
+  bottom: 0.72rem;
+  width: 0.82rem;
+  height: 0.075rem;
+  border-radius: 9999px;
+  border: 1px solid rgb(15, 23, 42);
+  background: linear-gradient(90deg, rgb(202, 138, 4), rgb(253, 224, 71), rgb(234, 179, 8));
   transform-origin: 0.02rem 0.04rem;
   transform: rotate(-32deg);
 }
 
 .scrape-truck-plow {
   position: absolute;
-  left: 3.72rem;
+  left: 3.62rem;
   bottom: 0;
   width: 1rem;
   height: 0.82rem;
-  background: linear-gradient(180deg, rgb(6, 95, 52), rgb(5, 76, 43));
-  border-radius: 0 0 0.22rem 0.04rem;
+  border-radius: 0 0 0.2rem 0.04rem;
+  background: linear-gradient(180deg, rgb(253, 224, 71), rgb(212, 175, 55));
   clip-path: polygon(0 12%, 98% 2%, 100% 100%, 0 88%);
   transform-origin: 0.03rem 0.76rem;
   transform: rotate(-18deg);
+  box-shadow: inset -2px 0 0 rgba(255, 255, 255, 0.2);
+  filter: drop-shadow(0.6px 0 0 rgb(15, 23, 42)) drop-shadow(-0.6px 0 0 rgb(15, 23, 42))
+    drop-shadow(0 0.6px 0 rgb(15, 23, 42)) drop-shadow(0 -0.6px 0 rgb(15, 23, 42));
 }
 
 .scrape-truck-plow::before {
@@ -212,7 +242,7 @@ body {
   width: 0.82rem;
   height: 0.14rem;
   border-radius: 0 0 0.08rem 0.08rem;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .scrape-truck-plow::after {
@@ -222,23 +252,27 @@ body {
   bottom: 0.05rem;
   width: 0.18rem;
   height: 0.42rem;
-  background: linear-gradient(180deg, rgb(132, 204, 22), rgb(101, 163, 13));
-  border-radius: 0.12rem 0.12rem 0 0;
+  background: linear-gradient(180deg, rgb(250, 204, 21), rgb(202, 138, 4));
+  border-radius: 0.1rem 0.1rem 0 0;
+  border: 1px solid rgb(15, 23, 42);
+  border-right: none;
+  border-bottom: none;
 }
 
 .scrape-truck-bumper {
   position: absolute;
-  left: 3.03rem;
-  bottom: 0.88rem;
-  width: 0.3rem;
-  height: 0.16rem;
-  border-radius: 0.08rem;
-  background: linear-gradient(180deg, rgb(55, 65, 81), rgb(17, 24, 39));
+  left: 2.92rem;
+  bottom: 0.86rem;
+  width: 0.32rem;
+  height: 0.15rem;
+  border-radius: 0.06rem;
+  border: 1px solid rgb(15, 23, 42);
+  background: linear-gradient(180deg, rgb(51, 65, 85), rgb(30, 41, 59));
 }
 
 .scrape-truck-snow {
   position: absolute;
-  left: 4.28rem;
+  left: 4.18rem;
   bottom: 0;
   width: 0.62rem;
   height: 0.26rem;
@@ -255,17 +289,18 @@ body {
 
 .scrape-truck-headlight {
   position: absolute;
-  left: 1.24rem;
-  bottom: 1.32rem;
-  width: 0.16rem;
-  height: 0.11rem;
+  left: 0.12rem;
+  bottom: 1.08rem;
+  width: 0.13rem;
+  height: 0.1rem;
   border-radius: 9999px;
-  background: radial-gradient(circle, rgb(253, 230, 138) 0 42%, rgb(71, 85, 105) 70%);
+  border: 1px solid rgb(15, 23, 42);
+  background: radial-gradient(circle at 35% 30%, rgb(254, 252, 232), rgb(253, 224, 71) 50%, rgb(180, 83, 9));
 }
 
 .scrape-truck-dirt {
   position: absolute;
-  left: 4.02rem;
+  left: 3.92rem;
   bottom: 0.06rem;
   width: 0.14rem;
   height: 0.18rem;
@@ -336,11 +371,11 @@ body {
 .scrape-truck-wheel {
   position: absolute;
   bottom: 0;
-  width: 0.55rem;
-  height: 0.55rem;
+  width: 0.58rem;
+  height: 0.58rem;
   border-radius: 9999px;
-  border: 1px solid rgb(24, 24, 27);
-  background: radial-gradient(circle at 50% 50%, rgb(82, 82, 91) 0 40%, rgb(39, 39, 42) 40% 100%);
+  border: 2px solid rgb(15, 23, 42);
+  background: radial-gradient(circle at 50% 50%, rgb(148, 163, 184) 0 32%, rgb(71, 85, 105) 32% 52%, rgb(30, 41, 59) 52% 100%);
   animation: scrape-wheel-spin 1.1s linear infinite;
 }
 
@@ -349,10 +384,10 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 0.2rem;
-  height: 0.04rem;
+  width: 0.22rem;
+  height: 0.045rem;
   transform: translate(-50%, -50%) rotate(45deg);
-  background: rgba(255, 255, 255, 0.65);
+  background: rgba(241, 245, 249, 0.75);
   border-radius: 9999px;
 }
 
@@ -361,19 +396,19 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 0.04rem;
-  height: 0.22rem;
+  width: 0.045rem;
+  height: 0.24rem;
   transform: translate(-50%, -50%);
-  background: rgba(255, 255, 255, 0.65);
+  background: rgba(241, 245, 249, 0.75);
   border-radius: 9999px;
 }
 
 .scrape-truck-wheel--rear {
-  left: 0.82rem;
+  left: 0.66rem;
 }
 
 .scrape-truck-wheel--front {
-  left: 2.88rem;
+  left: 2.56rem;
   animation-duration: 1.05s;
 }
 
@@ -382,30 +417,52 @@ body {
 }
 
 .dark .scrape-truck-cabin {
-  background: linear-gradient(180deg, rgb(21, 128, 61), rgb(4, 120, 87));
+  background: linear-gradient(180deg, rgb(100, 112, 132), rgb(71, 85, 105));
+}
+
+.dark .scrape-truck-cabin-roof {
+  background: linear-gradient(90deg, rgb(63, 73, 89), rgb(82, 94, 112));
 }
 
 .dark .scrape-truck-bed {
-  background: linear-gradient(180deg, rgb(16, 185, 129), rgb(5, 150, 105));
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 0.23rem,
+      rgba(15, 23, 42, 0.65) 0.23rem,
+      rgba(15, 23, 42, 0.65) 0.26rem
+    ),
+    linear-gradient(180deg, rgb(90, 102, 122), rgb(62, 74, 92));
 }
 
-.dark .scrape-truck-bed-hood {
-  background: linear-gradient(180deg, rgb(13, 148, 136), rgb(6, 95, 70));
+.dark .scrape-truck-bed::before {
+  background: linear-gradient(180deg, rgb(234, 179, 8), rgb(180, 83, 9));
 }
 
 .dark .scrape-truck-plow {
-  background: linear-gradient(180deg, rgb(16, 185, 129), rgb(5, 120, 87));
+  background: linear-gradient(180deg, rgb(234, 179, 8), rgb(180, 130, 20));
 }
 
 .dark .scrape-truck-plow-mount {
-  background: linear-gradient(180deg, rgb(6, 95, 70), rgb(4, 120, 87));
+  background: linear-gradient(180deg, rgb(62, 74, 92), rgb(45, 55, 72));
 }
 
-.dark .scrape-truck-plow-arm,
-.dark .scrape-truck-bumper,
-.dark .scrape-truck-plow::after,
+.dark .scrape-truck-plow-arm {
+  background: linear-gradient(90deg, rgb(180, 83, 9), rgb(234, 179, 8), rgb(202, 138, 4));
+}
+
+.dark .scrape-truck-plow::after {
+  background: linear-gradient(180deg, rgb(234, 179, 8), rgb(180, 83, 9));
+}
+
+.dark .scrape-truck-bumper {
+  filter: brightness(0.92);
+}
+
+.dark .scrape-truck-beacon,
 .dark .scrape-truck-headlight {
-  filter: brightness(0.95);
+  filter: brightness(0.9);
 }
 
 .dark .scrape-truck-floor {
@@ -444,7 +501,7 @@ body {
 
 @keyframes scrape-truck-drive {
   0% {
-    left: -4.3rem;
+    left: -4.55rem;
   }
   100% {
     left: 100%;
