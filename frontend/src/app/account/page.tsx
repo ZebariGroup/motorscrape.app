@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { SiteHeader } from "@/components/SiteHeader";
+import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { resolveApiUrl } from "@/lib/apiBase";
-import type { AccessSummary } from "@/types/access";
 
 type MeResponse = {
   id: string;
@@ -20,20 +20,13 @@ type MeResponse = {
 
 export default function AccountPage() {
   const router = useRouter();
-  const [access, setAccess] = useState<AccessSummary | null>(null);
+  const { access } = useAccessSummary();
   const [me, setMe] = useState<MeResponse | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
   const [isManagingBilling, setIsManagingBilling] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [passwordMessage, setPasswordMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  const loadAccess = useCallback(() => {
-    fetch(resolveApiUrl("/auth/access-summary"), { credentials: "include" })
-      .then((r) => r.json())
-      .then(setAccess)
-      .catch(() => setAccess(null));
-  }, []);
 
   const loadMe = useCallback(() => {
     fetch(resolveApiUrl("/auth/me"), { credentials: "include" })
@@ -51,14 +44,12 @@ export default function AccountPage() {
   }, []);
 
   useEffect(() => {
-    loadAccess();
     loadMe();
-  }, [loadAccess, loadMe]);
+  }, [loadMe]);
 
   const logout = async () => {
     await fetch(resolveApiUrl("/auth/logout"), { method: "POST", credentials: "include" });
     setMe(null);
-    loadAccess();
     router.refresh();
   };
 

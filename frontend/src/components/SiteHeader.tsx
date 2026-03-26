@@ -9,8 +9,26 @@ type Props = {
 };
 
 export function SiteHeader({ access }: Props) {
+  if (access === null) {
+    return (
+      <header className="border-b border-zinc-200 bg-white/80 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-4">
+            <Link href="/" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+              Motorscrape
+            </Link>
+            <span className="hidden text-xs text-zinc-500 sm:inline dark:text-zinc-400">We crawl so you can drive.</span>
+          </div>
+          <nav className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm">
+            <div className="h-6 w-28 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+          </nav>
+        </div>
+      </header>
+    );
+  }
+
   const anonHint =
-    access && !access.authenticated && access.anonymous
+    !access.authenticated && access.anonymous
       ? `${access.anonymous.searches_remaining} of ${access.anonymous.signup_required_after} free scrapes left`
       : null;
 
@@ -38,7 +56,7 @@ export function SiteHeader({ access }: Props) {
               <span className="text-zinc-600 dark:text-zinc-400">{usageHint}</span>
             ) : null}
           </div>
-          {access?.authenticated ? (
+          {access.authenticated ? (
             <Link
               href="/account"
               className="font-medium text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"

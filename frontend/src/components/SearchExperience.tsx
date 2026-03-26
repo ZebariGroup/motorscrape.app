@@ -3,34 +3,26 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useSearchStream } from "@/hooks/useSearchStream";
-import { resolveApiUrl } from "@/lib/apiBase";
+import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { DealerProgressList } from "@/components/search/DealerProgressList";
 import { InventoryResultsSection } from "@/components/search/InventoryResultsSection";
 import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
-import type { AccessSummary } from "@/types/access";
 
 export function SearchExperience() {
-  const [access, setAccess] = useState<AccessSummary | null>(null);
+  const { access, refresh } = useAccessSummary();
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [dismissedQuotaMessage, setDismissedQuotaMessage] = useState<string | null>(null);
 
-  const refreshAccess = useCallback(() => {
-    fetch(resolveApiUrl("/auth/access-summary"), { credentials: "include" })
-      .then((r) => r.json())
-      .then(setAccess)
-      .catch(() => setAccess(null));
-  }, []);
-
   useEffect(() => {
-    refreshAccess();
-  }, [refreshAccess]);
+    refresh();
+  }, [refresh]);
 
   const { form, search, dealers, listings, filters } = useSearchStream({
-    onStreamFinished: refreshAccess,
+    onStreamFinished: refresh,
   });
 
   useEffect(() => {

@@ -2,31 +2,20 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { SiteHeader } from "@/components/SiteHeader";
+import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { resolveApiUrl } from "@/lib/apiBase";
-import type { AccessSummary } from "@/types/access";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [access, setAccess] = useState<AccessSummary | null>(null);
+  const { access } = useAccessSummary();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const loadAccess = () => {
-    fetch(resolveApiUrl("/auth/access-summary"), { credentials: "include" })
-      .then((r) => r.json())
-      .then(setAccess)
-      .catch(() => setAccess(null));
-  };
-
-  useEffect(() => {
-    loadAccess();
-  }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
