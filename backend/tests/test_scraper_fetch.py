@@ -119,6 +119,28 @@ async def test_fetch_page_html_inventory_strips_dfr_query_on_direct_retry(clear_
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_inventory_reports_sanitized_url_and_cloudflare_hint_on_full_block(
+    clear_scraper_keys: None,
+) -> None:
+    noisy = (
+        "https://dealer.example/new-vehicles/"
+        "?_dFR%5Bfueltype%5D%5B0%5D=Electric&_dFR%5Btype%5D%5B0%5D=New&page=1"
+    )
+    sanitized = "https://dealer.example/new-vehicles/?page=1"
+    cf_html = "<html><head><title>Attention Required! | Cloudflare</title></head><body>cf-ray</body></html>"
+    respx.get(noisy).mock(return_value=Response(403, text=cf_html, headers={"cf-ray": "test"}))
+    respx.get(sanitized).mock(return_value=Response(403, text=cf_html, headers={"cf-ray": "test"}))
+
+    with pytest.raises(RuntimeError) as exc:
+        await fetch_page_html(noisy, page_kind="inventory")
+
+    msg = str(exc.value)
+    assert sanitized in msg
+    assert "cloudflare_blocked_no_fallback" in msg
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_zenrows_static_after_direct_fails(zenrows_key: None) -> None:
     respx.get("https://blocked.example/").mock(return_value=Response(403, text="denied"))
     respx.get("https://api.zenrows.com/v1/").mock(

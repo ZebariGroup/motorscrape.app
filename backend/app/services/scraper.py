@@ -338,6 +338,7 @@ async def fetch_page_html(
                     failures.append(f"scrapingbee_rendered_preferred: {err_str}")
 
     direct_urls = [url]
+    saw_cloudflare_block = False
     if page_kind == "inventory":
         sanitized_url = _sanitize_inventory_query_url(url)
         if sanitized_url.rstrip("/") != url.rstrip("/"):
@@ -345,10 +346,10 @@ async def fetch_page_html(
 
     # 1) Direct first (cheapest), with optional inventory URL sanitization retry.
     for idx, direct_url in enumerate(direct_urls):
+        effective_url = direct_url
         try:
             html = await _direct_get_with_express_www_fallback(direct_url, timeout)
             html = await _maybe_append_inventory_api_data(direct_url, html, timeout)
-            effective_url = direct_url
             if _direct_html_sufficient(html, page_kind=page_kind):
                 if idx > 0:
                     logger.info("Direct fetch recovered via sanitized URL: %s -> %s", url, direct_url)
@@ -365,6 +366,13 @@ async def fetch_page_html(
             break
         except Exception as e:
             err_str = e.__class__.__name__ if not str(e) else str(e)
+            if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 403:
+                try:
+                    block_text = (e.response.text or "").lower()
+                except Exception:
+                    block_text = ""
+                if "cloudflare" in block_text or "cf-ray" in e.response.headers:
+                    saw_cloudflare_block = True
             failures.append(f"direct: {err_str}")
             logger.debug("Direct fetch failed for %s: %s", direct_url, err_str)
             _m("direct_failed")
@@ -490,6 +498,17 @@ async def fetch_page_html(
             return html, "direct_fallback"
 
     detail = " | ".join(failures)
+    if (
+        saw_cloudflare_block
+        and not settings.zenrows_api_key
+        and not settings.scrapingbee_api_key
+        and not settings.playwright_enabled
+    ):
+        detail = (
+            detail
+            + " | cloudflare_blocked_no_fallback: set PLAYWRIGHT_ENABLED=true "
+            + "or configure ZENROWS_API_KEY/SCRAPINGBEE_API_KEY"
+        )
     raise RuntimeError(f"All fetch methods failed for {effective_url}: {detail}") from None
 
 
