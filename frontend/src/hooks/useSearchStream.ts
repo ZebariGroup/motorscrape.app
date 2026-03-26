@@ -9,7 +9,13 @@ import { getModelsForMake } from "@/lib/vehicleCatalog";
 import type { DealershipProgress, VehicleListing } from "@/types/inventory";
 
 /** Client-side result ordering (applied after filters). */
-export type ListingSortOrder = "price_asc" | "price_desc" | "mileage_asc" | "year_desc";
+export type ListingSortOrder =
+  | "price_asc"
+  | "price_desc"
+  | "mileage_asc"
+  | "year_desc"
+  | "days_on_lot_asc"
+  | "days_on_lot_desc";
 
 function listingSortTieBreak(a: AggregatedListing, b: AggregatedListing) {
   const ka = `${a.vin ?? ""}|${a.listing_url ?? ""}|${a.raw_title ?? ""}|${a.dealership ?? ""}`;
@@ -44,6 +50,22 @@ function sortAggregatedListings(list: AggregatedListing[], order: ListingSortOrd
       case "year_desc": {
         const av = a.year != null && !Number.isNaN(a.year) ? a.year : Number.NEGATIVE_INFINITY;
         const bv = b.year != null && !Number.isNaN(b.year) ? b.year : Number.NEGATIVE_INFINITY;
+        if (av !== bv) return bv - av;
+        return listingSortTieBreak(a, b);
+      }
+      case "days_on_lot_asc": {
+        const av =
+          a.days_on_lot != null && !Number.isNaN(a.days_on_lot) ? a.days_on_lot : Number.POSITIVE_INFINITY;
+        const bv =
+          b.days_on_lot != null && !Number.isNaN(b.days_on_lot) ? b.days_on_lot : Number.POSITIVE_INFINITY;
+        if (av !== bv) return av - bv;
+        return listingSortTieBreak(a, b);
+      }
+      case "days_on_lot_desc": {
+        const av =
+          a.days_on_lot != null && !Number.isNaN(a.days_on_lot) ? a.days_on_lot : Number.NEGATIVE_INFINITY;
+        const bv =
+          b.days_on_lot != null && !Number.isNaN(b.days_on_lot) ? b.days_on_lot : Number.NEGATIVE_INFINITY;
         if (av !== bv) return bv - av;
         return listingSortTieBreak(a, b);
       }

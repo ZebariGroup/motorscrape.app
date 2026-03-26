@@ -64,6 +64,8 @@ export function InventoryResultsSection({
                 <option value="price_asc">Price (low to high)</option>
                 <option value="price_desc">Price (high to low)</option>
                 <option value="mileage_asc">Mileage (low to high)</option>
+                <option value="days_on_lot_desc">Days on lot (longest)</option>
+                <option value="days_on_lot_asc">Days on lot (shortest)</option>
               </select>
             </label>
             <button
