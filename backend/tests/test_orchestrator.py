@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.schemas import DealershipFound
 from app.services.orchestrator import (
+    _effective_search_concurrency,
     _effective_max_pages_for_route,
     _guess_franchise_inventory_srp_url,
     _prefer_https_website_url,
@@ -39,6 +40,23 @@ def test_effective_max_pages_for_route_respects_requested_pages() -> None:
     route = None
     assert _effective_max_pages_for_route(1, route) == 1
     assert _effective_max_pages_for_route(3, route) == 3
+
+
+def test_effective_search_concurrency_uses_config_without_managed_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.services.orchestrator.settings.search_concurrency", 7)
+    monkeypatch.setattr("app.services.orchestrator.settings.zenrows_api_key", "")
+    monkeypatch.setattr("app.services.orchestrator.settings.scrapingbee_api_key", "")
+    assert _effective_search_concurrency() == 7
+
+
+def test_effective_search_concurrency_caps_to_managed_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.services.orchestrator.settings.search_concurrency", 12)
+    monkeypatch.setattr("app.services.orchestrator.settings.zenrows_api_key", "zr")
+    monkeypatch.setattr("app.services.orchestrator.settings.scrapingbee_api_key", "")
+    monkeypatch.setattr("app.services.orchestrator.settings.zenrows_max_concurrency", 2)
+    monkeypatch.setattr("app.services.orchestrator.settings.managed_scraper_max_concurrency", 3)
+    monkeypatch.setattr("app.services.orchestrator.settings.search_workers_per_managed_slot", 2)
+    assert _effective_search_concurrency() == 4
 
 
 @pytest.mark.asyncio

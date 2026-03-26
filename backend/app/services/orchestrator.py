@@ -57,6 +57,26 @@ def _domain_fetch_limiter(host_key: str) -> asyncio.Semaphore:
         _domain_fetch_limiters[host_key] = asyncio.Semaphore(max(1, settings.domain_fetch_concurrency))
     return _domain_fetch_limiters[host_key]
 
+
+def _effective_search_concurrency() -> int:
+    configured = max(1, settings.search_concurrency)
+    if not (settings.zenrows_api_key or settings.scrapingbee_api_key):
+        return configured
+
+    provider_slots: list[int] = []
+    if settings.zenrows_api_key:
+        provider_slots.append(max(1, settings.zenrows_max_concurrency))
+    if settings.scrapingbee_api_key:
+        provider_slots.append(max(1, settings.scrapingbee_max_concurrency))
+
+    managed_slots = max(1, settings.managed_scraper_max_concurrency)
+    if provider_slots:
+        managed_slots = min(managed_slots, sum(provider_slots))
+
+    workers_per_slot = max(1, settings.search_workers_per_managed_slot)
+    adaptive_cap = managed_slots * workers_per_slot
+    return max(1, min(configured, adaptive_cap))
+
 # Inventory-page family stacks that should override generic website platforms (DealerOn / Inspire / DDC).
 _INVENTORY_FAMILY_PLATFORM_IDS = frozenset(
     {
@@ -529,19 +549,20 @@ async def stream_search(
         )
         return
 
+    effective_concurrency = _effective_search_concurrency()
     yield sse_pack(
         "status",
         {
             "message": (
                 f"Found {len(dealers)} dealerships. Scraping inventory… "
                 f"(requested {requested_dealerships}, radius {radius_miles} mi, "
-                f"condition {vehicle_condition})"
+                f"condition {vehicle_condition}, workers {effective_concurrency})"
             ),
             "phase": "scrape",
         },
     )
 
-    sem = asyncio.Semaphore(max(1, settings.search_concurrency))
+    sem = asyncio.Semaphore(effective_concurrency)
     fetch_timeout = settings.scrape_timeout * 3 + 5.0
     parse_timeout = settings.openai_timeout + 5.0
     metrics_lock = asyncio.Lock()
@@ -1433,6 +1454,7 @@ async def stream_search(
                 "inventory_scope": inventory_scope,
                 "max_dealerships": requested_dealerships,
                 "max_pages_per_dealer": requested_pages,
+                "effective_search_concurrency": effective_concurrency,
                 "fetch_metrics": dict(fetch_metrics),
                 "extraction_metrics": dict(extraction_metrics),
             },

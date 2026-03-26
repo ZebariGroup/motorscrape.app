@@ -32,6 +32,9 @@ def _fresh_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.services.scraper_strategies.settings", s)
     monkeypatch.setattr("app.services.playwright_fetch.settings", s)
     monkeypatch.setattr("app.services.scraper._zenrows_semaphore", None)
+    monkeypatch.setattr("app.services.scraper._scrapingbee_semaphore", None)
+    monkeypatch.setattr("app.services.scraper._managed_scraper_semaphore", None)
+    monkeypatch.setattr("app.services.scraper._zenrows_cooldown_until_monotonic", 0.0)
 
 
 @pytest.fixture
@@ -113,6 +116,26 @@ async def test_fetch_page_html_zenrows_static_after_direct_fails(zenrows_key: No
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_homepage_skips_managed_js_render_by_default(zenrows_key: None) -> None:
+    respx.get("https://blocked.example/").mock(return_value=Response(403, text="denied"))
+    seen_js_render: list[str] = []
+
+    def zenrows_route(request: httpx.Request) -> Response:
+        seen_js_render.append(request.url.params.get("js_render", ""))
+        body = "<html><body><a href='/inventory'>Inventory</a>" + ("x" * 2200) + "</body></html>"
+        return Response(200, text=body)
+
+    respx.get("https://api.zenrows.com/v1/").mock(side_effect=zenrows_route)
+
+    html, method = await fetch_page_html("https://blocked.example/", page_kind="homepage")
+    assert method == "zenrows_static"
+    assert "Inventory" in html
+    assert seen_js_render
+    assert all(flag == "false" for flag in seen_js_render)
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_oneaudi_uses_compact_zenrows_instructions(
     zenrows_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -166,7 +189,8 @@ async def test_fetch_page_html_zenrows_static_retries_with_premium_on_disconnect
 
     assert method == "zenrows_static"
     assert "vehicle-card" in html or "inventory" in html
-    assert calls == ["standard", "premium"]
+    assert calls.count("premium") == 1
+    assert calls.count("standard") >= 1
 
 
 @respx.mock

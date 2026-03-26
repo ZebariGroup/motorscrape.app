@@ -7,6 +7,7 @@ import html
 import json
 import logging
 import re
+import time
 from collections.abc import Callable
 from typing import Literal
 from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit, urlunsplit
@@ -22,6 +23,13 @@ logger = logging.getLogger(__name__)
 
 _zenrows_semaphore: asyncio.Semaphore | None = None
 _zenrows_sem_lock = asyncio.Lock()
+_scrapingbee_semaphore: asyncio.Semaphore | None = None
+_scrapingbee_sem_lock = asyncio.Lock()
+_managed_scraper_semaphore: asyncio.Semaphore | None = None
+_managed_scraper_sem_lock = asyncio.Lock()
+_zenrows_cooldown_until_monotonic: float = 0.0
+
+_ZENROWS_TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504, 520, 522, 524})
 
 
 async def _zenrows_concurrency_gate() -> asyncio.Semaphore:
@@ -31,6 +39,40 @@ async def _zenrows_concurrency_gate() -> asyncio.Semaphore:
             if _zenrows_semaphore is None:
                 _zenrows_semaphore = asyncio.Semaphore(max(1, settings.zenrows_max_concurrency))
     return _zenrows_semaphore
+
+
+async def _scrapingbee_concurrency_gate() -> asyncio.Semaphore:
+    global _scrapingbee_semaphore
+    if _scrapingbee_semaphore is None:
+        async with _scrapingbee_sem_lock:
+            if _scrapingbee_semaphore is None:
+                _scrapingbee_semaphore = asyncio.Semaphore(max(1, settings.scrapingbee_max_concurrency))
+    return _scrapingbee_semaphore
+
+
+async def _managed_scraper_concurrency_gate() -> asyncio.Semaphore:
+    global _managed_scraper_semaphore
+    if _managed_scraper_semaphore is None:
+        async with _managed_scraper_sem_lock:
+            if _managed_scraper_semaphore is None:
+                _managed_scraper_semaphore = asyncio.Semaphore(max(1, settings.managed_scraper_max_concurrency))
+    return _managed_scraper_semaphore
+
+
+def _zenrows_cooldown_active() -> bool:
+    return time.monotonic() < _zenrows_cooldown_until_monotonic
+
+
+def _set_zenrows_cooldown(reason: str) -> None:
+    global _zenrows_cooldown_until_monotonic
+    cooldown_seconds = max(0, int(settings.zenrows_cooldown_seconds))
+    if cooldown_seconds <= 0:
+        return
+    _zenrows_cooldown_until_monotonic = max(
+        _zenrows_cooldown_until_monotonic,
+        time.monotonic() + float(cooldown_seconds),
+    )
+    logger.warning("ZenRows cooldown activated for %ss (%s)", cooldown_seconds, reason)
 
 PageKind = Literal["homepage", "inventory"]
 
@@ -214,6 +256,9 @@ async def fetch_page_html(
     """
     timeout = httpx.Timeout(settings.scrape_timeout)
     failures: list[str] = []
+    allow_managed_js_render = (
+        page_kind == "inventory" or prefer_render or settings.homepage_managed_js_render
+    )
 
     if (
         page_kind == "inventory"
@@ -335,23 +380,24 @@ async def fetch_page_html(
             if html is not None:
                 return html, "zenrows_static"
 
-        for wait_ms in _retry_waits(settings.zenrows_wait_ms):
-            js_instructions = zenrows_inventory_js_instructions_for_url(url, platform_id=platform_id)
+        if allow_managed_js_render:
+            for wait_ms in _retry_waits(settings.zenrows_wait_ms):
+                js_instructions = zenrows_inventory_js_instructions_for_url(url, platform_id=platform_id)
 
-            html = await zenrows_try_once(
-                url=url,
-                timeout=timeout,
-                page_kind=page_kind,
-                failures=failures,
-                metric_bump=_m,
-                js_render=True,
-                wait_ms=wait_ms,
-                metric_prefix="zenrows_rendered",
-                failure_label="zenrows_rendered",
-                js_instructions=js_instructions,
-            )
-            if html is not None:
-                return html, "zenrows_rendered"
+                html = await zenrows_try_once(
+                    url=url,
+                    timeout=timeout,
+                    page_kind=page_kind,
+                    failures=failures,
+                    metric_bump=_m,
+                    js_render=True,
+                    wait_ms=wait_ms,
+                    metric_prefix="zenrows_rendered",
+                    failure_label="zenrows_rendered",
+                    js_instructions=js_instructions,
+                )
+                if html is not None:
+                    return html, "zenrows_rendered"
 
     # 3) ScrapingBee: static then rendered
     if settings.scrapingbee_api_key:
@@ -366,23 +412,24 @@ async def fetch_page_html(
             logger.warning("ScrapingBee static fetch failed for %s: %s", url, err_str)
             failures.append(f"scrapingbee_static: {err_str}")
 
-        for wait_ms in _retry_waits(settings.scrapingbee_wait_ms):
-            try:
-                html = await _scrapingbee_fetch(
-                    url,
-                    timeout,
-                    render_js=True,
-                    wait_ms=wait_ms,
-                )
-                html = await _maybe_append_inventory_api_data(url, html, timeout)
-                if _direct_html_sufficient(html, page_kind=page_kind):
-                    _m("scrapingbee_rendered_ok")
-                    return html, "scrapingbee_rendered"
-                _m("scrapingbee_rendered_insufficient")
-            except Exception as e:
-                err_str = e.__class__.__name__ if not str(e) else str(e)
-                logger.warning("ScrapingBee rendered fetch failed for %s: %s", url, err_str)
-                failures.append(f"scrapingbee_rendered: {err_str}")
+        if allow_managed_js_render:
+            for wait_ms in _retry_waits(settings.scrapingbee_wait_ms):
+                try:
+                    html = await _scrapingbee_fetch(
+                        url,
+                        timeout,
+                        render_js=True,
+                        wait_ms=wait_ms,
+                    )
+                    html = await _maybe_append_inventory_api_data(url, html, timeout)
+                    if _direct_html_sufficient(html, page_kind=page_kind):
+                        _m("scrapingbee_rendered_ok")
+                        return html, "scrapingbee_rendered"
+                    _m("scrapingbee_rendered_insufficient")
+                except Exception as e:
+                    err_str = e.__class__.__name__ if not str(e) else str(e)
+                    logger.warning("ScrapingBee rendered fetch failed for %s: %s", url, err_str)
+                    failures.append(f"scrapingbee_rendered: {err_str}")
 
     # 4) If we had a direct body that was "insufficient", return it rather than failing completely
     try:
@@ -562,12 +609,47 @@ async def _zenrows_fetch(
         params["js_instructions"] = js_instructions
     if settings.zenrows_premium_proxy or premium_proxy:
         params["premium_proxy"] = "true"
-    sem = await _zenrows_concurrency_gate()
-    async with sem:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            r = await client.get(api_url, params=params)
+    if _zenrows_cooldown_active():
+        raise RuntimeError("ZenRows temporarily in cooldown")
+
+    attempts = max(1, int(settings.zenrows_request_attempts))
+    backoff_seconds = max(0.0, float(settings.zenrows_retry_backoff_ms) / 1000.0)
+    last_error: Exception | None = None
+
+    for attempt in range(1, attempts + 1):
+        if _zenrows_cooldown_active():
+            raise RuntimeError("ZenRows temporarily in cooldown")
+        try:
+            zenrows_sem = await _zenrows_concurrency_gate()
+            managed_sem = await _managed_scraper_concurrency_gate()
+            async with managed_sem:
+                async with zenrows_sem:
+                    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                        r = await client.get(api_url, params=params)
+            if r.status_code in _ZENROWS_TRANSIENT_STATUS_CODES:
+                if attempt < attempts:
+                    await asyncio.sleep(backoff_seconds * (2 ** (attempt - 1)))
+                    continue
+                _set_zenrows_cooldown(f"http_{r.status_code}")
             r.raise_for_status()
             return r.text
+        except httpx.HTTPStatusError as e:
+            last_error = e
+            if e.response.status_code in _ZENROWS_TRANSIENT_STATUS_CODES and attempt < attempts:
+                await asyncio.sleep(backoff_seconds * (2 ** (attempt - 1)))
+                continue
+            if e.response.status_code in _ZENROWS_TRANSIENT_STATUS_CODES:
+                _set_zenrows_cooldown(f"http_{e.response.status_code}")
+            raise
+        except (httpx.TimeoutException, httpx.TransportError) as e:
+            last_error = e
+            if attempt < attempts:
+                await asyncio.sleep(backoff_seconds * (2 ** (attempt - 1)))
+                continue
+            raise
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("ZenRows request failed without response")
 
 
 async def _scrapingbee_fetch(
@@ -587,10 +669,14 @@ async def _scrapingbee_fetch(
     if render_js and wait_ms > 0:
         q["wait"] = wait_ms
     qs = urlencode(q)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        r = await client.get(f"{base}?{qs}")
-        r.raise_for_status()
-        return r.text
+    scrapingbee_sem = await _scrapingbee_concurrency_gate()
+    managed_sem = await _managed_scraper_concurrency_gate()
+    async with managed_sem:
+        async with scrapingbee_sem:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                r = await client.get(f"{base}?{qs}")
+                r.raise_for_status()
+                return r.text
 
 
 def _html_looks_inventory_ready(html: str) -> bool:
