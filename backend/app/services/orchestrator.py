@@ -45,37 +45,28 @@ from app.services.providers import extract_with_provider
 from app.services.scraper import PageKind, _looks_like_block_page, fetch_page_html
 from app.sse import sse_pack
 
+from app.services.orchestrator_utils import (
+    domain_fetch_limiter,
+    effective_search_concurrency,
+    dedupe_dealers_by_domain,
+    html_mentions_model,
+    html_mentions_make,
+    prefer_https_website_url,
+    guess_franchise_inventory_srp_url,
+    effective_max_pages_for_route,
+    pagination_progress_payload,
+)
+
+from app.services.orchestrator_utils import (
+    dedupe_dealers_by_domain,
+    html_mentions_model,
+    html_mentions_make,
+    prefer_https_website_url,
+    guess_franchise_inventory_srp_url,
+)
+
 logger = logging.getLogger(__name__)
 _STREAM_LISTING_BATCH_SIZE = 8
-
-# Per-normalized-host concurrency for fetch_page_html (complements dealer-level semaphore).
-_domain_fetch_limiters: dict[str, asyncio.Semaphore] = {}
-
-
-def _domain_fetch_limiter(host_key: str) -> asyncio.Semaphore:
-    if host_key not in _domain_fetch_limiters:
-        _domain_fetch_limiters[host_key] = asyncio.Semaphore(max(1, settings.domain_fetch_concurrency))
-    return _domain_fetch_limiters[host_key]
-
-
-def _effective_search_concurrency() -> int:
-    configured = max(1, settings.search_concurrency)
-    if not (settings.zenrows_api_key or settings.scrapingbee_api_key):
-        return configured
-
-    provider_slots: list[int] = []
-    if settings.zenrows_api_key:
-        provider_slots.append(max(1, settings.zenrows_max_concurrency))
-    if settings.scrapingbee_api_key:
-        provider_slots.append(max(1, settings.scrapingbee_max_concurrency))
-
-    managed_slots = max(1, settings.managed_scraper_max_concurrency)
-    if provider_slots:
-        managed_slots = min(managed_slots, sum(provider_slots))
-
-    workers_per_slot = max(1, settings.search_workers_per_managed_slot)
-    adaptive_cap = managed_slots * workers_per_slot
-    return max(1, min(configured, adaptive_cap))
 
 # Inventory-page family stacks that should override generic website platforms (DealerOn / Inspire / DDC).
 _INVENTORY_FAMILY_PLATFORM_IDS = frozenset(
@@ -87,65 +78,6 @@ _INVENTORY_FAMILY_PLATFORM_IDS = frozenset(
 )
 
 
-def _dedupe_dealers_by_domain(dealers: list[DealershipFound]) -> list[DealershipFound]:
-    seen: set[str] = set()
-    out: list[DealershipFound] = []
-    for d in dealers:
-        w = d.website or ""
-        dom = normalize_dealer_domain(w)
-        if not dom or dom in seen:
-            continue
-        seen.add(dom)
-        out.append(d)
-    return out
-
-
-def _html_mentions_model(html: str, model: str) -> bool:
-    if not model.strip():
-        return True
-    hay = html.lower()
-    models = [m.strip() for m in model.split(",") if m.strip()]
-    for m in models:
-        if any(v in hay for v in model_filter_variants(m)):
-            return True
-    return False
-
-
-def _html_mentions_make(html: str, make: str) -> bool:
-    mk = make.strip().lower()
-    if not mk:
-        return True
-    return mk in html.lower()
-
-
-def _prefer_https_website_url(url: str) -> str:
-    u = (url or "").strip()
-    if u.lower().startswith("http://"):
-        return f"https://{u[7:]}"
-    return u
-
-
-def _guess_franchise_inventory_srp_url(website: str, vehicle_condition: str) -> str | None:
-    """
-    When homepage HTML is a bot shell (no usable <a> inventory links), many OEM-style
-    dealers still serve SRPs at /inventory/new or /inventory/used on https://www.
-    """
-    try:
-        parts = urlsplit((website or "").strip())
-        if not parts.scheme or not parts.netloc:
-            return None
-        host = parts.netloc.lower().split("@")[-1].split(":")[0]
-        if not host:
-            return None
-        www_host = host if host.startswith("www.") else f"www.{host}"
-        cond = (vehicle_condition or "all").strip().lower()
-        if cond == "used":
-            path = "/inventory/used"
-        else:
-            path = "/inventory/new"
-        return urlunsplit(("https", www_host, path, "", ""))
-    except Exception:
-        return None
 
 
 def _find_inventory_url(
@@ -489,10 +421,13 @@ async def stream_search(
     max_dealerships: int | None = None,
     max_pages_per_dealer: int | None = None,
     outcome_holder: dict[str, Any] | None = None,
+    correlation_id: str | None = None,
 ) -> AsyncIterator[str]:
     """
     Yield SSE-formatted strings: status, dealership, vehicles, error, done.
     """
+    cid_log = f"[{correlation_id}] " if correlation_id else ""
+    logger.info(f"{cid_log}Starting search: location={location}, make={make}, model={model}")
     yield sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
     requested_dealerships = max(1, min(max_dealerships or settings.max_dealerships, 30))
     requested_pages = max(
@@ -528,7 +463,8 @@ async def stream_search(
         if outcome_holder is not None:
             outcome_holder.clear()
             outcome_holder.update(payload)
-        log_economics_line(logger, economics, user_hint="")
+        log_economics_line(logger, economics, user_hint=cid_log.strip())
+        logger.info(f"{cid_log}Search finished: ok={ok}, duration={duration_ms}ms")
         return payload
 
     try:
@@ -540,13 +476,13 @@ async def stream_search(
             radius_miles=radius_miles,
         )
     except Exception as e:
-        logger.exception("Places search failed")
+        logger.exception(f"{cid_log}Places search failed")
         yield sse_pack("search_error", {"message": str(e), "phase": "places"})
         yield sse_pack("done", finalize_done({"ok": False}, ok=False))
         return
 
     raw_dealer_count = len(dealers)
-    dealers = _dedupe_dealers_by_domain(dealers)
+    dealers = dedupe_dealers_by_domain(dealers)
     deduped_dealer_count = len(dealers)
     dealers = dealers[: requested_dealerships]
     if not dealers:
@@ -568,7 +504,7 @@ async def stream_search(
         )
         return
 
-    effective_concurrency = _effective_search_concurrency()
+    effective_concurrency = effective_search_concurrency()
     yield sse_pack(
         "status",
         {
@@ -592,7 +528,8 @@ async def stream_search(
     async def process_one(index: int, d: DealershipFound) -> list[str]:
         chunks: list[str] = []
         dealer_started_at = time.perf_counter()
-        website = _prefer_https_website_url((d.website or "").strip())
+        website = prefer_https_website_url((d.website or "").strip())
+        logger.info(f"{cid_log}Processing dealer {index}: {d.name} ({website})")
         domain = normalize_dealer_domain(website)
         fetch_methods_used: list[str] = []
         inv_cache_key = inventory_listings_cache_key(
@@ -614,7 +551,7 @@ async def stream_search(
             platform_id: str | None = None,
         ) -> tuple[str, str]:
             host_key = normalize_dealer_domain(url) or domain or "unknown"
-            async with _domain_fetch_limiter(host_key):
+            async with domain_fetch_limiter(host_key):
                 html, method = await fetch_page_html(
                     url,
                     page_kind=page_kind,
@@ -733,7 +670,7 @@ async def stream_search(
                 except Exception:
                     pass
             except asyncio.TimeoutError:
-                logger.warning("Scrape timed out for %s", website)
+                logger.warning(f"{cid_log}Scrape timed out for %s", website)
                 chunks.append(
                     sse_pack(
                         "dealership",
@@ -751,7 +688,7 @@ async def stream_search(
                 )
                 return chunks
             except Exception as e:
-                logger.warning("Scrape failed for %s: %s", website, e)
+                logger.warning(f"{cid_log}Scrape failed for %s: %s", website, e)
                 if domain:
                     record_provider_failure(domain)
                 chunks.append(
@@ -798,7 +735,7 @@ async def stream_search(
                     for cand in candidates:
                         if cand.rstrip("/") != base_url.rstrip("/"):
                             inv_url = cand
-                            logger.info("Using sitemap inventory candidate for %s: %s", domain, inv_url)
+                            logger.info(f"{cid_log}Using sitemap inventory candidate for {domain}: {inv_url}")
                             break
                 except Exception as e:
                     logger.debug("Sitemap discovery skipped for %s: %s", base_url, e)
@@ -849,7 +786,7 @@ async def stream_search(
                         timeout=inv_timeout,
                     )
                 except asyncio.TimeoutError:
-                    logger.warning("Initial inventory scrape timed out for %s", inv_url)
+                    logger.warning(f"{cid_log}Initial inventory scrape timed out for %s", inv_url)
                     if domain:
                         record_provider_failure(domain)
                     chunks.append(
@@ -870,7 +807,7 @@ async def stream_search(
                     )
                     return chunks
                 except Exception as e:
-                    logger.warning("Initial inventory scrape failed for %s: %s", inv_url, e)
+                    logger.warning(f"{cid_log}Initial inventory scrape failed for %s: %s", inv_url, e)
                     if domain:
                         record_provider_failure(domain)
                     chunks.append(
@@ -909,12 +846,12 @@ async def stream_search(
             # Try a common franchise SRP with JS rendering before giving up on platform detection.
             if (
                 inv_url
-                and _prefer_https_website_url(inv_url).rstrip("/")
-                == _prefer_https_website_url(base_url).rstrip("/")
+                and prefer_https_website_url(inv_url).rstrip("/")
+                == prefer_https_website_url(base_url).rstrip("/")
                 and _looks_like_block_page(current_html)
             ):
-                guess_inv = _guess_franchise_inventory_srp_url(base_url, vehicle_condition)
-                if guess_inv and guess_inv.rstrip("/") != _prefer_https_website_url(base_url).rstrip(
+                guess_inv = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
+                if guess_inv and guess_inv.rstrip("/") != prefer_https_website_url(base_url).rstrip(
                     "/"
                 ):
                     chunks.append(
@@ -956,8 +893,8 @@ async def stream_search(
             # canonical SRP when homepage anchor discovery failed.
             if (
                 inv_url
-                and _prefer_https_website_url(inv_url).rstrip("/")
-                == _prefer_https_website_url(base_url).rstrip("/")
+                and prefer_https_website_url(inv_url).rstrip("/")
+                == prefer_https_website_url(base_url).rstrip("/")
                 and route is None
             ):
                 try:
@@ -993,7 +930,7 @@ async def stream_search(
                             model=model,
                             vehicle_condition=vehicle_condition,
                         )
-                        if rendered_inv_url.rstrip("/") != _prefer_https_website_url(base_url).rstrip("/"):
+                        if rendered_inv_url.rstrip("/") != prefer_https_website_url(base_url).rstrip("/"):
                             chunks.append(
                                 sse_pack(
                                     "dealership",
@@ -1150,7 +1087,7 @@ async def stream_search(
                             extraction_metrics["pages_structured"] += 1
 
                 if ext_result is None:
-                    if make.strip() and not _html_mentions_make(current_html, make):
+                    if make.strip() and not html_mentions_make(current_html, make):
                         logger.info(
                             "Skipping extraction for %s: no make mention (%r) in HTML",
                             current_url,
@@ -1161,7 +1098,7 @@ async def stream_search(
                         )
                         break
 
-                    if model.strip() and not _html_mentions_model(current_html, model):
+                    if model.strip() and not html_mentions_model(current_html, model):
                         logger.info(
                             "Skipping extraction for %s: no model mention (%r) in HTML",
                             current_url,
@@ -1509,7 +1446,7 @@ async def stream_search(
             )
         except asyncio.TimeoutError:
             website = d.website or ""
-            logger.warning("Dealership worker timed out for %s", website)
+            logger.warning(f"{cid_log}Dealership worker timed out for %s", website)
             return [
                 sse_pack(
                     "dealership",
@@ -1538,7 +1475,7 @@ async def stream_search(
             for part in parts:
                 yield part
         except Exception as e:
-            logger.exception("Worker failed")
+            logger.exception(f"{cid_log}Worker failed")
             yield sse_pack("search_error", {"message": str(e), "phase": "worker"})
 
     yield sse_pack(

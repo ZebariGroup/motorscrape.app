@@ -8,39 +8,41 @@ import pytest
 from app.schemas import DealershipFound
 from app.services.orchestrator import (
     _bounded_phase_timeout,
-    _effective_search_concurrency,
-    _effective_max_pages_for_route,
-    _guess_franchise_inventory_srp_url,
-    _prefer_https_website_url,
     stream_search,
+)
+from app.services.orchestrator_utils import (
+    effective_search_concurrency,
+    effective_max_pages_for_route,
+    guess_franchise_inventory_srp_url,
+    prefer_https_website_url,
 )
 from app.services.provider_router import ProviderRoute
 
 
 def test_prefer_https_website_url() -> None:
-    assert _prefer_https_website_url("http://example.com/") == "https://example.com/"
-    assert _prefer_https_website_url("https://x.test") == "https://x.test"
-    assert _prefer_https_website_url("  http://a.b  ") == "https://a.b"
+    assert prefer_https_website_url("http://example.com/") == "https://example.com/"
+    assert prefer_https_website_url("https://x.test") == "https://x.test"
+    assert prefer_https_website_url("  http://a.b  ") == "https://a.b"
 
 
 def test_guess_franchise_inventory_srp_url() -> None:
     assert (
-        _guess_franchise_inventory_srp_url("http://dealer.example/", "new")
+        guess_franchise_inventory_srp_url("http://dealer.example/", "new")
         == "https://www.dealer.example/inventory/new"
     )
     assert (
-        _guess_franchise_inventory_srp_url("https://www.dealer.example", "used")
+        guess_franchise_inventory_srp_url("https://www.dealer.example", "used")
         == "https://www.dealer.example/inventory/used"
     )
-    assert _guess_franchise_inventory_srp_url("https://www.dealer.example", "all") == (
+    assert guess_franchise_inventory_srp_url("https://www.dealer.example", "all") == (
         "https://www.dealer.example/inventory/new"
     )
 
 
 def test_effective_max_pages_for_route_respects_requested_pages() -> None:
     route = None
-    assert _effective_max_pages_for_route(1, route) == 1
-    assert _effective_max_pages_for_route(3, route) == 3
+    assert effective_max_pages_for_route(1, route) == 1
+    assert effective_max_pages_for_route(3, route) == 3
 
 
 def test_bounded_phase_timeout_caps_to_remaining_budget() -> None:
@@ -66,20 +68,20 @@ def test_bounded_phase_timeout_returns_none_when_budget_exhausted() -> None:
 
 
 def test_effective_search_concurrency_uses_config_without_managed_keys(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.services.orchestrator.settings.search_concurrency", 7)
-    monkeypatch.setattr("app.services.orchestrator.settings.zenrows_api_key", "")
-    monkeypatch.setattr("app.services.orchestrator.settings.scrapingbee_api_key", "")
-    assert _effective_search_concurrency() == 7
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.search_concurrency", 7)
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.zenrows_api_key", "")
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.scrapingbee_api_key", "")
+    assert effective_search_concurrency() == 7
 
 
 def test_effective_search_concurrency_caps_to_managed_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.services.orchestrator.settings.search_concurrency", 12)
-    monkeypatch.setattr("app.services.orchestrator.settings.zenrows_api_key", "zr")
-    monkeypatch.setattr("app.services.orchestrator.settings.scrapingbee_api_key", "")
-    monkeypatch.setattr("app.services.orchestrator.settings.zenrows_max_concurrency", 2)
-    monkeypatch.setattr("app.services.orchestrator.settings.managed_scraper_max_concurrency", 3)
-    monkeypatch.setattr("app.services.orchestrator.settings.search_workers_per_managed_slot", 2)
-    assert _effective_search_concurrency() == 4
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.search_concurrency", 12)
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.zenrows_api_key", "zr")
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.scrapingbee_api_key", "")
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.zenrows_max_concurrency", 2)
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.managed_scraper_max_concurrency", 3)
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.search_workers_per_managed_slot", 2)
+    assert effective_search_concurrency() == 4
 
 
 @pytest.mark.asyncio

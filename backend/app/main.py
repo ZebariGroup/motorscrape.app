@@ -1,4 +1,5 @@
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
@@ -76,6 +77,9 @@ async def search_stream(
 
     outcome: dict = {}
 
+    import uuid
+    correlation_id = str(uuid.uuid4())[:8]
+    
     async def body() -> AsyncIterator[bytes]:
         try:
             async for chunk in stream_search(
@@ -88,6 +92,7 @@ async def search_stream(
                 max_dealerships=eff_max_d,
                 max_pages_per_dealer=eff_pages,
                 outcome_holder=outcome,
+                correlation_id=correlation_id,
             ):
                 yield chunk.encode("utf-8")
         finally:
@@ -107,6 +112,8 @@ async def search_stream(
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    if os.environ.get("VERCEL_ENV") == "production" and not settings.session_secret:
+        logger.warning("SESSION_SECRET is not set in production! Sessions and anon keys will use a weak default.")
     yield
     try:
         from app.services.playwright_fetch import shutdown_playwright
@@ -123,6 +130,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://motorscrape.app",
+        "https://www.motorscrape.app",
     ],
     allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,

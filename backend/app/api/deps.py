@@ -14,16 +14,21 @@ from app.db.account_store import get_account_store
 from app.tiers import TierId, TierLimits, limits_for_tier
 
 
-def _client_ip(request: Request, x_forwarded_for: str | None) -> str:
+def _client_ip(request: Request, x_forwarded_for: str | None, x_real_ip: str | None) -> str:
+    if x_real_ip:
+        return x_real_ip.strip()
     if x_forwarded_for:
+        # If spoofed, the real IP added by the proxy is typically the last or rightmost trusted one.
+        # For Vercel, x-real-ip is safer. If we only have x-forwarded-for, we take the first as a fallback,
+        # but note it can be spoofed if not stripped by the edge.
         return x_forwarded_for.split(",")[0].strip()
     if request.client:
         return request.client.host or "unknown"
     return "unknown"
 
 
-def anon_key_for_request(request: Request, x_forwarded_for: str | None) -> str:
-    ip = _client_ip(request, x_forwarded_for)
+def anon_key_for_request(request: Request, x_forwarded_for: str | None, x_real_ip: str | None) -> str:
+    ip = _client_ip(request, x_forwarded_for, x_real_ip)
     pepper = (settings.session_secret or "dev-insecure-pepper").encode()
     return hashlib.sha256(pepper + b"|" + ip.encode()).hexdigest()[:32]
 
@@ -40,6 +45,7 @@ class AccessContext:
 def get_access_context(
     request: Request,
     x_forwarded_for: Annotated[str | None, Header(alias="X-Forwarded-For")] = None,
+    x_real_ip: Annotated[str | None, Header(alias="X-Real-IP")] = None,
     session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None,
 ) -> AccessContext:
     store = get_account_store(settings.accounts_db_path)
@@ -55,7 +61,7 @@ def get_access_context(
                 email=user.email,
                 anon_key=None,
             )
-    ak = anon_key_for_request(request, x_forwarded_for)
+    ak = anon_key_for_request(request, x_forwarded_for, x_real_ip)
     return AccessContext(
         tier=TierId.ANONYMOUS.value,
         limits=limits_for_tier(TierId.ANONYMOUS.value),
