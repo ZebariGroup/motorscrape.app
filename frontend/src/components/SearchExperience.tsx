@@ -13,6 +13,9 @@ import type { AccessSummary } from "@/types/access";
 
 export function SearchExperience() {
   const [access, setAccess] = useState<AccessSummary | null>(null);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  const [isStartingCheckout, setIsStartingCheckout] = useState(false);
 
   const refreshAccess = useCallback(() => {
     fetch(resolveApiUrl("/auth/access-summary"), { credentials: "include" })
@@ -28,6 +31,42 @@ export function SearchExperience() {
   const { form, search, dealers, listings, filters } = useSearchStream({
     onStreamFinished: refreshAccess,
   });
+
+  useEffect(() => {
+    const hits = search.errors.find(
+      (e) => e.includes("Monthly free search limit reached") || e.includes("Monthly included searches are used up"),
+    );
+    if (hits && !upgradeModalOpen) {
+      setUpgradeModalOpen(true);
+      setUpgradeError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- modal should open once per new quota hit
+  }, [search.errors, upgradeModalOpen]);
+
+  const startCheckout = async (tier: "standard" | "premium") => {
+    setUpgradeError(null);
+    setIsStartingCheckout(true);
+    try {
+      const r = await fetch(resolveApiUrl("/billing/checkout"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tier }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setUpgradeError(typeof j.detail === "string" ? j.detail : "Checkout unavailable.");
+        return;
+      }
+      const { url } = j as { url?: string };
+      if (url) window.location.href = url;
+      else setUpgradeError("Checkout did not return a URL. Please try again.");
+    } catch {
+      setUpgradeError("Network error. Please try again.");
+    } finally {
+      setIsStartingCheckout(false);
+    }
+  };
 
   const lim = access?.limits;
   const maxDealersCap = lim?.max_dealerships ?? 30;
@@ -183,6 +222,70 @@ export function SearchExperience() {
               >
                 Stop
               </button>
+            </div>
+          </div>
+        )}
+
+        {upgradeModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-900/60 p-4">
+            <div className="w-full max-w-xl rounded-2xl border border-zinc-200 bg-white p-5 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Subscribe to keep searching</h2>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                    {access?.tier === "standard"
+                      ? "You’ve used up your included monthly searches. Upgrade to Premium to get more included searches and a wider dealership sweep."
+                      : "You’ve used up your monthly included searches. Subscribe to Standard/Premium to unlock higher limits and keep searching."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUpgradeModalOpen(false)}
+                  className="rounded-lg p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                  aria-label="Close"
+                >
+                  <span className="text-2xl leading-none">×</span>
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                  <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Standard</h3>
+                  <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+                    <li>• 350 included searches / month</li>
+                    <li>• Up to 10 dealerships at once</li>
+                    <li>• Up to 30 mile radius</li>
+                  </ul>
+                  <button
+                    type="button"
+                    disabled={isStartingCheckout}
+                    onClick={() => void startCheckout("standard")}
+                    className="mt-3 w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isStartingCheckout ? "Starting..." : "Subscribe Standard"}
+                  </button>
+                </div>
+
+                <div className="rounded-xl border border-emerald-300 p-4 dark:border-emerald-800">
+                  <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Premium</h3>
+                  <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+                    <li>• 750 included searches / month</li>
+                    <li>• Up to 20 dealerships at once</li>
+                    <li>• Nationwide search radius</li>
+                    <li>• Access to premium inventory scope</li>
+                  </ul>
+                  <button
+                    type="button"
+                    disabled={isStartingCheckout}
+                    onClick={() => void startCheckout("premium")}
+                    className="mt-3 w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isStartingCheckout ? "Starting..." : "Subscribe Premium"}
+                  </button>
+                </div>
+              </div>
+
+              {upgradeError ? <p className="mt-3 text-sm text-red-600 dark:text-red-400">{upgradeError}</p> : null}
             </div>
           </div>
         )}
