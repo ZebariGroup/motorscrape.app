@@ -118,3 +118,32 @@ def test_resolve_inventory_url_for_provider_prefers_make_specific_ddc_srp_when_m
     )
     assert url == "https://www.suburbanbuickgmcoftroy.com/new-gmc/vehicles-troy-mi.htm"
 
+
+def test_resolve_inventory_url_for_provider_avoids_model_landing_for_make_only_ddc_search():
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-inventory",),
+        inventory_url_hint="https://www.foxbuickgmc.com/new-inventory/index.htm",
+    )
+    html = """
+    <html><body>
+      <a href="/new-inventory/gmc-yukon.htm">GMC Yukon</a>
+      <a href="/new-inventory/index.htm">New Inventory</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.foxbuickgmc.com/",
+        route,
+        fallback_url="https://www.foxbuickgmc.com/new-inventory/index.htm",
+        make="GMC",
+        model="",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.foxbuickgmc.com/new-inventory/index.htm?make=GMC"
+

@@ -8,6 +8,7 @@ type Props = {
   dealerList: DealershipProgress[];
   running: boolean;
   loadingDealerCards: unknown[];
+  listingCountsByDealerKey: Record<string, number>;
   nowMs: number;
   pinnedDealerWebsite: string | null;
   onTogglePinnedDealer: (website: string) => void;
@@ -17,6 +18,7 @@ export function DealerProgressList({
   dealerList,
   running,
   loadingDealerCards,
+  listingCountsByDealerKey,
   nowMs,
   pinnedDealerWebsite,
   onTogglePinnedDealer,
@@ -92,6 +94,8 @@ export function DealerProgressList({
               const phaseSec =
                 d.phaseSince != null ? Math.max(0, Math.floor((nowMs - d.phaseSince) / 1000)) : 0;
               const isBusy = d.status === "scraping" || d.status === "parsing";
+              const streamedListingCount = listingCountsByDealerKey[dealerSiteKey(d.website)] ?? 0;
+              const visibleListingsFound = Math.max(d.listings_found ?? 0, streamedListingCount);
               const canPin = Boolean(d.website?.trim());
               const isPinned = Boolean(
                 canPin &&
@@ -176,8 +180,8 @@ export function DealerProgressList({
                       {d.status === "scraping" ? (
                         <span className="text-zinc-500">Fetching… {phaseSec}s</span>
                       ) : null}
-                      {d.listings_found != null ? (
-                        <span className="text-zinc-500">{d.listings_found} listings</span>
+                      {d.listings_found != null || streamedListingCount > 0 ? (
+                        <span className="text-zinc-500">{visibleListingsFound} listings</span>
                       ) : null}
                     </div>
                     {d.info ? (

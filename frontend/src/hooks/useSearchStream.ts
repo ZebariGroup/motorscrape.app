@@ -10,6 +10,7 @@ import type { DealershipProgress, VehicleListing } from "@/types/inventory";
 
 /** Client-side result ordering (applied after filters). */
 export type ListingSortOrder = "price_asc" | "price_desc" | "mileage_asc" | "year_desc";
+const DEFAULT_MAX_PAGES_PER_DEALER = "2";
 
 function listingSortTieBreak(a: AggregatedListing, b: AggregatedListing) {
   const ka = `${a.vin ?? ""}|${a.listing_url ?? ""}|${a.raw_title ?? ""}|${a.dealership ?? ""}`;
@@ -112,6 +113,16 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     () => dealerList.filter((d) => d.status === "done" || d.status === "error").length,
     [dealerList],
   );
+
+  const listingCountsByDealerKey = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const listing of listings) {
+      const key = dealerSiteKey(listing.dealership_website);
+      if (!key) continue;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [listings]);
 
   const targetDealerCount = useMemo(() => {
     const parsed = Number.parseInt(maxDealerships, 10);
@@ -316,6 +327,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       radius_miles: radiusMiles,
       inventory_scope: inventoryScope,
       max_dealerships: maxDealerships,
+      max_pages_per_dealer: DEFAULT_MAX_PAGES_PER_DEALER,
     });
     const url = `${streamUrl}?${params.toString()}`;
 
@@ -459,6 +471,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       discoveredDealerPercent,
       completedDealerPercent,
       doneDealerCount,
+      listingCountsByDealerKey,
       nowMs,
       pinnedDealerWebsite,
       togglePinnedDealer,

@@ -190,6 +190,7 @@ export function SearchExperience() {
               dealerList={dealers.dealerList}
               running={search.running}
               loadingDealerCards={dealers.loadingDealerCards}
+              listingCountsByDealerKey={dealers.listingCountsByDealerKey}
               nowMs={dealers.nowMs}
               pinnedDealerWebsite={dealers.pinnedDealerWebsite}
               onTogglePinnedDealer={dealers.togglePinnedDealer}

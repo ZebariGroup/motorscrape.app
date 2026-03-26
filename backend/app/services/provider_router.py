@@ -128,6 +128,17 @@ def _url_path_contains_token(url: str, token_norm: str) -> bool:
     return token_norm in _norm(path)
 
 
+def _looks_like_specific_dealer_dot_com_landing(url: str) -> bool:
+    path = urlsplit(url).path.lower().rstrip("/")
+    if not path.endswith(".htm") or path.endswith("/index.htm"):
+        return False
+    return (
+        path.startswith("/new-inventory/")
+        or path.startswith("/used-inventory/")
+        or path.startswith("/inventory/")
+    )
+
+
 def _dealer_on_condition_matches(url: str, condition: str) -> bool:
     path = urlsplit(url).path.lower()
     if condition == "new":
@@ -445,6 +456,37 @@ def resolve_inventory_url_for_provider(
             route
             and route.platform_id == "dealer_dot_com"
             and not model_norm
+            and _looks_like_specific_dealer_dot_com_landing(href)
+            and "vehicles" not in href_lower
+        ):
+            # Make-only searches should avoid model landing pages like
+            # /new-inventory/gmc-yukon.htm and prefer generic make SRPs.
+            score -= 120
+        if (
+            route
+            and route.platform_id == "dealer_dot_com"
+            and not model_norm
+            and make_norm
+            and f"/new-{_slugify_model_path(make)}/" in href_lower
+        ):
+            score += 70
+        if (
+            route
+            and route.platform_id == "dealer_dot_com"
+            and not model_norm
+            and make_norm
+            and _url_path_contains_token(href, make_norm)
+            and "inventory" not in href_lower
+            and "vehicles" not in href_lower
+            and f"/new-{_slugify_model_path(make)}/" not in href_lower
+            and f"/used-{_slugify_model_path(make)}/" not in href_lower
+            and "make=" not in href_lower
+        ):
+            score -= 90
+        if (
+            route
+            and route.platform_id == "dealer_dot_com"
+            and not model_norm
             and make_norm
             and _url_path_contains_token(href, make_norm)
         ):
@@ -549,6 +591,7 @@ def resolve_inventory_url_for_provider(
     if route and not model_norm and route.platform_id == "dealer_dot_com":
         hint = best_url if best_score > 0 else (route.inventory_url_hint if route else None) or fallback_url
         if make_norm:
+            make_slug = _slugify_model_path(make)
             make_hint_url: str | None = None
             make_hint_score = -1
             for a in soup.find_all("a", href=True):
@@ -557,11 +600,27 @@ def resolve_inventory_url_for_provider(
                 text = a.get_text(strip=True).lower()
                 if not _url_path_contains_token(href, make_norm):
                     continue
+                if (
+                    "inventory" not in href_lower
+                    and "vehicles" not in href_lower
+                    and f"/new-{make_slug}/" not in href_lower
+                    and f"/used-{make_slug}/" not in href_lower
+                    and "make=" not in href_lower
+                ):
+                    continue
                 if condition == "new" and ("used" in href_lower or "pre-owned" in text or "used" in text):
                     continue
                 if condition == "used" and "used" not in href_lower and "pre-owned" not in href_lower and "used" not in text:
                     continue
                 score = 30
+                if any(token in href_lower for token in ("research", "compare", "reviews", "schedule")):
+                    score -= 60
+                if _looks_like_specific_dealer_dot_com_landing(href) and "vehicles" not in href_lower:
+                    score -= 80
+                if condition == "new" and f"/new-{make_slug}/" in href_lower:
+                    score += 70
+                if condition == "used" and f"/used-{make_slug}/" in href_lower:
+                    score += 70
                 if "inventory" in href_lower:
                     score += 20
                 if "vehicles" in href_lower:
@@ -606,7 +665,8 @@ def resolve_inventory_url_for_provider(
                 )
             )
             make_specific_path = bool(make_norm) and _url_path_contains_token(generic_base, make_norm)
-            if path in {"", "/"} or (not is_canonical_srp and not make_specific_path):
+            specific_model_landing = _looks_like_specific_dealer_dot_com_landing(generic_base) and "vehicles" not in path
+            if path in {"", "/"} or specific_model_landing or (not is_canonical_srp and not make_specific_path):
                 generic_base = _canonical_dealer_dot_com_inventory_url(generic_base, condition)
                 generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "make", "model", "search"})
                 if make_norm:
