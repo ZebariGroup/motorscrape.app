@@ -16,6 +16,7 @@ export function SearchExperience() {
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
+  const [dismissedQuotaMessage, setDismissedQuotaMessage] = useState<string | null>(null);
 
   const refreshAccess = useCallback(() => {
     fetch(resolveApiUrl("/auth/access-summary"), { credentials: "include" })
@@ -36,12 +37,12 @@ export function SearchExperience() {
     const hits = search.errors.find(
       (e) => e.includes("Monthly free search limit reached") || e.includes("Monthly included searches are used up"),
     );
-    if (hits && !upgradeModalOpen) {
+    if (hits && !upgradeModalOpen && dismissedQuotaMessage !== hits) {
       setUpgradeModalOpen(true);
       setUpgradeError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- modal should open once per new quota hit
-  }, [search.errors, upgradeModalOpen]);
+  }, [search.errors, upgradeModalOpen, dismissedQuotaMessage]);
 
   const startCheckout = async (tier: "standard" | "premium") => {
     setUpgradeError(null);
@@ -240,7 +241,14 @@ export function SearchExperience() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setUpgradeModalOpen(false)}
+                  onClick={() => {
+                    const hits = search.errors.find(
+                      (e) =>
+                        e.includes("Monthly free search limit reached") || e.includes("Monthly included searches are used up"),
+                    );
+                    if (hits) setDismissedQuotaMessage(hits);
+                    setUpgradeModalOpen(false);
+                  }}
                   className="rounded-lg p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                   aria-label="Close"
                 >
