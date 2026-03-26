@@ -64,16 +64,19 @@ body {
 
 .scrape-truck {
   position: absolute;
-  left: -4.2rem;
+  left: -4.55rem;
   bottom: -0.2rem;
   width: 4.38rem;
   height: 2.2rem;
-  animation: scrape-truck-drive 4.6s linear infinite;
+  animation: scrape-truck-drive 18s linear infinite;
 }
 
 @keyframes scrape-truck-drive {
   0% {
     left: -4.55rem;
+  }
+  45% {
+    left: 100%;
   }
   100% {
     left: 100%;
