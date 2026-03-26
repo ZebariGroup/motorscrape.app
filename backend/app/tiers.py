@@ -41,7 +41,7 @@ class TierLimits:
 
 ANONYMOUS_LIMITS = TierLimits(
     max_dealerships=4,
-    max_pages_per_dealer=2,
+    max_pages_per_dealer=3,
     max_radius_miles=50,
     max_concurrent_searches=1,
     included_searches_per_month=0,
@@ -65,7 +65,7 @@ FREE_LIMITS = TierLimits(
 
 STANDARD_LIMITS = TierLimits(
     max_dealerships=10,
-    max_pages_per_dealer=4,
+    max_pages_per_dealer=6,
     max_radius_miles=30,
     max_concurrent_searches=2,
     included_searches_per_month=350,
@@ -77,7 +77,7 @@ STANDARD_LIMITS = TierLimits(
 
 PREMIUM_LIMITS = TierLimits(
     max_dealerships=20,
-    max_pages_per_dealer=6,
+    max_pages_per_dealer=10,
     max_radius_miles=250,
     max_concurrent_searches=3,
     included_searches_per_month=750,

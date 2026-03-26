@@ -77,12 +77,12 @@ class Settings(BaseSettings):
     # Max concurrent HTTP fetches per normalized dealer domain (avoids hammering shared infra).
     domain_fetch_concurrency: int = 1
     # Hard cap per dealer so one slow site cannot block final completion.
-    dealership_timeout: float = 150.0
+    dealership_timeout: float = 240.0
     # Max pages to follow per dealership inventory (default raised for better SRP coverage).
     max_pages_per_dealer: int = 3
-    # Absolute safety cap for auto-pagination so searches can keep following real result pages
-    # without running unbounded on pathological sites.
-    search_max_pages_per_dealer_cap: int = 50
+    # Absolute safety cap for auto-pagination. Each page fetch can take 10-30s through
+    # managed scrapers, so this must stay low enough to fit within dealership_timeout.
+    search_max_pages_per_dealer_cap: int = 12
     # Max HTML chars sent to the LLM per page (smaller = cheaper/faster).
     max_html_chars: int = 60_000
     # HTTP timeout for each scraper call (seconds).
