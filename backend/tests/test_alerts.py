@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-from fastapi.testclient import TestClient
-
 from app.config import settings
 from app.db.account_store import get_account_store
 from app.main import app
+from fastapi.testclient import TestClient
 
 
 def _signup_and_promote(client: TestClient) -> str:
