@@ -322,7 +322,9 @@ async def fetch_page_html(
         if metrics is not None:
             metrics[key] = metrics.get(key, 0) + 1
 
-    def _retry_waits(base_wait_ms: int) -> tuple[int, ...]:
+    def _retry_waits(base_wait_ms: int, *, has_embedded_waits: bool = False) -> tuple[int, ...]:
+        if has_embedded_waits:
+            return (0,)
         waits = [max(0, base_wait_ms)]
         if page_kind == "inventory":
             waits.append(max(base_wait_ms * 2, base_wait_ms + 3000, 6000))
@@ -352,7 +354,10 @@ async def fetch_page_html(
             return pw_early
 
         if settings.zenrows_api_key:
-            for wait_ms in _retry_waits(settings.zenrows_wait_ms):
+            for wait_ms in _retry_waits(
+                settings.zenrows_wait_ms,
+                has_embedded_waits=bool(zenrows_js_instructions),
+            ):
                 html = await zenrows_try_once(
                     url=url,
                     timeout=timeout,
@@ -469,13 +474,16 @@ async def fetch_page_html(
                     )
 
         if allow_managed_js_render:
-            for wait_ms in _retry_waits(settings.zenrows_wait_ms):
-                effective_render_plan = (
-                    inventory_render_plan_for_url(effective_url, platform_id=platform_id)
-                    if page_kind == "inventory"
-                    else None
-                )
-                js_instructions = effective_render_plan.zenrows_js_instructions if effective_render_plan else None
+            effective_render_plan = (
+                inventory_render_plan_for_url(effective_url, platform_id=platform_id)
+                if page_kind == "inventory"
+                else None
+            )
+            js_instructions = effective_render_plan.zenrows_js_instructions if effective_render_plan else None
+            for wait_ms in _retry_waits(
+                settings.zenrows_wait_ms,
+                has_embedded_waits=bool(js_instructions),
+            ):
 
                 html = await zenrows_try_once(
                     url=effective_url,
@@ -707,7 +715,7 @@ async def _zenrows_fetch(
         "url": url,
         "js_render": "true" if js_render else "false",
     }
-    if js_render and wait_ms > 0:
+    if js_render and wait_ms > 0 and not js_instructions:
         params["wait"] = str(wait_ms)
     if js_render and js_instructions:
         params["js_instructions"] = js_instructions

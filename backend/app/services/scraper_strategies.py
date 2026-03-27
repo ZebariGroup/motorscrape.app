@@ -56,7 +56,7 @@ def _should_retry_zenrows_error_with_premium_proxy(error: Exception) -> bool:
     if settings.zenrows_premium_proxy:
         return False
     if isinstance(error, httpx.HTTPStatusError):
-        return error.response.status_code in {403, 404, 422, 429}
+        return error.response.status_code in {403, 404, 422}
     lowered = _zenrows_error_string(error).lower()
     return "server disconnected" in lowered or "remoteprotocolerror" in lowered
 

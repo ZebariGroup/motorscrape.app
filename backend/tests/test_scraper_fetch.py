@@ -217,6 +217,7 @@ async def test_fetch_page_html_oneaudi_uses_compact_zenrows_instructions(
 
     def zenrows_route(request: httpx.Request) -> Response:
         captured["js_instructions"] = request.url.params.get("js_instructions")
+        captured["wait"] = request.url.params.get("wait")
         return Response(200, text="<html><body>" + _inventory_html() + "</body></html>")
 
     respx.get("https://api.zenrows.com/v1/").mock(side_effect=zenrows_route)
@@ -234,6 +235,37 @@ async def test_fetch_page_html_oneaudi_uses_compact_zenrows_instructions(
     assert instructions is not None
     assert len(instructions) < 2500
     assert instructions.count("window.__zrClickMore=()=>") == 1
+    assert captured.get("wait") in (None, "")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_page_html_does_not_premium_retry_on_zenrows_concurrency_limit(
+    zenrows_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ZENROWS_PREMIUM_PROXY", "false")
+    _fresh_settings(monkeypatch)
+    respx.get("https://blocked.example/").mock(return_value=Response(403, text="denied"))
+    calls: list[str] = []
+
+    def zenrows_route(request: httpx.Request) -> Response:
+        premium = request.url.params.get("premium_proxy") == "true"
+        calls.append("premium" if premium else "standard")
+        return Response(
+            429,
+            json={
+                "code": "AUTH006",
+                "detail": "Too many concurrent requests",
+            },
+        )
+
+    respx.get("https://api.zenrows.com/v1/").mock(side_effect=zenrows_route)
+
+    with pytest.raises(RuntimeError, match="All fetch methods failed"):
+        await fetch_page_html("https://blocked.example/", page_kind="homepage")
+
+    assert calls
+    assert all(call == "standard" for call in calls)
 
 
 @respx.mock
