@@ -176,8 +176,6 @@ export function SearchExperience() {
           inventoryScopePremium={scopePremium}
           allowAnyModel={access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom"}
         />
-        <EmailAlertPanel access={access} criteria={alertCriteria} canSearch={canSearch} dismissible />
-
         <div className="grid gap-8 lg:grid-cols-3">
           <section className="lg:col-span-1">
             <ResultFiltersPanel
@@ -200,6 +198,7 @@ export function SearchExperience() {
               setPriceFilterMax={filters.setPriceFilterMax}
               onClearFilters={filters.clearFilters}
             />
+            <EmailAlertPanel access={access} criteria={alertCriteria} canSearch={canSearch} compact />
             <DealerProgressList
               dealerList={dealers.dealerList}
               running={search.running}
