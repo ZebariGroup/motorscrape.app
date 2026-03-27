@@ -303,18 +303,53 @@ def _family_inventory_path_score(url: str, condition: str) -> int:
 
 
 def _team_velocity_inventory_path_score(url: str, condition: str) -> int:
-    path = urlsplit(url).path.lower().rstrip("/")
+    parts = urlsplit(url)
+    path = parts.path.lower().rstrip("/")
+    query = {k.lower(): v.lower() for k, v in parse_qsl(parts.query, keep_blank_values=True)}
+    score = 0
+    if path == "/--inventory":
+        query_condition = query.get("condition", "").strip().lower()
+        if condition == "new":
+            if query_condition == "new":
+                score += 125
+            elif query_condition in {"used", "pre-owned", "preowned"}:
+                score -= 70
+            elif not query_condition:
+                score += 20
+        elif condition == "used":
+            if query_condition in {"used", "pre-owned", "preowned"}:
+                score += 125
+            elif query_condition == "new":
+                score -= 70
+            elif not query_condition:
+                score += 20
+        else:
+            if not query:
+                score += 130
+            elif query_condition:
+                score -= 80
+
+        scoped_query_keys = {"make", "model", "category", "subcategory", "customsearch", "year", "pg", "page"}
+        scoped_key_count = len(scoped_query_keys.intersection(query))
+        if scoped_key_count:
+            score -= 70 + (10 * scoped_key_count)
+
+    if path == "/inventory/v1":
+        if condition == "all":
+            score += 60
+        else:
+            score += 15
     if condition == "new":
         if path.endswith("/inventory/new"):
-            return 90
+            score += 90
         if "/inventory/new/" in path:
-            return -40
+            score -= 40
     if condition == "used":
         if path.endswith("/inventory/used"):
-            return 90
+            score += 90
         if "/inventory/used/" in path:
-            return -40
-    return 0
+            score -= 40
+    return score
 
 
 def _d2c_media_inventory_path_score(url: str, condition: str) -> int:
@@ -332,6 +367,18 @@ def _d2c_media_inventory_path_score(url: str, condition: str) -> int:
         if path.startswith("/used/") and path.endswith(".html") and path != "/used/search.html":
             return -40
     return 0
+
+
+def _canonical_team_velocity_inventory_url(base_url: str, condition: str) -> str:
+    parts = urlsplit(base_url)
+    cond = (condition or "all").strip().lower()
+    if cond == "new":
+        query = urlencode({"condition": "new"})
+    elif cond == "used":
+        query = urlencode({"condition": "pre-owned"})
+    else:
+        query = ""
+    return urlunsplit((parts.scheme, parts.netloc, "/--inventory", query, ""))
 
 
 def _hyundai_inventory_path_score(url: str, condition: str) -> int:
@@ -841,6 +888,15 @@ def resolve_inventory_url_for_provider(
         if generic_base:
             generic_base = _canonical_dealer_inspire_inventory_url(generic_base, condition)
             best_url = generic_base
+
+    if route and not model_norm and not make_norm and route.platform_id == "team_velocity":
+        generic_base = _normalize_inventory_candidate_url(
+            best_url if best_score > 0 else (route.inventory_url_hint if route else None) or fallback_url
+        )
+        if generic_base:
+            path = urlsplit(generic_base).path.lower().rstrip("/")
+            if path in {"", "/", "/inventory/v1"}:
+                best_url = _canonical_team_velocity_inventory_url(generic_base, condition)
 
     if model_norm and route:
         generic_base = _normalize_inventory_candidate_url(

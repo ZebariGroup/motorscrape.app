@@ -3,6 +3,90 @@ from urllib.parse import parse_qs, urlsplit
 from app.services.provider_router import ProviderRoute, resolve_inventory_url_for_provider
 
 
+def test_resolve_inventory_url_for_provider_prefers_team_velocity_all_inventory_for_unfiltered_search() -> None:
+    route = ProviderRoute(
+        platform_id="team_velocity",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory",),
+        inventory_url_hint="https://www.examplepowersports.com/inventory/v1/",
+    )
+    html = """
+    <html><body>
+      <a href="/inventory/v1/">Inventory</a>
+      <a href="/--inventory">All Inventory</a>
+      <a href="/--inventory?condition=new">New Inventory</a>
+      <a href="/--inventory?condition=pre-owned">Pre-Owned Inventory</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.examplepowersports.com/",
+        route,
+        fallback_url="https://www.examplepowersports.com/inventory/v1/",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.examplepowersports.com/--inventory"
+
+
+def test_resolve_inventory_url_for_provider_avoids_scoped_team_velocity_used_links_when_filters_empty() -> None:
+    route = ProviderRoute(
+        platform_id="team_velocity",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory",),
+        inventory_url_hint="https://www.examplepowersports.com/inventory/v1/",
+    )
+    html = """
+    <html><body>
+      <a href="/--inventory?condition=pre-owned">Pre-Owned Inventory</a>
+      <a href="/--inventory?condition=pre-owned&amp;make=harley-davidson&amp;pg=1">Harley Used Inventory</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.examplepowersports.com/",
+        route,
+        fallback_url="https://www.examplepowersports.com/inventory/v1/",
+        vehicle_condition="used",
+    )
+    assert url == "https://www.examplepowersports.com/--inventory?condition=pre-owned"
+
+
+def test_resolve_inventory_url_for_provider_promotes_team_velocity_inventory_v1_to_canonical_all() -> None:
+    route = ProviderRoute(
+        platform_id="team_velocity",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory",),
+        inventory_url_hint=None,
+    )
+    html = """
+    <html><body>
+      <a href="/inventory/v1/">Inventory</a>
+      <a href="/--inventory?condition=new">New Inventory</a>
+      <a href="/--inventory?condition=pre-owned">Pre-Owned Inventory</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.examplepowersports.com/",
+        route,
+        fallback_url="https://www.examplepowersports.com/inventory/v1/",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.examplepowersports.com/--inventory"
+
+
 def test_resolve_inventory_url_for_provider_fixes_express_urls():
     route = ProviderRoute(
         platform_id="dealer_dot_com",

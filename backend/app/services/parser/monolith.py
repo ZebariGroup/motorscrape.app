@@ -1231,12 +1231,21 @@ def _pick_dom_vehicle_image(card: Any, page_url: str) -> str | None:
     preferred_selectors = (
         ".hero-carousel__background-image--grid",
         ".hero-carousel__background-image--list",
+        ".vehicle__image[data-src]",
         ".vehicle-image img",
         "img[src]",
     )
     for selector in preferred_selectors:
         for img in card.select(selector):
             src = (img.get("src") or "").strip()
+            if not src:
+                raw_data_src = (img.get("data-src") or "").strip()
+                if raw_data_src:
+                    src = raw_data_src.split("|", 1)[0].strip()
+            if not src:
+                raw_bg = (img.get("data-dsp-small-image") or "").strip()
+                if raw_bg.startswith("url(") and raw_bg.endswith(")"):
+                    src = raw_bg[4:-1].strip().strip("'\"")
             if not src:
                 continue
             lower = src.lower()
@@ -1366,12 +1375,17 @@ def extract_dom_vehicle_cards(
         ".inventoryList-bike",
         ".result-wrap.new-vehicle",
         ".new-vehicle[data-vehicle]",
+        ".brandInventoryCard",
+        ".v7list-results__item",
+        ".v7list-vehicle",
         ".si-vehicle-box",
         ".carbox",
         ".inventory-vehicle-block",
         ".vehicle-box",
         ".vehicle-specials",
         "[data-vehicle-vin]",
+        "li[data-unit-id]",
+        "li[data-unit-condition]",
         ".c-widget--vehicle",
         "li[data-component='result-tile']",
         "[data-component='result-tile']",
@@ -1383,16 +1397,45 @@ def extract_dom_vehicle_cards(
 
         payload = _parse_dom_vehicle_payload(card)
         card_text = card.get_text(" ", strip=True)
+        tv_title = " ".join(
+            part
+            for part in (
+                _text_or_none(card.select_one(".vehicle-heading__year")),
+                _text_or_none(card.select_one(".vehicle-heading__name")),
+                _text_or_none(card.select_one(".vehicle-heading__model")),
+            )
+            if part
+        ).strip()
+        tv_condition = _text_or_none(card.select_one(".vehicle-specs__item--condition .vehicle-specs__value"))
+        tv_location = _text_or_none(card.select_one(".vehicle-specs__item--location .vehicle-specs__value"))
+        tv_stock = _text_or_none(card.select_one(".vehicle-specs__item--stock-number .vehicle-specs__value"))
+        tv_vin = _text_or_none(card.select_one(".vehicle-specs__item--vin .vehicle-specs__value"))
+        tv_current_price = _text_or_none(card.select_one(".vehicle-price--current .vehicle-price__price"))
+        tv_old_price = _text_or_none(card.select_one(".vehicle-price--old .vehicle-price__price"))
+        tv_savings = _text_or_none(card.select_one(".vehicle-price--savings .vehicle-price__price"))
         vin = (
             card.get("data-vin")
             or card.get("data-vehicle-vin")
             or card.get("data-dotagging-item-id")
             or payload.get("vin")
+            or tv_vin
             or _extract_vin_from_text(card_text)
         )
-        make = card.get("data-make") or card.get("data-vehicle-make") or card.get("data-dotagging-item-make") or payload.get("make")
+        make = (
+            card.get("data-make")
+            or card.get("data-vehicle-make")
+            or card.get("data-dotagging-item-make")
+            or card.get("data-unit-make")
+            or payload.get("make")
+        )
         model = card.get("data-model") or card.get("data-vehicle-model-name") or card.get("data-dotagging-item-model") or payload.get("model")
-        year = _coerce_int(card.get("data-year") or card.get("data-vehicle-model-year") or card.get("data-dotagging-item-year") or payload.get("year"))
+        year = _coerce_int(
+            card.get("data-year")
+            or card.get("data-vehicle-model-year")
+            or card.get("data-dotagging-item-year")
+            or card.get("data-unit-year")
+            or payload.get("year")
+        )
         trim = card.get("data-trim") or card.get("data-vehicle-trim") or card.get("data-dotagging-item-variant") or payload.get("trim")
         usage_value, usage_unit = _pick_usage_from_dict(
             {
@@ -1411,6 +1454,7 @@ def extract_dom_vehicle_cards(
             or card.get("data-list-price")
             or card.get("data-retail-price")
             or payload.get("msrp")
+            or tv_old_price
         )
         price = _coerce_float(
             card.get("data-price")
@@ -1419,6 +1463,7 @@ def extract_dom_vehicle_cards(
             or payload.get("price")
             or payload.get("internetPrice")
             or payload.get("salePrice")
+            or tv_current_price
         )
         if price in (None, 0.0):
             price = _pick_price_from_pricelib(card.get("data-pricelib")) or price
@@ -1429,6 +1474,10 @@ def extract_dom_vehicle_cards(
         if msrp_attr and price and msrp_attr - price >= 50:
             card_msrp = msrp_attr
             dealer_disc = msrp_attr - price
+        if dealer_disc in (None, 0.0):
+            tv_savings_value = _coerce_float(tv_savings)
+            if tv_savings_value and tv_savings_value > 0:
+                dealer_disc = tv_savings_value
         save_match = _SAVE_PRICE_MSRP_RE.search(card_text or "")
         if save_match:
             sm_price = _coerce_float(save_match.group("price"))
@@ -1450,8 +1499,12 @@ def extract_dom_vehicle_cards(
         is_in_stock = _coerce_bool(card.get("data-instock"))
         is_in_transit = _coerce_bool(card.get("data-intransit"))
         inventory_location = card.get("data-dotagging-item-location")
+        card_status_text = (
+            _text_or_none(card.select_one(".promotionBannerText"))
+            or _text_or_none(card.select_one(".fearuredCardLocation span:last-child"))
+        )
         availability_status = _build_availability_status(
-            status_text=None,
+            status_text=card_status_text,
             is_in_stock=is_in_stock,
             is_in_transit=is_in_transit,
             is_offsite=False,
@@ -1471,6 +1524,9 @@ def extract_dom_vehicle_cards(
         raw_title = (
             card.get("data-name")
             or _text_or_none(card.select_one(".inventoryList-bike-details-title > a"))
+            or _text_or_none(card.select_one(".vehicle-heading__link"))
+            or _text_or_none(card.select_one(".featuredCardHeading"))
+            or tv_title
             or _text_or_none(card.select_one(".vehicle-card__title"))
             or _text_or_none(card.select_one(".vehicleTitle"))
             or _text_or_none(card.select_one(".hit-title"))
@@ -1519,8 +1575,10 @@ def extract_dom_vehicle_cards(
             normalize_vehicle_condition(card.get("data-condition"))
             or normalize_vehicle_condition(card.get("data-newused"))
             or normalize_vehicle_condition(card.get("data-vehiclecondition"))
+            or normalize_vehicle_condition(card.get("data-unit-condition"))
             or normalize_vehicle_condition(payload.get("condition"))
             or normalize_vehicle_condition(payload.get("type"))
+            or normalize_vehicle_condition(tv_condition)
             or normalize_vehicle_condition(raw_title)
             or normalize_vehicle_condition(card_text)
             or normalize_vehicle_condition(listing_url)
@@ -1530,7 +1588,7 @@ def extract_dom_vehicle_cards(
                 "vin": vin,
                 "hin": payload.get("hin"),
                 "hullIdentificationNumber": payload.get("hullIdentificationNumber"),
-                "stock": card.get("data-stock") or payload.get("stock"),
+                "stock": card.get("data-stock") or payload.get("stock") or tv_stock,
                 "stockNo": card.get("data-stock-no") or payload.get("stockNo"),
             },
             vehicle_category=vehicle_category,
@@ -1562,7 +1620,7 @@ def extract_dom_vehicle_cards(
                 image_url=image_url,
                 listing_url=listing_url,
                 raw_title=str(raw_title).strip() if raw_title else None,
-                inventory_location=str(inventory_location).strip() if inventory_location else None,
+                inventory_location=str(inventory_location or tv_location).strip() if (inventory_location or tv_location) else None,
                 availability_status=availability_status,
                 is_offsite=False,
                 is_in_transit=is_in_transit,

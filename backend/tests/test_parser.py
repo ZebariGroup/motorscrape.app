@@ -52,6 +52,120 @@ def test_try_extract_dom_msrp_and_discount_from_attributes() -> None:
     assert v.days_on_lot == 18
 
 
+def test_try_extract_team_velocity_vehicle_card() -> None:
+    html = """
+    <html><body>
+      <li class="v7list-results__item" data-unit-condition="NEW" data-unit-id="17858891" data-unit-make="Can-Am" data-unit-year="2025">
+        <article class="v7list-vehicle">
+          <a class="vehicle__image" data-src="https://cdn.example.com/unit.jpg|https://cdn.example.com/unit-large.jpg"
+             href="/NEW-Inventory-2025-Can-Am-Utility-Vehicle-Defender-DPS-HD9-Compass-Green-17858891?ref=list"></a>
+          <h3 class="v7list-vehicle__heading">
+            <a class="vehicle-heading__link" href="/NEW-Inventory-2025-Can-Am-Utility-Vehicle-Defender-DPS-HD9-Compass-Green-17858891?ref=list">
+              <span class="vehicle-heading__year">2025</span>
+              <span class="vehicle-heading__name">Can-Am</span>
+              <span class="vehicle-heading__model">Defender DPS HD9 Compass Green</span>
+            </a>
+          </h3>
+          <span class="vehicle-price vehicle-price--old">
+            <span class="vehicle-price__price">$16,699</span>
+          </span>
+          <span class="vehicle-price vehicle-price--current">
+            <span class="vehicle-price__price">$12,699</span>
+          </span>
+          <span class="vehicle-price vehicle-price--savings">
+            <span class="vehicle-price__price">$4,000</span>
+          </span>
+          <ul class="vehicle-specs__list">
+            <li class="vehicle-specs__item vehicle-specs__item--condition">
+              <span class="vehicle-specs__value">NEW</span>
+            </li>
+            <li class="vehicle-specs__item vehicle-specs__item--location">
+              <span class="vehicle-specs__value">Powersports of Greenville</span>
+            </li>
+            <li class="vehicle-specs__item vehicle-specs__item--stock-number">
+              <span class="vehicle-specs__value">002341</span>
+            </li>
+            <li class="vehicle-specs__item vehicle-specs__item--vin">
+              <span class="vehicle-specs__value">3JBUGAP49SK002341</span>
+            </li>
+          </ul>
+        </article>
+      </li>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/--inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="motorcycle",
+        platform_id="team_velocity",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.year == 2025
+    assert v.make == "Can-Am"
+    assert v.model == "Defender"
+    assert v.trim == "DPS HD9 Compass Green"
+    assert v.price == 12699
+    assert v.msrp == 16699
+    assert v.dealer_discount == 4000
+    assert v.vehicle_condition == "new"
+    assert v.vin == "3JBUGAP49SK002341"
+    assert v.vehicle_identifier == "3JBUGAP49SK002341"
+    assert v.inventory_location == "Powersports of Greenville"
+    assert v.image_url == "https://cdn.example.com/unit.jpg"
+
+
+def test_try_extract_brand_inventory_boat_card() -> None:
+    html = """
+    <html><body>
+      <div class="brandInventoryCard">
+        <div class="brandInventoryImageContainer">
+          <a href="/used-pre-owned-boats-for-sale-detail/2023-robalo-r317-dual-console">
+            <img alt="2023 Robalo R317 Dual Console" src="https://images.example.com/robalo.jpg" />
+          </a>
+          <div class="promotionalBanner">
+            <p class="promotionBannerText">In Stock</p>
+          </div>
+        </div>
+        <div class="brandCardContent">
+          <a href="/used-pre-owned-boats-for-sale-detail/2023-robalo-r317-dual-console">
+            <h4 class="featuredCardHeading">2023 Robalo R317 Dual Console</h4>
+          </a>
+          <p class="featuredCardPrice">$269,900</p>
+          <p class="fearuredCardLocation">
+            <span class="textAfterLine">Used</span>
+            <span class="textAfterLine">31ft</span>
+            <span>In Stock</span>
+          </p>
+        </div>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/boats-for-sale",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.vehicle_category == "boat"
+    assert v.year == 2023
+    assert v.make == "Robalo"
+    assert v.model == "R317"
+    assert v.trim == "Dual Console"
+    assert v.price == 269900
+    assert v.vehicle_condition == "used"
+    assert v.image_url == "https://images.example.com/robalo.jpg"
+    assert v.listing_url == "https://dealer.example/used-pre-owned-boats-for-sale-detail/2023-robalo-r317-dual-console"
+    assert v.availability_status is not None
+
+
 def test_try_extract_boat_usage_and_identifier() -> None:
     html = """
     <html><body>
