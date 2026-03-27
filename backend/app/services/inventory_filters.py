@@ -40,9 +40,38 @@ def infer_vehicle_condition_from_page(page_url: str, html: str) -> str | None:
     query_pairs = parse_qsl(parts.query, keep_blank_values=True)
     query_blob = " ".join(f"{k}={v}" for k, v in query_pairs)
     hay = f"{parts.path} {query_blob}"
-    if any(token in hay for token in ("used-inventory", "used-vehicles", "searchused", "pre-owned", "preowned")):
+    query = {k.lower(): v.lower() for k, v in query_pairs}
+    if any(
+        token in hay
+        for token in (
+            "used-inventory",
+            "used-vehicles",
+            "searchused",
+            "inventory/used",
+            "search/used",
+            "detail/used",
+            "cars/used",
+            "pre-owned",
+            "preowned",
+        )
+    ):
         return "used"
-    if any(token in hay for token in ("new-inventory", "new-vehicles", "searchnew")):
+    if any(
+        token in hay
+        for token in (
+            "new-inventory",
+            "new-vehicles",
+            "searchnew",
+            "inventory/new",
+            "search/new",
+            "detail/new",
+            "cars/new",
+        )
+    ):
+        return "new"
+    if query.get("tp") == "used" or query.get("condition") == "used":
+        return "used"
+    if query.get("tp") == "new" or query.get("condition") == "new":
         return "new"
     return None
 
