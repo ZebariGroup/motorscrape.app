@@ -1363,6 +1363,7 @@ def extract_dom_vehicle_cards(
 
     selectors = (
         ".vehicle-card",
+        ".inventoryList-bike",
         ".result-wrap.new-vehicle",
         ".new-vehicle[data-vehicle]",
         ".si-vehicle-box",
@@ -1469,6 +1470,7 @@ def extract_dom_vehicle_cards(
         )
         raw_title = (
             card.get("data-name")
+            or _text_or_none(card.select_one(".inventoryList-bike-details-title > a"))
             or _text_or_none(card.select_one(".vehicle-card__title"))
             or _text_or_none(card.select_one(".vehicleTitle"))
             or _text_or_none(card.select_one(".hit-title"))
