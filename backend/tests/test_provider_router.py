@@ -259,6 +259,37 @@ def test_resolve_inventory_url_for_provider_avoids_single_brand_bmw_marketing_la
     assert url == "https://www.bmwofrochesterhills.com/new-inventory/index.htm"
 
 
+def test_resolve_inventory_url_for_provider_keeps_gm_family_all_inventory_index() -> None:
+    route = ProviderRoute(
+        platform_id="gm_family_inventory",
+        confidence=1.0,
+        extraction_mode="structured_html",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory/new", "inventory/used", "new-", "used-", "certified", "pre-owned"),
+        inventory_url_hint=None,
+    )
+    html = """
+    <html><body>
+      <a href="/all-inventory/index.htm">All Inventory</a>
+      <a href="/new-inventory/index.htm">New Inventory</a>
+      <a href="/certified-inventory/index.htm">Certified</a>
+      <a href="/new-inventory/cadillac-escalade-novi-mi.htm">Escalade</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.cadillacofnovi.com/",
+        route,
+        fallback_url="https://www.cadillacofnovi.com/certified-inventory/index.htm",
+        make="Cadillac",
+        model="",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.cadillacofnovi.com/all-inventory/index.htm"
+
+
 def test_resolve_inventory_url_for_provider_canonicalizes_stale_dealer_on_inventory_hint() -> None:
     route = ProviderRoute(
         platform_id="dealer_on",

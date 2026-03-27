@@ -115,10 +115,14 @@ def _find_inventory_url(
                 if "searchnew" in href or ("new" in href or "new" in text):
                     score -= 10
             else:
+                if "all-inventory" in href:
+                    score += 45
                 if "inventory" in href and "new" not in href and "used" not in href:
                     score += 15
                 if "new-inventory" in href or "used-inventory" in href:
                     score += 5
+                if "certified-inventory" in href or "certified" in text:
+                    score -= 20
 
             # Penalize non-inventory links
             if any(x in href for x in ["service", "parts", "finance", "contact", "about", "specials", "privacy"]):

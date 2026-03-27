@@ -552,6 +552,7 @@ def resolve_inventory_url_for_provider(
     for a in soup.find_all("a", href=True):
         href = _normalize_inventory_candidate_url(str(a["href"]))
         href_lower = href.lower()
+        href_path = urlsplit(href).path.lower().rstrip("/")
         text = a.get_text(strip=True).lower()
         combined_norm = _norm(f"{text} {href_lower}")
         score = 0
@@ -601,6 +602,21 @@ def resolve_inventory_url_for_provider(
         ):
             # Prefer make-family SRPs like /new-gmc/vehicles-*.htm over generic index pages.
             score += 90
+        if (
+            route
+            and route.platform_id in {"gm_family_inventory", "ford_family_inventory", "toyota_lexus_oem_inventory"}
+            and not model_norm
+            and _looks_like_specific_dealer_dot_com_landing(href)
+            and "vehicles" not in href_lower
+        ):
+            score -= 120
+        if route and route.platform_id in {"gm_family_inventory", "ford_family_inventory", "toyota_lexus_oem_inventory"}:
+            if condition == "new" and href_path.endswith("/new-inventory/index.htm"):
+                score += 120
+            elif condition == "used" and href_path.endswith("/used-inventory/index.htm"):
+                score += 120
+            elif condition == "all" and href_path.endswith("/all-inventory/index.htm"):
+                score += 120
         score += _model_href_match_score(href_lower, text, model_norm)
 
         if "for-sale" in href_lower:
