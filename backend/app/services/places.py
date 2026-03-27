@@ -28,6 +28,39 @@ SEARCH_FIELD_MASK = (
 DETAILS_FIELD_MASK = "websiteUri"
 LOCATION_FIELD_MASK = "places.location"
 SUPPORTED_VEHICLE_CATEGORIES = {"car", "motorcycle", "boat", "other"}
+_CATEGORY_CONTEXT_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "car": ("auto", "automotive", "motors", "car", "cars", "truck", "trucks"),
+    "motorcycle": (
+        "motorcycle",
+        "motorcycles",
+        "powersports",
+        "power sports",
+        "motorsports",
+        "moto",
+        "bike",
+        "bikes",
+        "atv",
+        "utv",
+        "side-by-side",
+        "side x side",
+        "can-am",
+        "sea-doo",
+    ),
+    "boat": (
+        "boat",
+        "boats",
+        "boating",
+        "marine",
+        "marina",
+        "yacht",
+        "yachts",
+        "pontoon",
+        "wake",
+        "fishing",
+        "outboard",
+    ),
+    "other": ("powersports", "motorsports", "marine", "boat", "motorcycle"),
+}
 _CATEGORY_SEARCH_CONFIG: dict[str, dict[str, Any]] = {
     "car": {
         "included_type": "car_dealer",
@@ -81,6 +114,21 @@ def _name_matches_make(dealer_name: str, make: str) -> bool:
     mk_compact = "".join(ch for ch in mk if ch.isalnum())
     nm_compact = "".join(ch for ch in nm if ch.isalnum())
     return mk in nm or (mk_compact and mk_compact in nm_compact)
+
+
+def _dealer_matches_category_context(
+    dealer_name: str,
+    website: str,
+    *,
+    vehicle_category: str,
+) -> bool:
+    category = _normalize_vehicle_category(vehicle_category)
+    if category == "car":
+        return True
+    hay = " ".join(filter(None, [dealer_name, website])).strip().lower()
+    if not hay:
+        return False
+    return any(keyword in hay for keyword in _CATEGORY_CONTEXT_KEYWORDS.get(category, ()))
 
 
 async def _search_places_text(
@@ -389,7 +437,27 @@ async def find_dealerships(
             )
 
         if not make_q:
-            return results
+            if category == "car":
+                return results
+            category_matches = [
+                d for d in results if _dealer_matches_category_context(d.name, d.website or "", vehicle_category=category)
+            ]
+            return category_matches if category_matches else results
+
+        if category != "car":
+            category_brand_matches = [
+                d
+                for d in results
+                if _name_matches_make(" ".join(filter(None, [d.name, d.website or ""])), make_q)
+                and _dealer_matches_category_context(d.name, d.website or "", vehicle_category=category)
+            ]
+            if category_brand_matches:
+                return category_brand_matches
+            category_matches = [
+                d for d in results if _dealer_matches_category_context(d.name, d.website or "", vehicle_category=category)
+            ]
+            if category_matches:
+                return category_matches
 
         brand_matches = [d for d in results if _name_matches_make(d.name, make_q)]
         # If we found brand-specific dealers, prefer those so searches feel sane to users.

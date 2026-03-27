@@ -49,7 +49,19 @@ Extraction rules:
 - Data may be provided as structured JSON extracted from the page. Parse it the same way.
 """
 
-_INVENTORY_KEYS = {"make", "model", "vin", "stock", "stockno", "stock_no", "bodystyle", "bodytype"}
+_INVENTORY_KEYS = {
+    "make",
+    "model",
+    "vin",
+    "hin",
+    "stock",
+    "stockno",
+    "stock_no",
+    "bodystyle",
+    "bodytype",
+    "enginehours",
+    "engine_hours",
+}
 
 _VEHICLE_KEEP_KEYS = {
     "make", "model", "trim", "year", "miles", "mileage", "price",
@@ -59,6 +71,7 @@ _VEHICLE_KEEP_KEYS = {
     "imagespath", "images_path", "imageurl", "image_url",
     "cylinders", "doors", "fueltype", "status", "condition",
     "vehiclecondition", "newused", "inventorytype", "itemcondition",
+    "hin", "hullidentificationnumber", "enginehours", "engine_hours",
 }
 
 _VEHICLE_FULL_REGEX = re.compile(
@@ -107,6 +120,24 @@ _DISPLAY_RANGE_TOTAL_RES = (
     ),
 )
 _PAGE_OF_TOTAL_RE = re.compile(r"\bpage\s+(?P<page>\d{1,5})\s+of\s+(?P<total>\d{1,5})\b", re.I)
+_KNOWN_MAKE_PREFIXES = tuple(
+    sorted(
+        {
+            "Alfa Romeo",
+            "Land Rover",
+            "Mercedes-Benz",
+            "Harley-Davidson",
+            "Indian Motorcycle",
+            "BMW Motorrad",
+            "Can-Am",
+            "Sea Ray",
+            "Yamaha Boats",
+            "Ranger Boats",
+        },
+        key=len,
+        reverse=True,
+    )
+)
 
 
 def _truncate(text: str, max_chars: int) -> str:
@@ -531,6 +562,18 @@ def _parse_title_fields(raw_title: str | None) -> dict[str, Any]:
     rest = match.group("rest").strip()
     parts = rest.split()
     out: dict[str, Any] = {"raw_title": title, "year": _coerce_int(match.group("year"))}
+    rest_lower = rest.lower()
+    for make_prefix in _KNOWN_MAKE_PREFIXES:
+        prefix_lower = make_prefix.lower()
+        if rest_lower == prefix_lower or rest_lower.startswith(f"{prefix_lower} "):
+            remainder = rest[len(make_prefix):].strip()
+            remainder_parts = remainder.split()
+            out["make"] = make_prefix
+            if remainder_parts:
+                out["model"] = remainder_parts[0]
+            if len(remainder_parts) >= 2:
+                out["trim"] = " ".join(remainder_parts[1:])
+            return out
     if parts:
         out["make"] = parts[0]
     if len(parts) >= 2:

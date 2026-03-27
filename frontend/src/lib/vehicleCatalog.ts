@@ -174,10 +174,100 @@ const CAR_CATALOG = [
   },
 ] as const;
 
+const MOTORCYCLE_CATALOG = [
+  {
+    make: "BMW Motorrad",
+    models: ["C 400 GT", "F 800 GS", "F 900 GS", "F 900 R", "M 1000 RR", "R 12", "R 1300 GS", "R 18", "S 1000 RR", "S 1000 XR"],
+  },
+  {
+    make: "Can-Am",
+    models: ["Canyon", "Ryker", "Ryker Rally", "Spyder F3", "Spyder RT", "Spyder Sea-to-Sky"],
+  },
+  {
+    make: "Ducati",
+    models: ["DesertX", "Diavel V4", "Hypermotard 698 Mono", "Monster", "Multistrada V4", "Panigale V2", "Panigale V4", "Scrambler Icon", "Streetfighter V2", "Streetfighter V4", "Supersport 950"],
+  },
+  {
+    make: "Harley-Davidson",
+    models: ["Breakout", "Fat Boy", "Heritage Classic", "Low Rider S", "Nightster", "Pan America 1250 ST", "Road Glide", "Road King Special", "Sportster S", "Street Bob", "Street Glide"],
+  },
+  {
+    make: "Honda",
+    models: ["Africa Twin", "CB500F", "CB650R", "CBR500R", "CBR650R", "CRF300L", "Gold Wing", "Rebel 500", "Rebel 1100", "Shadow Phantom", "Transalp"],
+  },
+  {
+    make: "Indian Motorcycle",
+    models: ["101 Scout", "Chief Bobber", "Challenger", "Chieftain", "FTR", "Pursuit", "Roadmaster", "Scout", "Scout Bobber", "Scout Sixty", "Sport Chief"],
+  },
+  {
+    make: "Kawasaki",
+    models: ["Eliminator", "KLR650", "Ninja 500", "Ninja 650", "Ninja ZX-4RR", "Ninja ZX-6R", "Versys 650", "Vulcan S", "Z500", "Z650", "Z900"],
+  },
+  {
+    make: "KTM",
+    models: ["1290 Super Duke R EVO", "250 Duke", "390 Adventure", "390 Duke", "690 Enduro R", "790 Duke", "890 Adventure", "890 Duke R", "RC 390", "Super Adventure S", "Supermoto R"],
+  },
+  {
+    make: "Suzuki",
+    models: ["DR-Z4S", "GSX-8R", "GSX-8S", "GSX-R600", "GSX-R750", "GSX-S1000", "Hayabusa", "Katana", "SV650", "V-Strom 650", "V-Strom 800"],
+  },
+  {
+    make: "Triumph",
+    models: ["Bonneville Bobber", "Bonneville T100", "Bonneville T120", "Daytona 660", "Rocket 3", "Scrambler 1200", "Speed Triple 1200 RS", "Speed Twin 900", "Street Triple 765", "Tiger 900", "Trident 660"],
+  },
+  {
+    make: "Yamaha",
+    models: ["Bolt R-Spec", "MT-03", "MT-07", "MT-09", "Tenere 700", "Tracer 9", "XSR700", "XSR900", "YZF-R3", "YZF-R7", "YZF-R9"],
+  },
+] as const;
+
+const BOAT_CATALOG = [
+  {
+    make: "Bayliner",
+    models: ["Ciera 8", "DX2000", "DX2050", "M15", "M17", "M19", "T18", "T20", "T22CC", "VR4", "VR5"],
+  },
+  {
+    make: "Bennington",
+    models: ["20 SVL", "21 SSB", "22 SXSR", "23 LSB", "24 LXSB", "24 RX Sport", "25 QX Sport"],
+  },
+  {
+    make: "Chaparral",
+    models: ["19 SSi", "21 Surf", "21 SSi", "23 Surf", "23 SSi", "247 SSX", "250 OSX", "267 SSX", "30 Surf"],
+  },
+  {
+    make: "Lund",
+    models: ["1650 Angler", "1875 Crossover XS", "1875 Impact XS", "1875 Pro-V Bass XS", "1975 Tyee", "2025 Impact XS", "2075 Pro-V Bass XS"],
+  },
+  {
+    make: "Malibu",
+    models: ["20 VTX", "21 LX", "21 MLX", "22 LSV", "23 LSV", "23 MXZ", "24 MXZ", "25 LSV", "M220", "M230", "M240"],
+  },
+  {
+    make: "MasterCraft",
+    models: ["NXT20", "NXT22", "NXT24", "ProStar", "X22", "X24", "XStar", "XT22", "XT23"],
+  },
+  {
+    make: "Ranger Boats",
+    models: ["2080MS Angler", "620FS Pro", "621FS Pro", "RT178", "RT188", "VS1660 SC", "VS1682 WT", "Z175", "Z185", "Z520R"],
+  },
+  {
+    make: "Sea Ray",
+    models: ["SDX 250", "SDX 270", "SLX 260", "SLX 280", "SPX 190", "SPX 210", "SPX 230", "Sundancer 320", "Sundancer 370"],
+  },
+  {
+    make: "Tracker",
+    models: ["Bass Tracker Classic XL", "Grizzly 1648", "Guide V-16 SC", "Pro Guide V-175 Combo", "Pro Team 175 TXW", "Pro Team 190 TX", "Targa V-18 Combo"],
+  },
+  {
+    make: "Yamaha Boats",
+    models: ["195S", "222XD", "252SD", "252XE", "255XD", "AR190", "AR220", "AR250", "SX190", "SX220"],
+  },
+] as const;
+
 const VEHICLE_CATALOG_BY_CATEGORY: Record<VehicleCategory, readonly { make: string; models: readonly string[] }[]> = {
   car: CAR_CATALOG,
-  motorcycle: [],
-  boat: [],
+  motorcycle: MOTORCYCLE_CATALOG,
+  boat: BOAT_CATALOG,
   other: [],
 };
 

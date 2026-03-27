@@ -121,4 +121,20 @@ describe("useSearchStream", () => {
     expect(result.current.search.reconnecting).toBe(true);
     expect(result.current.search.status).toBe("Connection lost. Reconnecting...");
   });
+
+  it("should include vehicle category in the stream URL", () => {
+    const { result } = renderHook(() => useSearchStream());
+
+    act(() => {
+      result.current.form.setVehicleCategory("boat");
+      result.current.form.setLocation("Seattle");
+    });
+
+    act(() => {
+      result.current.search.startSearch();
+    });
+
+    expect(MockEventSource.instances.length).toBe(1);
+    expect(MockEventSource.instances[0].url).toContain("vehicle_category=boat");
+  });
 });

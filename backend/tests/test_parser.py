@@ -79,6 +79,28 @@ def test_try_extract_boat_usage_and_identifier() -> None:
     assert v.mileage is None
 
 
+def test_try_extract_boat_multiword_make_from_title_card() -> None:
+    html = """
+    <html><body>
+      <a class="c-widget--vehicle" href="/inventory/sea-ray-1">
+        2024 Sea Ray SLX 280
+      </a>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/boats",
+        html=html,
+        make_filter="Sea Ray",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.make == "Sea Ray"
+    assert v.model == "SLX"
+
+
 def test_try_extract_applies_page_make_scope_for_make_filtered_inventory_pages() -> None:
     html = """
     <html><body>

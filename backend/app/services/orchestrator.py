@@ -88,6 +88,8 @@ def _find_inventory_url(
 
             if "inventory" in href or "inventory" in text:
                 score += 20
+            if any(token in href or token in text for token in ("showroom", "boats", "boat", "marine", "motorcycle", "powersports", "models")):
+                score += 12
             if condition == "new":
                 if "new-inventory" in href:
                     score += 40

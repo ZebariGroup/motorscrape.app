@@ -196,6 +196,54 @@ async def test_find_dealerships_boats_uses_untyped_query(places_api_key: str) ->
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_find_dealerships_motorcycles_prefers_category_context(places_api_key: str) -> None:
+    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
+    search_response = {
+        "places": [
+            {
+                "id": "ChIJauto",
+                "name": "places/ChIJauto",
+                "displayName": {"text": "Honda of Testville"},
+                "formattedAddress": "123 Main",
+                "websiteUri": "https://hondaoftestville.example/",
+            },
+            {
+                "id": "ChIJmoto",
+                "name": "places/ChIJmoto",
+                "displayName": {"text": "Honda Powersports of Testville"},
+                "formattedAddress": "456 Main",
+                "websiteUri": "https://hondapowersports.example/",
+            },
+        ]
+    }
+
+    def _route(request: object) -> Response:
+        try:
+            raw = request.content.decode() if getattr(request, "content", None) else "{}"  # type: ignore[union-attr]
+            body = json.loads(raw) if raw else {}
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return Response(200, json={"places": []})
+        if body.get("textQuery") == "Detroit MI":
+            return Response(200, json=loc_response)
+        return Response(200, json=search_response)
+
+    respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
+
+    out = await places.find_dealerships(
+        "Detroit MI",
+        vehicle_category="motorcycle",
+        make="Honda",
+        limit=5,
+        radius_miles=25,
+    )
+    assert len(out) == 1
+    assert out[0].name == "Honda Powersports of Testville"
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_resolve_location_bias_returns_none_on_http_error(places_api_key: str) -> None:
     import httpx
 
