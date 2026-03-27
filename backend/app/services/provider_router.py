@@ -151,6 +151,15 @@ def _canonical_dealer_on_inventory_url(url: str, condition: str) -> str:
     return urlunsplit((parts.scheme, netloc, path, "", ""))
 
 
+def _canonical_dealer_inspire_inventory_url(url: str, condition: str) -> str:
+    parts = urlsplit(url)
+    if condition == "used":
+        path = "/used-vehicles/"
+    else:
+        path = "/new-vehicles/"
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
 def _looks_like_dealer_on_srp(url: str) -> bool:
     path = urlsplit(url).path.lower()
     return path.endswith("/searchnew.aspx") or path.endswith("/searchused.aspx")
@@ -824,6 +833,14 @@ def resolve_inventory_url_for_provider(
                 generic_base = _canonical_dealer_on_inventory_url(generic_base, condition)
             generic_base = _drop_query_keys(generic_base, {"Make", "make", "Model", "model", "ModelAndTrim", "modelandtrim", "search", "q"})
             best_url = _with_query_params(generic_base, {"Make": make}) if make_norm else generic_base
+
+    if route and not model_norm and route.platform_id == "dealer_inspire":
+        generic_base = _normalize_inventory_candidate_url(
+            (route.inventory_url_hint if route else None) or fallback_url
+        )
+        if generic_base:
+            generic_base = _canonical_dealer_inspire_inventory_url(generic_base, condition)
+            best_url = generic_base
 
     if model_norm and route:
         generic_base = _normalize_inventory_candidate_url(

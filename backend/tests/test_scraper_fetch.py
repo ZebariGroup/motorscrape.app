@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from app.services.scraper import fetch_page_html
+from app.services.scraper import _zenrows_fetch, fetch_page_html
 from httpx import Response
 
 
@@ -270,6 +270,41 @@ async def test_fetch_page_html_does_not_premium_retry_on_zenrows_concurrency_lim
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_zenrows_fetch_waits_for_active_cooldown(
+    zenrows_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fresh_settings(monkeypatch)
+    monkeypatch.setattr("app.services.scraper._zenrows_cooldown_until_monotonic", 1.0)
+    monotonic_values = [0.0, 1.2, 1.2]
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    def fake_monotonic() -> float:
+        if monotonic_values:
+            return monotonic_values.pop(0)
+        return 1.2
+
+    monkeypatch.setattr("app.services.scraper.time.monotonic", fake_monotonic)
+    monkeypatch.setattr("app.services.scraper.asyncio.sleep", fake_sleep)
+
+    respx.get("https://api.zenrows.com/v1/").mock(
+        return_value=Response(200, text="<html><body>" + _inventory_html() + "</body></html>")
+    )
+
+    html = await _zenrows_fetch(
+        "https://blocked.example/",
+        httpx.Timeout(5.0),
+        js_render=False,
+    )
+
+    assert "vehicle-card" in html
+    assert sleeps == [1.0]
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_zenrows_static_retries_with_premium_on_disconnect(
     zenrows_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -324,6 +359,27 @@ async def test_fetch_page_html_playwright_before_zenrows(monkeypatch: pytest.Mon
     assert method == "playwright"
     assert "vehicle-card" in html
     assert calls == ["pw"], "ZenRows should not run when Playwright succeeds"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_page_html_prefer_render_still_uses_direct_when_inventory_is_ready(
+    zenrows_key: None,
+) -> None:
+    respx.get("https://dealer.example/searchnew.aspx?Make=Chevrolet").mock(
+        return_value=Response(200, text=_inventory_html())
+    )
+    respx.get("https://api.zenrows.com/v1/").mock(return_value=Response(500, text="unused"))
+
+    html, method = await fetch_page_html(
+        "https://dealer.example/searchnew.aspx?Make=Chevrolet",
+        page_kind="inventory",
+        prefer_render=True,
+        platform_id="dealer_on",
+    )
+
+    assert method == "direct"
+    assert "vehicle-card" in html
 
 
 @respx.mock

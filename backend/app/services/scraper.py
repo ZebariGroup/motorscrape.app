@@ -63,6 +63,18 @@ def _zenrows_cooldown_active() -> bool:
     return time.monotonic() < _zenrows_cooldown_until_monotonic
 
 
+def _zenrows_cooldown_remaining_seconds() -> float:
+    return max(0.0, _zenrows_cooldown_until_monotonic - time.monotonic())
+
+
+async def _await_zenrows_cooldown_if_needed() -> None:
+    remaining = _zenrows_cooldown_remaining_seconds()
+    if remaining <= 0:
+        return
+    logger.info("Waiting %.1fs for ZenRows cooldown before retrying", remaining)
+    await asyncio.sleep(remaining)
+
+
 def _set_zenrows_cooldown(reason: str) -> None:
     global _zenrows_cooldown_until_monotonic
     cooldown_seconds = max(0, int(settings.zenrows_cooldown_seconds))
@@ -338,9 +350,11 @@ async def fetch_page_html(
     inventory_render_plan = inventory_render_plan_for_url(url, platform_id=platform_id) if page_kind == "inventory" else None
     playwright_instructions = inventory_render_plan.playwright_instructions if inventory_render_plan else None
     zenrows_js_instructions = inventory_render_plan.zenrows_js_instructions if inventory_render_plan else None
+    attempted_playwright_early = False
 
     if prefer_render and page_kind == "inventory":
         # OneAudi Falcon (and similar): try local browser before paid JS render APIs.
+        attempted_playwright_early = True
         pw_early = await _playwright_pass(
             url,
             timeout,
@@ -352,45 +366,6 @@ async def fetch_page_html(
         )
         if pw_early is not None:
             return pw_early
-
-        if settings.zenrows_api_key:
-            for wait_ms in _retry_waits(
-                settings.zenrows_wait_ms,
-                has_embedded_waits=bool(zenrows_js_instructions),
-            ):
-                html = await zenrows_try_once(
-                    url=url,
-                    timeout=timeout,
-                    page_kind=page_kind,
-                    failures=failures,
-                    metric_bump=_m,
-                    js_render=True,
-                    wait_ms=wait_ms,
-                    metric_prefix="zenrows_rendered",
-                    failure_label="zenrows_rendered_preferred",
-                    js_instructions=zenrows_js_instructions,
-                )
-                if html is not None:
-                    return html, "zenrows_rendered"
-
-        if settings.scrapingbee_api_key:
-            for wait_ms in _retry_waits(settings.scrapingbee_wait_ms):
-                try:
-                    html = await _scrapingbee_fetch(
-                        url,
-                        timeout,
-                        render_js=True,
-                        wait_ms=wait_ms,
-                    )
-                    html = await _maybe_append_inventory_api_data(url, html, timeout)
-                    if _direct_html_sufficient(html, page_kind=page_kind):
-                        _m("scrapingbee_rendered_ok")
-                        return html, "scrapingbee_rendered"
-                    _m("scrapingbee_rendered_insufficient")
-                except Exception as e:
-                    err_str = e.__class__.__name__ if not str(e) else str(e)
-                    logger.warning("ScrapingBee preferred rendered fetch failed for %s: %s", url, err_str)
-                    failures.append(f"scrapingbee_rendered_preferred: {err_str}")
 
     direct_urls = [url]
     saw_cloudflare_block = False
@@ -434,17 +409,18 @@ async def fetch_page_html(
             if idx + 1 < len(direct_urls):
                 continue
 
-    pw_result = await _playwright_pass(
-        effective_url,
-        timeout,
-        page_kind=page_kind,
-        failures=failures,
-        metric_bump=_m,
-        js_instructions=playwright_instructions if page_kind == "inventory" else None,
-        platform_id=platform_id,
-    )
-    if pw_result is not None:
-        return pw_result
+    if not attempted_playwright_early:
+        pw_result = await _playwright_pass(
+            effective_url,
+            timeout,
+            page_kind=page_kind,
+            failures=failures,
+            metric_bump=_m,
+            js_instructions=playwright_instructions if page_kind == "inventory" else None,
+            platform_id=platform_id,
+        )
+        if pw_result is not None:
+            return pw_result
 
     # 2) ZenRows: static then rendered
     if settings.zenrows_api_key:
@@ -721,16 +697,14 @@ async def _zenrows_fetch(
         params["js_instructions"] = js_instructions
     if settings.zenrows_premium_proxy or premium_proxy:
         params["premium_proxy"] = "true"
-    if _zenrows_cooldown_active():
-        raise RuntimeError("ZenRows temporarily in cooldown")
+    await _await_zenrows_cooldown_if_needed()
 
     attempts = max(1, int(settings.zenrows_request_attempts))
     backoff_seconds = max(0.0, float(settings.zenrows_retry_backoff_ms) / 1000.0)
     last_error: Exception | None = None
 
     for attempt in range(1, attempts + 1):
-        if _zenrows_cooldown_active():
-            raise RuntimeError("ZenRows temporarily in cooldown")
+        await _await_zenrows_cooldown_if_needed()
         try:
             zenrows_sem = await _zenrows_concurrency_gate()
             managed_sem = await _managed_scraper_concurrency_gate()

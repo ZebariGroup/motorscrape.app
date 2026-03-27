@@ -631,6 +631,9 @@ async def stream_search(
 
             # 1. Fetch homepage to find inventory link
             base_url = website
+            homepage_html: str | None = None
+            homepage_method: str | None = None
+            seed_inventory_url: str | None = None
             try:
                 homepage_timeout = _phase_timeout(fetch_timeout)
                 if homepage_timeout is None:
@@ -648,7 +651,7 @@ async def stream_search(
                         )
                     )
                     return chunks
-                html, method = await asyncio.wait_for(
+                homepage_html, homepage_method = await asyncio.wait_for(
                     _fetch(website, "homepage"),
                     timeout=homepage_timeout,
                 )
@@ -656,7 +659,7 @@ async def stream_search(
                 # If the homepage has a canonical link, it likely redirected to a different domain.
                 # Use the canonical URL as the new base website to ensure inventory links resolve correctly.
                 try:
-                    soup = BeautifulSoup(html, "lxml")
+                    soup = BeautifulSoup(homepage_html, "lxml")
                     canonical = soup.find("link", rel="canonical")
                     if canonical and canonical.get("href"):
                         canonical_href = canonical["href"].strip()
@@ -685,41 +688,97 @@ async def stream_search(
                 return chunks
             except Exception as e:
                 logger.warning(f"{cid_log}Scrape failed for %s: %s", website, e)
-                if domain:
-                    record_provider_failure(domain)
-                chunks.append(
-                    sse_pack(
-                        "dealership",
-                        {
-                            "index": index,
-                            "total": len(dealers),
-                            "name": d.name,
-                            "website": website,
-                            "status": "error",
-                            "error": str(e),
-                        },
+                guess_inv = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
+                if guess_inv and guess_inv.rstrip("/") != prefer_https_website_url(base_url).rstrip("/"):
+                    chunks.append(
+                        sse_pack(
+                            "dealership",
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "current_url": guess_inv,
+                                "status": "scraping",
+                            },
+                        )
                     )
-                )
-                return chunks
+                    try:
+                        rescue_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                        if rescue_timeout is None:
+                            raise RuntimeError("dealer_time_budget_exhausted")
+                        homepage_html, homepage_method = await asyncio.wait_for(
+                            _fetch(guess_inv, "inventory", prefer_render=True),
+                            timeout=rescue_timeout,
+                        )
+                        seed_inventory_url = guess_inv
+                        logger.info(
+                            "Recovered dealership %s after homepage fetch failure using guessed SRP %s",
+                            d.name,
+                            guess_inv,
+                        )
+                    except Exception as rescue_error:
+                        logger.warning(
+                            "%sHomepage rescue via guessed SRP failed for %s: %s",
+                            cid_log,
+                            guess_inv,
+                            rescue_error,
+                        )
+                        if domain:
+                            record_provider_failure(domain)
+                        chunks.append(
+                            sse_pack(
+                                "dealership",
+                                {
+                                    "index": index,
+                                    "total": len(dealers),
+                                    "name": d.name,
+                                    "website": website,
+                                    "status": "error",
+                                    "error": str(e),
+                                },
+                            )
+                        )
+                        return chunks
+                else:
+                    if domain:
+                        record_provider_failure(domain)
+                    chunks.append(
+                        sse_pack(
+                            "dealership",
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "status": "error",
+                                "error": str(e),
+                            },
+                        )
+                    )
+                    return chunks
 
-            route = detect_or_lookup_provider(domain=domain, website=base_url, homepage_html=html)
-            if route:
-                async with metrics_lock:
-                    fetch_metrics[f"platform_{route.platform_id}"] += 1
-                    fetch_metrics[f"platform_source_{route.cache_status}"] += 1
-            inv_url = resolve_inventory_url_for_provider(
-                html,
-                base_url,
-                route,
-                fallback_url=_find_inventory_url(
-                    html,
+            route = None
+            inv_url = seed_inventory_url or base_url
+            if homepage_html is not None and seed_inventory_url is None:
+                route = detect_or_lookup_provider(domain=domain, website=base_url, homepage_html=homepage_html)
+                if route:
+                    async with metrics_lock:
+                        fetch_metrics[f"platform_{route.platform_id}"] += 1
+                        fetch_metrics[f"platform_source_{route.cache_status}"] += 1
+                inv_url = resolve_inventory_url_for_provider(
+                    homepage_html,
                     base_url,
+                    route,
+                    fallback_url=_find_inventory_url(
+                        homepage_html,
+                        base_url,
+                        vehicle_condition=vehicle_condition,
+                    ),
+                    make=make,
+                    model=model,
                     vehicle_condition=vehicle_condition,
-                ),
-                make=make,
-                model=model,
-                vehicle_condition=vehicle_condition,
-            )
+                )
             if inv_url == base_url and domain in inv_url_cache:
                 cached = inv_url_cache[domain]
                 if cached and cached.rstrip("/") != base_url.rstrip("/"):
@@ -736,11 +795,11 @@ async def stream_search(
                 except Exception as e:
                     logger.debug("Sitemap discovery skipped for %s: %s", base_url, e)
 
-            current_html = html
-            current_method = method
+            current_html = homepage_html or ""
+            current_method = homepage_method or "unknown"
 
             # If inventory is on a different URL, fetch it before first parse.
-            if inv_url and inv_url != base_url:
+            if seed_inventory_url is None and inv_url and inv_url != base_url:
                 chunks.append(
                     sse_pack(
                         "dealership",

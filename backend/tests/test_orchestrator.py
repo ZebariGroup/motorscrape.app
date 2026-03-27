@@ -101,6 +101,83 @@ async def test_stream_search_places_error_surfaces_search_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stream_search_recovers_from_homepage_failure_with_guessed_inventory_srp() -> None:
+    from app.schemas import ExtractionResult, VehicleListing
+
+    dealers = [
+        DealershipFound(
+            name="Bill Brown Ford",
+            place_id="p1",
+            address="32222 Plymouth Rd",
+            website="https://www.billbrownford.net/",
+        )
+    ]
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        if url == "https://www.billbrownford.net/" and page_kind == "homepage":
+            raise RuntimeError("homepage blocked")
+        if url == "https://www.billbrownford.net/inventory/new" and page_kind == "inventory":
+            return "<html><body><div class='vehicle-card'>Inventory</div></body></html>", "zenrows_rendered"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.set_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            return_value=ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2024,
+                        make="Ford",
+                        model="F-150",
+                        price=55000,
+                        listing_url="https://www.billbrownford.net/vdp/1",
+                    )
+                ],
+                next_page_url=None,
+            ),
+        ),
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+        ) as mock_llm,
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "Livonia, MI",
+            "Ford",
+            "",
+            vehicle_condition="new",
+            max_dealerships=1,
+            max_pages_per_dealer=1,
+        ):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert mock_llm.await_count == 0
+    assert "https://www.billbrownford.net/vdp/1" in tail
+    assert '"listings_found": 1' in tail
+    assert '"status": "error"' not in tail
+
+
+@pytest.mark.asyncio
 async def test_stream_search_done_includes_fetch_metrics() -> None:
     dealers = [
         DealershipFound(

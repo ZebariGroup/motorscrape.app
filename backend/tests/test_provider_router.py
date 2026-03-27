@@ -313,6 +313,32 @@ def test_resolve_inventory_url_for_provider_canonicalizes_stale_dealer_on_invent
     assert url == "https://www.bmwgrandblanc.com/searchnew.aspx?Make=BMW"
 
 
+def test_resolve_inventory_url_for_provider_canonicalizes_dealer_inspire_filtered_new_hint() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=1.0,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles", "used-vehicles"),
+        inventory_url_hint=(
+            "https://www.northlandchryslerjeepdodge.com/new-vehicles/"
+            "?_dFR%5Btype%5D%5B0%5D=New&_dFR%5Bmake%5D%5B0%5D=Jeep"
+        ),
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html></html>",
+        "https://www.northlandchryslerjeepdodge.com/",
+        route,
+        fallback_url=route.inventory_url_hint,
+        make="Jeep",
+        model="",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.northlandchryslerjeepdodge.com/new-vehicles/"
+
+
 def test_resolve_inventory_url_for_provider_handles_multi_model_filter_as_make_only_for_ddc() -> None:
     route = ProviderRoute(
         platform_id="dealer_dot_com",
