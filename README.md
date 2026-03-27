@@ -118,6 +118,8 @@ When **`PLAYWRIGHT_ENABLED=true`**, the API loads each URL in **headless Chromiu
 
 The Playwright path now supports **platform-aware interaction recipes** before falling back to managed renderers. For inventory pages this can include targeted waits for result tiles, local scroll passes, and platform-specific load-more logic, which helps recover more listings without paying for ZenRows JS rendering.
 
+To keep slow dealerships from bottlenecking the rest of a search, the backend also runs multiple dealership workers concurrently and now defaults to a faster-fail tuning profile (`SEARCH_CONCURRENCY=8`, `PLAYWRIGHT_MAX_WORKERS=4`, `DEALERSHIP_TIMEOUT=150`, `SCRAPE_TIMEOUT=30`). If your host has more CPU and RAM, you can tune higher; if it is resource-constrained, scale these down conservatively.
+
 **Setup (own server / Docker / local):**
 
 1. Install Python deps (`playwright` is in [`backend/requirements.txt`](backend/requirements.txt)).

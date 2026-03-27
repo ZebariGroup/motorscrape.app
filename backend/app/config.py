@@ -78,21 +78,23 @@ class Settings(BaseSettings):
     # Self-hosted headless Chromium (Playwright). Runs after direct HTTP fails or HTML is
     # insufficient, before ZenRows/ScrapingBee. Requires `playwright install chromium` on the host.
     playwright_enabled: bool = False
-    playwright_max_workers: int = 2
+    # Raise local browser fan-out so one slow dealership does not stall unrelated ones.
+    playwright_max_workers: int = 4
     playwright_timeout_ms: int = 45_000
     # Baseline settle wait before any platform-specific Playwright interaction recipe runs.
     playwright_post_load_wait_ms: int = 2500
 
     # Max dealerships per search (quality vs speed tradeoff).
     max_dealerships: int = 8
-    # Concurrent dealership workers (I/O-bound scraping).
-    search_concurrency: int = 5
+    # Concurrent dealership workers (I/O-bound scraping). Higher keeps unrelated dealers moving
+    # when a few sites are slow or blocked.
+    search_concurrency: int = 8
     # When managed scrapers are enabled, bound worker fan-out by external capacity.
     search_workers_per_managed_slot: int = 2
     # Max concurrent HTTP fetches per normalized dealer domain (avoids hammering shared infra).
     domain_fetch_concurrency: int = 1
     # Hard cap per dealer so one slow site cannot block final completion.
-    dealership_timeout: float = 240.0
+    dealership_timeout: float = 150.0
     # Max pages to follow per dealership inventory (default raised for better SRP coverage).
     max_pages_per_dealer: int = 3
     # Absolute safety cap for auto-pagination. Each page fetch can take 10-30s through
@@ -100,8 +102,8 @@ class Settings(BaseSettings):
     search_max_pages_per_dealer_cap: int = 12
     # Max HTML chars sent to the LLM per page (smaller = cheaper/faster).
     max_html_chars: int = 60_000
-    # HTTP timeout for each scraper call (seconds).
-    scrape_timeout: float = 90.0
+    # HTTP timeout for each scraper call (seconds). Keep this moderate so stuck sites fail fast.
+    scrape_timeout: float = 30.0
     # Platform detection cache. Override PLATFORM_CACHE_PATH on Vercel if using persistent storage.
     platform_cache_enabled: bool = True
     platform_cache_path: str = Field(default_factory=_default_platform_cache_path)
