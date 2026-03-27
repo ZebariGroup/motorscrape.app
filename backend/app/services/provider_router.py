@@ -180,7 +180,7 @@ def _canonical_dealer_dot_com_inventory_url(url: str, condition: str) -> str:
     elif condition == "used":
         path = "/used-inventory/index.htm"
     else:
-        path = "/inventory/index.htm"
+        path = "/all-inventory/index.htm"
     return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
@@ -190,7 +190,7 @@ def _looks_like_dealer_dot_com_srp(url: str, condition: str) -> bool:
         return path.endswith("/new-inventory/index.htm")
     if condition == "used":
         return path.endswith("/used-inventory/index.htm")
-    return path.endswith("/inventory/index.htm")
+    return path.endswith("/all-inventory/index.htm")
 
 
 def _url_path_contains_token(url: str, token_norm: str) -> bool:
@@ -502,7 +502,7 @@ def resolve_inventory_url_for_provider(
                         elif condition == "used":
                             path = "/used-inventory/index.htm"
                         else:
-                            path = "/inventory/index.htm"
+                            path = "/all-inventory/index.htm"
                         return urlunsplit((parts.scheme, www_host, path, "", ""))
             except Exception:
                 pass
@@ -758,6 +758,8 @@ def resolve_inventory_url_for_provider(
                     www_host = f"www.{base}"
                     cond = (vehicle_condition or "all").strip().lower()
                     path = "/new-inventory/index.htm" if cond == "new" else "/used-inventory/index.htm" if cond == "used" else "/inventory/index.htm"
+                    if cond not in {"new", "used"}:
+                        path = "/all-inventory/index.htm"
                     hint = urlunsplit((parts.scheme, www_host, path, "", ""))
         except Exception:
             pass
@@ -773,7 +775,7 @@ def resolve_inventory_url_for_provider(
                 for token in (
                     "/new-inventory/index.htm",
                     "/used-inventory/index.htm",
-                    "/inventory/index.htm",
+                    "/all-inventory/index.htm",
                     "/searchnew.aspx",
                     "/searchused.aspx",
                 )

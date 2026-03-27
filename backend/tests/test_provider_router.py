@@ -41,7 +41,7 @@ def test_resolve_inventory_url_for_provider_fixes_express_urls():
         fallback_url="https://express.suburbanvolvocars.com/inventory/",
         vehicle_condition="all"
     )
-    assert url == "https://www.suburbanvolvocars.com/inventory/index.htm"
+    assert url == "https://www.suburbanvolvocars.com/all-inventory/index.htm"
 
 
 def test_resolve_inventory_url_for_provider_promotes_ddc_homepage_to_canonical_srp():
@@ -90,6 +90,27 @@ def test_resolve_inventory_url_for_provider_keeps_existing_ddc_srp():
         vehicle_condition="new",
     )
     assert url == "https://www.hodgessubaru.com/new-inventory/index.htm"
+
+
+def test_resolve_inventory_url_for_provider_promotes_ddc_all_condition_to_all_inventory() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=(),
+        inventory_url_hint="https://www.hodgessubaru.com/",
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html></html>",
+        "https://www.hodgessubaru.com/",
+        route,
+        fallback_url="https://www.hodgessubaru.com/",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.hodgessubaru.com/all-inventory/index.htm"
 
 
 def test_resolve_inventory_url_for_provider_prefers_make_specific_ddc_srp_when_model_empty():
@@ -282,7 +303,7 @@ def test_resolve_inventory_url_for_provider_handles_multi_model_filter_as_make_o
         vehicle_condition="all",
     )
     parsed = urlsplit(url)
-    assert parsed.path.endswith("/inventory/index.htm")
+    assert parsed.path.endswith("/all-inventory/index.htm")
     query = parse_qs(parsed.query)
     assert query.get("make") == ["Ford"]
     assert "model" not in query
