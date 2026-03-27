@@ -2,9 +2,17 @@
 
 import { useState } from "react";
 import { downloadCsv, listingsToCsv } from "@/lib/csvExport";
-import { formatMoney, listingIdentityKey, locationBadge } from "@/lib/inventoryFormat";
+import {
+  formatMoney,
+  identifierLabel,
+  listingIdentityKey,
+  locationBadge,
+  usageFieldLabel,
+  usageLabel,
+} from "@/lib/inventoryFormat";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { ListingSortOrder } from "@/hooks/useSearchStream";
+import type { VehicleCategory } from "@/lib/vehicleCatalog";
 
 function featureChip(text: string, key: string) {
   const short =
@@ -27,6 +35,7 @@ type Props = {
   loadingInventoryCards: unknown[];
   sortOrder: ListingSortOrder;
   onSortOrderChange: (order: ListingSortOrder) => void;
+  vehicleCategory: VehicleCategory;
   allowCsvExport?: boolean;
 };
 
@@ -37,9 +46,11 @@ export function InventoryResultsSection({
   loadingInventoryCards,
   sortOrder,
   onSortOrderChange,
+  vehicleCategory,
   allowCsvExport = true,
 }: Props) {
   const [selectedListing, setSelectedListing] = useState<AggregatedListing | null>(null);
+  const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
 
   return (
     <section className="lg:col-span-2">
@@ -63,7 +74,7 @@ export function InventoryResultsSection({
                 <option value="year_desc">Year (newest)</option>
                 <option value="price_asc">Price (low to high)</option>
                 <option value="price_desc">Price (high to low)</option>
-                <option value="mileage_asc">Mileage (low to high)</option>
+                <option value="mileage_asc">{usageSortLabel}</option>
                 <option value="days_on_lot_desc">Days on lot (longest)</option>
                 <option value="days_on_lot_asc">Days on lot (shortest)</option>
               </select>
@@ -137,7 +148,7 @@ export function InventoryResultsSection({
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={v.image_url}
-                    alt={v.raw_title ?? "Vehicle"}
+                    alt={v.raw_title ?? "Listing"}
                     className="absolute inset-0 h-full w-full object-cover"
                     loading="lazy"
                     referrerPolicy="no-referrer"
@@ -200,16 +211,16 @@ export function InventoryResultsSection({
                     </div>
                   ) : null}
                   <div className="flex justify-between sm:contents">
-                    <dt className="font-medium text-zinc-500">Mileage</dt>
-                    <dd>{v.mileage != null ? `${v.mileage.toLocaleString()} mi` : "—"}</dd>
+                    <dt className="font-medium text-zinc-500">{usageFieldLabel(v)}</dt>
+                    <dd>{usageLabel(v)}</dd>
                   </div>
                   <div className="hidden sm:contents">
                     <dt className="font-medium text-zinc-500">Condition</dt>
                     <dd>{v.vehicle_condition ?? "—"}</dd>
                   </div>
                   <div className="hidden sm:contents">
-                    <dt className="font-medium text-zinc-500">VIN</dt>
-                    <dd className="truncate">{v.vin ?? "—"}</dd>
+                    <dt className="font-medium text-zinc-500">{identifierLabel(v)}</dt>
+                    <dd className="truncate">{v.vehicle_identifier ?? v.vin ?? "—"}</dd>
                   </div>
                   <div className="flex justify-between sm:contents">
                     <dt className="font-medium text-zinc-500">Dealer</dt>
@@ -282,7 +293,7 @@ export function InventoryResultsSection({
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={selectedListing.image_url}
-                    alt={selectedListing.raw_title ?? "Vehicle"}
+                    alt={selectedListing.raw_title ?? "Listing"}
                     className="w-full h-auto max-h-[40vh] object-contain"
                     loading="lazy"
                     referrerPolicy="no-referrer"
@@ -322,9 +333,9 @@ export function InventoryResultsSection({
                         {selectedListing.vehicle_condition}
                       </span>
                     )}
-                    {selectedListing.mileage != null && (
+                    {selectedListing.usage_value != null && (
                       <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
-                        {selectedListing.mileage.toLocaleString()} mi
+                        {usageLabel(selectedListing)}
                       </span>
                     )}
                     {selectedListing.days_on_lot != null ? (
@@ -382,8 +393,12 @@ export function InventoryResultsSection({
 
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm sm:grid-cols-3">
                   <div className="space-y-1">
-                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">VIN</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100 break-all">{selectedListing.vin ?? "—"}</dd>
+                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                      {identifierLabel(selectedListing)}
+                    </dt>
+                    <dd className="font-medium text-zinc-900 dark:text-zinc-100 break-all">
+                      {selectedListing.vehicle_identifier ?? selectedListing.vin ?? "—"}
+                    </dd>
                   </div>
                   <div className="space-y-1">
                     <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Body Style</dt>

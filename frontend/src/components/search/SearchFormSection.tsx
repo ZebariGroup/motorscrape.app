@@ -1,7 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { VEHICLE_MAKES } from "@/lib/vehicleCatalog";
+import {
+  ENABLED_VEHICLE_CATEGORY_OPTIONS,
+  getMakesForCategory,
+  vehicleCategoryLabel,
+} from "@/lib/vehicleCatalog";
+import type { VehicleCategory } from "@/lib/vehicleCatalog";
 
 import { MultiModelSelect } from "./MultiModelSelect";
 import { PlowTruck } from "./PlowTruck";
@@ -20,11 +25,14 @@ type Props = {
   reconnecting: boolean;
   location: string;
   setLocation: (v: string) => void;
+  vehicleCategory: VehicleCategory;
+  setVehicleCategory: (v: VehicleCategory) => void;
   make: string;
   setMake: (v: string) => void;
   model: string;
   setModel: (v: string) => void;
   modelOptions: readonly string[];
+  usesCatalog: boolean;
   vehicleCondition: string;
   setVehicleCondition: (v: string) => void;
   radiusMiles: string;
@@ -56,11 +64,14 @@ export function SearchFormSection({
   reconnecting,
   location,
   setLocation,
+  vehicleCategory,
+  setVehicleCategory,
   make,
   setMake,
   model,
   setModel,
   modelOptions,
+  usesCatalog,
   vehicleCondition,
   setVehicleCondition,
   radiusMiles,
@@ -93,6 +104,7 @@ export function SearchFormSection({
     [maxRadiusMilesCap],
   );
   const dealerOptions = useMemo(() => dealerChoices(maxDealersCap), [maxDealersCap]);
+  const makeOptions = useMemo(() => getMakesForCategory(vehicleCategory), [vehicleCategory]);
 
   const handleSearch = () => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
@@ -113,7 +125,9 @@ export function SearchFormSection({
         <div className="flex items-center justify-between">
           <div className="flex flex-col">
             <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-              {location} {make ? `· ${make}` : ""} {model ? `· ${model}` : ""}
+              {vehicleCategoryLabel(vehicleCategory)} {location ? `· ${location}` : ""}
+              {make ? ` · ${make}` : ""}
+              {model ? ` · ${model}` : ""}
             </span>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
               {radiusMiles} mi · {vehicleCondition} · {maxDealerships} dealers
@@ -193,35 +207,75 @@ export function SearchFormSection({
               </div>
             </label>
             <div className="col-span-full sm:col-span-1 lg:col-span-2 grid grid-cols-2 gap-4">
+              <label className="col-span-2 flex flex-col gap-1 text-sm">
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">Vehicle category</span>
+                <select
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  value={vehicleCategory}
+                  onChange={(e) => {
+                    const nextCategory = e.target.value as VehicleCategory;
+                    setVehicleCategory(nextCategory);
+                    setMake("");
+                    setModel("");
+                  }}
+                  disabled={running}
+                >
+                  {ENABLED_VEHICLE_CATEGORY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-zinc-800 dark:text-zinc-200">Make</span>
-              <select
-                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                value={make}
-                onChange={(e) => {
-                  setMake(e.target.value);
-                  setModel("");
-                }}
-                disabled={running}
-              >
-                {allowAnyModel && <option value="">Any make</option>}
-                {!allowAnyModel && !make && <option value="" disabled>Select make</option>}
-                {VEHICLE_MAKES.map((makeOption) => (
-                  <option key={makeOption} value={makeOption}>
-                    {makeOption}
-                  </option>
-                ))}
-              </select>
+              {usesCatalog ? (
+                <select
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  value={make}
+                  onChange={(e) => {
+                    setMake(e.target.value);
+                    setModel("");
+                  }}
+                  disabled={running}
+                >
+                  {allowAnyModel && <option value="">Any make</option>}
+                  {!allowAnyModel && !make && <option value="" disabled>Select make</option>}
+                  {makeOptions.map((makeOption) => (
+                    <option key={makeOption} value={makeOption}>
+                      {makeOption}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  placeholder={`${vehicleCategoryLabel(vehicleCategory)} make`}
+                  value={make}
+                  onChange={(e) => setMake(e.target.value)}
+                  disabled={running}
+                />
+              )}
               </label>
               <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-zinc-800 dark:text-zinc-200">Model</span>
-              <MultiModelSelect
-                models={modelOptions}
-                selectedModels={model ? model.split(",").filter(Boolean) : []}
-                onChange={(models) => setModel(models.join(","))}
-                disabled={running}
-                allowAnyModel={allowAnyModel}
-              />
+              {usesCatalog ? (
+                <MultiModelSelect
+                  models={modelOptions}
+                  selectedModels={model ? model.split(",").filter(Boolean) : []}
+                  onChange={(models) => setModel(models.join(","))}
+                  disabled={running}
+                  allowAnyModel={allowAnyModel}
+                />
+              ) : (
+                <input
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  placeholder="Model or comma-separated models"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  disabled={running}
+                />
+              )}
             </label>
             </div>
             <div className="col-span-full sm:col-span-2 lg:col-span-1 grid grid-cols-2 gap-4">

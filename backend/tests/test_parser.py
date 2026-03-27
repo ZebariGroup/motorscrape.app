@@ -52,6 +52,33 @@ def test_try_extract_dom_msrp_and_discount_from_attributes() -> None:
     assert v.days_on_lot == 18
 
 
+def test_try_extract_boat_usage_and_identifier() -> None:
+    html = """
+    <html><body>
+      <div class="vehicle-card" data-year="2022" data-make="Sea Ray" data-model="SLX" data-price="95000">
+        <a href="/inventory/b1">2022 Sea Ray SLX</a>
+        <div>125 hours</div>
+        <div>Stock # BR240</div>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/boats",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.vehicle_category == "boat"
+    assert v.usage_value == 125
+    assert v.usage_unit == "hours"
+    assert v.vehicle_identifier == "BR240"
+    assert v.mileage is None
+
+
 def test_try_extract_applies_page_make_scope_for_make_filtered_inventory_pages() -> None:
     html = """
     <html><body>

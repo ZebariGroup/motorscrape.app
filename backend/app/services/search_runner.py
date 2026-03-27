@@ -41,6 +41,7 @@ async def run_search_once(request: SearchRequest, *, correlation_id: str | None 
         location=request.location,
         make=request.make,
         model=request.model,
+        vehicle_category=request.vehicle_category,
         vehicle_condition=request.vehicle_condition,
         radius_miles=request.radius_miles,
         inventory_scope=request.inventory_scope,

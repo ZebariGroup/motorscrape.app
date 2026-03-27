@@ -5,6 +5,7 @@ from typing import Any
 
 from app.api.deps import AccessContext
 from app.api.search_quota import evaluate_search_start, record_search_completed
+from app.config import vehicle_category_enabled
 from app.db.account_store import AlertSubscriptionRecord, UserRecord
 from app.schemas import SearchRequest
 from app.services.alert_schedule import next_run_at_utc
@@ -20,6 +21,8 @@ def user_can_manage_alerts(tier: str) -> bool:
 
 def effective_search_request(criteria: dict[str, Any], *, tier: str) -> SearchRequest:
     request = SearchRequest.model_validate(criteria)
+    if not vehicle_category_enabled(request.vehicle_category):
+        raise ValueError(f"Vehicle category '{request.vehicle_category}' is not enabled.")
     limits = limits_for_tier(tier)
     radius_miles = min(request.radius_miles, limits.max_radius_miles)
     max_dealerships = request.max_dealerships if request.max_dealerships is not None else limits.max_dealerships
@@ -57,7 +60,7 @@ def alert_run_summary(result: SearchRunResult) -> dict[str, Any]:
                 "price": listing.get("price"),
                 "dealer": listing.get("dealership"),
                 "location": listing.get("inventory_location") or listing.get("availability_status"),
-                "vin": listing.get("vin"),
+                "vin": listing.get("vehicle_identifier") or listing.get("vin"),
                 "url": listing.get("listing_url"),
             }
         )

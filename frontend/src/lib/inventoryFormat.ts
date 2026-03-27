@@ -21,6 +21,21 @@ export function locationBadge(v: AggregatedListing) {
   return v.availability_status ?? null;
 }
 
+export function usageLabel(v: Partial<AggregatedListing>) {
+  if (v.usage_value == null || v.usage_unit == null) return "—";
+  return v.usage_unit === "hours"
+    ? `${v.usage_value.toLocaleString()} hrs`
+    : `${v.usage_value.toLocaleString()} mi`;
+}
+
+export function usageFieldLabel(v: Partial<AggregatedListing>) {
+  return v.usage_unit === "hours" ? "Engine hours" : "Mileage";
+}
+
+export function identifierLabel(v: Partial<AggregatedListing>) {
+  return v.vehicle_category === "boat" ? "Identifier" : "VIN";
+}
+
 export function clampPercent(value: number) {
   return Math.max(0, Math.min(100, value));
 }
@@ -50,6 +65,7 @@ export function listingIdentityKey(v: Partial<AggregatedListing>, fallback = "")
   const keyParts = [
     dealerSiteKey(v.dealership_website ?? ""),
     (v.dealership ?? "").trim().toLowerCase(),
+    (v.vehicle_identifier ?? "").trim().toLowerCase(),
     (v.vin ?? "").trim().toLowerCase(),
     (v.listing_url ?? "").trim().toLowerCase(),
     (v.raw_title ?? "").trim().toLowerCase(),

@@ -2,6 +2,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+VehicleCategory = Literal["car", "motorcycle", "boat", "other"]
+VehicleCondition = Literal["all", "new", "used"]
+ListingCondition = Literal["new", "used"]
+UsageUnit = Literal["miles", "hours"]
+
 
 class SearchRequest(BaseModel):
     """Query parameters for streaming search (also used for POST body if needed)."""
@@ -9,7 +14,11 @@ class SearchRequest(BaseModel):
     location: str = Field(..., min_length=2, description="City, ZIP, or address")
     make: str = Field(default="", description="Vehicle make filter, e.g. Toyota")
     model: str = Field(default="", description="Vehicle model filter, e.g. Camry")
-    vehicle_condition: Literal["all", "new", "used"] = Field(
+    vehicle_category: VehicleCategory = Field(
+        default="car",
+        description="Vehicle category to search for, such as car, motorcycle, boat, or other.",
+    )
+    vehicle_condition: VehicleCondition = Field(
         default="all",
         description="Whether to include all inventory, only new vehicles, or only used vehicles.",
     )
@@ -49,6 +58,10 @@ class DealershipFound(BaseModel):
 
 
 class VehicleListing(BaseModel):
+    vehicle_category: VehicleCategory = Field(
+        default="car",
+        description="Vehicle category inferred from the search or listing context.",
+    )
     year: int | None = Field(default=None, description="Year of the vehicle.")
     make: str | None = Field(default=None, description="Make of the vehicle, e.g. Toyota.")
     model: str | None = Field(default=None, description="Model of the vehicle, e.g. Camry.")
@@ -57,11 +70,23 @@ class VehicleListing(BaseModel):
     exterior_color: str | None = Field(default=None, description="Exterior color of the vehicle when available.")
     price: float | None = Field(default=None, description="Price in USD as a number, no symbols.")
     mileage: int | None = Field(default=None, description="Mileage as an integer, no commas.")
-    vehicle_condition: Literal["new", "used"] | None = Field(
+    usage_value: int | None = Field(
+        default=None,
+        description="Normalized usage/odometer reading such as mileage or engine hours.",
+    )
+    usage_unit: UsageUnit | None = Field(
+        default=None,
+        description="Unit for usage_value, such as miles or hours.",
+    )
+    vehicle_condition: ListingCondition | None = Field(
         default=None,
         description="Whether the listing is new or used when the page clearly indicates it.",
     )
     vin: str | None = Field(default=None, description="17-character Vehicle Identification Number.")
+    vehicle_identifier: str | None = Field(
+        default=None,
+        description="Best available unit identifier such as VIN, HIN, or stock number.",
+    )
     image_url: str | None = Field(default=None, description="Absolute URL to the main image of the vehicle.")
     listing_url: str | None = Field(default=None, description="Absolute URL to the vehicle's detail page.")
     raw_title: str | None = Field(default=None, description="The raw title text of the listing.")

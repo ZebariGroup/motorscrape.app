@@ -1,4 +1,29 @@
-export const VEHICLE_CATALOG = [
+export type VehicleCategory = "car" | "motorcycle" | "boat" | "other";
+
+export const VEHICLE_CATEGORY_OPTIONS: Array<{ value: VehicleCategory; label: string }> = [
+  { value: "car", label: "Cars and trucks" },
+  { value: "motorcycle", label: "Motorcycles" },
+  { value: "boat", label: "Boats" },
+  { value: "other", label: "Other motor vehicles" },
+];
+
+function enabledCategorySet(): Set<VehicleCategory> {
+  const raw = process.env.NEXT_PUBLIC_ENABLED_VEHICLE_CATEGORIES?.trim() || "car";
+  const enabled = raw
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value): value is VehicleCategory =>
+      value === "car" || value === "motorcycle" || value === "boat" || value === "other",
+    );
+  return new Set(enabled.length > 0 ? enabled : ["car"]);
+}
+
+const ENABLED_CATEGORY_SET = enabledCategorySet();
+export const ENABLED_VEHICLE_CATEGORY_OPTIONS = VEHICLE_CATEGORY_OPTIONS.filter((option) =>
+  ENABLED_CATEGORY_SET.has(option.value),
+);
+
+const CAR_CATALOG = [
   {
     make: "Acura",
     models: ["Integra", "MDX", "RDX", "TLX", "ZDX"],
@@ -149,8 +174,29 @@ export const VEHICLE_CATALOG = [
   },
 ] as const;
 
-export const VEHICLE_MAKES = VEHICLE_CATALOG.map((entry) => entry.make);
+const VEHICLE_CATALOG_BY_CATEGORY: Record<VehicleCategory, readonly { make: string; models: readonly string[] }[]> = {
+  car: CAR_CATALOG,
+  motorcycle: [],
+  boat: [],
+  other: [],
+};
 
-export function getModelsForMake(make: string): readonly string[] {
-  return VEHICLE_CATALOG.find((entry) => entry.make === make)?.models ?? [];
+export function getMakesForCategory(category: VehicleCategory): readonly string[] {
+  return VEHICLE_CATALOG_BY_CATEGORY[category].map((entry) => entry.make);
+}
+
+export function getModelsForMake(category: VehicleCategory, make: string): readonly string[] {
+  return VEHICLE_CATALOG_BY_CATEGORY[category].find((entry) => entry.make === make)?.models ?? [];
+}
+
+export function categoryUsesCatalog(category: VehicleCategory): boolean {
+  return VEHICLE_CATALOG_BY_CATEGORY[category].length > 0;
+}
+
+export function vehicleCategoryLabel(category: VehicleCategory): string {
+  return VEHICLE_CATEGORY_OPTIONS.find((option) => option.value === category)?.label ?? "Vehicles";
+}
+
+export function defaultVehicleCategory(): VehicleCategory {
+  return ENABLED_VEHICLE_CATEGORY_OPTIONS[0]?.value ?? "car";
 }

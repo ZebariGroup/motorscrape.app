@@ -62,9 +62,9 @@ export function EmailAlertPanel({
   }, []);
 
   const defaultName = useMemo(() => {
-    const parts = [criteria.location, criteria.make, criteria.model].filter(Boolean);
+    const parts = [criteria.vehicle_category, criteria.location, criteria.make, criteria.model].filter(Boolean);
     return parts.join(" · ") || "Scheduled alert";
-  }, [criteria.location, criteria.make, criteria.model]);
+  }, [criteria.location, criteria.make, criteria.model, criteria.vehicle_category]);
 
   const openModal = () => {
     if (!paid || !canSearch) return;
@@ -255,7 +255,7 @@ export function EmailAlertPanel({
                   Schedule: {cadence === "daily" ? "Daily" : "Weekly"} at {hourLocal.padStart(2, "0")}:00 in {timezone}
                 </p>
                 <p className="mt-1">
-                  Search: {criteria.location} · {criteria.make || "Any make"} · {criteria.model || "Any model"} · {criteria.radius_miles} mi
+                  Search: {criteria.vehicle_category} · {criteria.location} · {criteria.make || "Any make"} · {criteria.model || "Any model"} · {criteria.radius_miles} mi
                 </p>
               </div>
 

@@ -27,6 +27,33 @@ SEARCH_FIELD_MASK = (
 )
 DETAILS_FIELD_MASK = "websiteUri"
 LOCATION_FIELD_MASK = "places.location"
+SUPPORTED_VEHICLE_CATEGORIES = {"car", "motorcycle", "boat", "other"}
+_CATEGORY_SEARCH_CONFIG: dict[str, dict[str, Any]] = {
+    "car": {
+        "included_type": "car_dealer",
+        "strict_type_filtering": True,
+        "dealer_terms": ("car dealership", "dealer"),
+        "fallback_terms": ("showroom", "inventory"),
+    },
+    "motorcycle": {
+        "included_type": None,
+        "strict_type_filtering": False,
+        "dealer_terms": ("motorcycle dealer", "powersports dealer"),
+        "fallback_terms": ("showroom", "inventory"),
+    },
+    "boat": {
+        "included_type": None,
+        "strict_type_filtering": False,
+        "dealer_terms": ("boat dealer", "marine dealer"),
+        "fallback_terms": ("showroom", "inventory"),
+    },
+    "other": {
+        "included_type": None,
+        "strict_type_filtering": False,
+        "dealer_terms": ("motor vehicle dealer", "powersports dealer"),
+        "fallback_terms": ("showroom", "inventory"),
+    },
+}
 
 
 def _api_error_message(payload: Any) -> str:
@@ -63,14 +90,17 @@ async def _search_places_text(
     text_query: str,
     limit: int,
     location_bias: dict[str, Any] | None = None,
+    included_type: str | None = None,
+    strict_type_filtering: bool = False,
 ) -> list[dict[str, Any]]:
     body: dict[str, Any] = {
         "textQuery": text_query,
-        "includedType": "car_dealer",
-        "strictTypeFiltering": True,
         "pageSize": min(limit, 20),
         "languageCode": "en",
     }
+    if included_type:
+        body["includedType"] = included_type
+        body["strictTypeFiltering"] = strict_type_filtering
     if location_bias:
         body["locationBias"] = location_bias
     headers = {
@@ -188,11 +218,59 @@ def _normalize_dealer_website_url(website: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, clean_query, ""))
 
 
-async def find_car_dealerships(
+def _normalize_vehicle_category(vehicle_category: str) -> str:
+    normalized = (vehicle_category or "car").strip().lower()
+    return normalized if normalized in SUPPORTED_VEHICLE_CATEGORIES else "other"
+
+
+def _build_text_queries(
+    *,
+    vehicle_category: str,
+    location: str,
+    make: str,
+    model: str,
+) -> list[str]:
+    config = _CATEGORY_SEARCH_CONFIG[_normalize_vehicle_category(vehicle_category)]
+    make_q = make.strip()
+    model_q = model.strip()
+    dealer_terms = tuple(config["dealer_terms"])
+    fallback_terms = tuple(config["fallback_terms"])
+
+    text_queries: list[str] = []
+    primary_term = dealer_terms[0]
+    if make_q and model_q:
+        text_queries.append(f"{make_q} {model_q} {primary_term} near {location}")
+    elif make_q:
+        text_queries.append(f"{make_q} {primary_term} near {location}")
+    elif model_q:
+        text_queries.append(f"{model_q} {primary_term} near {location}")
+    else:
+        text_queries.append(f"{primary_term} near {location}")
+
+    if make_q:
+        for dealer_term in dealer_terms:
+            text_queries.append(f"{make_q} {dealer_term} near {location}")
+        for fallback_term in fallback_terms:
+            text_queries.append(f"{make_q} {fallback_term} near {location}")
+    elif model_q:
+        for dealer_term in dealer_terms[1:]:
+            text_queries.append(f"{model_q} {dealer_term} near {location}")
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for text_query in text_queries:
+        if text_query not in seen:
+            deduped.append(text_query)
+            seen.add(text_query)
+    return deduped
+
+
+async def find_dealerships(
     location: str,
     *,
     make: str = "",
     model: str = "",
+    vehicle_category: str = "car",
     limit: int = 20,
     radius_miles: int = 50,
 ) -> list[DealershipFound]:
@@ -219,23 +297,14 @@ async def find_car_dealerships(
             location=location,
             radius_miles=requested_radius,
         )
-        text_queries: list[str] = []
-        if make_q and model_q:
-            text_queries.append(f"{make_q} {model_q} car dealership near {location}")
-        elif make_q:
-            text_queries.append(f"{make_q} car dealership near {location}")
-        elif model_q:
-            text_queries.append(f"{model_q} car dealership near {location}")
-        else:
-            text_queries.append(f"car dealership near {location}")
-
-        # Places ranking can under-return franchise dealers for some low-volume models.
-        # Supplement with a fixed query set so dealership discovery stays consistent.
-        if make_q:
-            text_queries.append(f"new {make_q} near {location}")
-            text_queries.append(f"{make_q} showroom near {location}")
-            text_queries.append(f"{make_q} dealer near {location}")
-            text_queries.append(f"{make_q} inventory near {location}")
+        category = _normalize_vehicle_category(vehicle_category)
+        config = _CATEGORY_SEARCH_CONFIG[category]
+        text_queries = _build_text_queries(
+            vehicle_category=category,
+            location=location,
+            make=make_q,
+            model=model_q,
+        )
 
         places: list[dict[str, Any]] = []
         seen_place_resources: set[str] = set()
@@ -247,6 +316,8 @@ async def find_car_dealerships(
                     text_query=text_query,
                     limit=limit,
                     location_bias=location_bias,
+                    included_type=config.get("included_type"),
+                    strict_type_filtering=bool(config.get("strict_type_filtering")),
                 )
             except Exception:
                 if not places:
@@ -262,6 +333,29 @@ async def find_car_dealerships(
                 places.append(place)
             if len(places) >= limit:
                 break
+
+        if not places and config.get("included_type"):
+            for text_query in text_queries:
+                try:
+                    found = await _search_places_text(
+                        client,
+                        key,
+                        text_query=text_query,
+                        limit=limit,
+                        location_bias=location_bias,
+                    )
+                except Exception:
+                    continue
+                for place in found:
+                    place_resource = str(place.get("name") or "")
+                    pid = str(place.get("id") or "")
+                    dedupe_key = place_resource or pid
+                    if not dedupe_key or dedupe_key in seen_place_resources:
+                        continue
+                    seen_place_resources.add(dedupe_key)
+                    places.append(place)
+                if len(places) >= limit:
+                    break
 
         results: list[DealershipFound] = []
 
@@ -300,6 +394,24 @@ async def find_car_dealerships(
         brand_matches = [d for d in results if _name_matches_make(d.name, make_q)]
         # If we found brand-specific dealers, prefer those so searches feel sane to users.
         return brand_matches if brand_matches else results
+
+
+async def find_car_dealerships(
+    location: str,
+    *,
+    make: str = "",
+    model: str = "",
+    limit: int = 20,
+    radius_miles: int = 50,
+) -> list[DealershipFound]:
+    return await find_dealerships(
+        location,
+        make=make,
+        model=model,
+        vehicle_category="car",
+        limit=limit,
+        radius_miles=radius_miles,
+    )
 
 
 async def _place_details_website(

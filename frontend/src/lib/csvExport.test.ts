@@ -17,16 +17,21 @@ describe("listingsToCsv", () => {
       {
         dealership: "Test Motors",
         dealership_website: "https://test.example",
+        vehicle_category: "boat",
         year: 2024,
         make: "Honda",
         model: "Civic",
         price: 25000,
         vin: "1HGCM82633A004352",
+        vehicle_identifier: "BOAT-77",
+        usage_value: 120,
+        usage_unit: "hours",
       },
     ];
     const csv = listingsToCsv(rows);
     expect(csv.split("\n")).toHaveLength(2);
     expect(csv).toContain("Test Motors");
-    expect(csv).toContain("1HGCM82633A004352");
+    expect(csv).toContain("BOAT-77");
+    expect(csv).toContain("vehicle_category");
   });
 });

@@ -157,6 +157,23 @@ class Settings(BaseSettings):
     resend_api_key: str = Field(default="", validation_alias=AliasChoices("RESEND_API_KEY"))
     alerts_from_email: str = Field(default="", validation_alias=AliasChoices("ALERTS_FROM_EMAIL"))
     alerts_internal_secret: str = Field(default="", validation_alias=AliasChoices("ALERTS_INTERNAL_SECRET"))
+    enabled_vehicle_categories: str = Field(
+        default="car",
+        validation_alias=AliasChoices(
+            "ENABLED_VEHICLE_CATEGORIES",
+            "MOTORSCRAPE_ENABLED_VEHICLE_CATEGORIES",
+        ),
+    )
 
 
 settings = Settings()
+
+
+def enabled_vehicle_categories() -> set[str]:
+    raw = (settings.enabled_vehicle_categories or "car").strip()
+    values = {part.strip().lower() for part in raw.split(",") if part.strip()}
+    return values or {"car"}
+
+
+def vehicle_category_enabled(category: str) -> bool:
+    return (category or "car").strip().lower() in enabled_vehicle_categories()

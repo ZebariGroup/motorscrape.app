@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -13,7 +13,7 @@ from app.api.routes_alerts import router as alerts_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_billing import router as billing_router
 from app.api.search_quota import evaluate_search_start, record_search_completed
-from app.config import settings
+from app.config import settings, vehicle_category_enabled
 from app.db.account_store import get_account_store
 from app.services.orchestrator import stream_search
 from app.sse import sse_pack
@@ -42,6 +42,7 @@ async def search_stream(
     location: str = Query(..., min_length=2),
     make: str = Query(""),
     model: str = Query(""),
+    vehicle_category: Literal["car", "motorcycle", "boat", "other"] = Query("car"),
     vehicle_condition: Literal["all", "new", "used"] = Query("all"),
     radius_miles: int = Query(default=25, ge=5, le=250),
     inventory_scope: str = Query("all"),
@@ -52,6 +53,8 @@ async def search_stream(
         le=50,
     ),
 ) -> StreamingResponse:
+    if not vehicle_category_enabled(vehicle_category):
+        raise HTTPException(status_code=400, detail=f"Vehicle category '{vehicle_category}' is not enabled.")
     store = get_account_store(settings.accounts_db_path)
     quota = evaluate_search_start(ctx, store)
     if not quota.allowed:
@@ -87,6 +90,7 @@ async def search_stream(
                 location=location,
                 make=make.strip(),
                 model=model.strip(),
+                vehicle_category=vehicle_category,
                 vehicle_condition=vehicle_condition,
                 radius_miles=eff_radius,
                 inventory_scope=eff_inventory_scope,

@@ -2,6 +2,7 @@ export type AlertCriteria = {
   location: string;
   make: string;
   model: string;
+  vehicle_category: "car" | "motorcycle" | "boat" | "other";
   vehicle_condition: "all" | "new" | "used";
   radius_miles: number;
   inventory_scope: "all" | "on_lot_only" | "exclude_shared" | "include_transit";

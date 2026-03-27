@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.deps import AccessContext, get_access_context
-from app.config import settings
+from app.config import settings, vehicle_category_enabled
 from app.db.account_store import AlertRunRecord, AlertSubscriptionRecord, get_account_store
 from app.services.alert_schedule import next_run_at_utc, normalize_timezone
 from app.services.alerts import execute_alert_subscription, user_can_manage_alerts
@@ -21,6 +21,7 @@ class AlertCriteriaBody(BaseModel):
     location: str = Field(min_length=2)
     make: str = ""
     model: str = ""
+    vehicle_category: Literal["car", "motorcycle", "boat", "other"] = "car"
     vehicle_condition: Literal["all", "new", "used"] = "all"
     radius_miles: int = Field(default=25, ge=5, le=250)
     inventory_scope: Literal["all", "on_lot_only", "exclude_shared", "include_transit"] = "all"
@@ -148,6 +149,11 @@ def create_alert_subscription(
     ctx: Annotated[AccessContext, Depends(get_access_context)],
 ) -> dict[str, Any]:
     _require_paid_user(ctx)
+    if not vehicle_category_enabled(body.criteria.vehicle_category):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Vehicle category '{body.criteria.vehicle_category}' is not enabled.",
+        )
     store = get_account_store(settings.accounts_db_path)
     subscription = store.create_alert_subscription(
         ctx.user_id,
@@ -176,6 +182,11 @@ def update_alert_subscription(
     ctx: Annotated[AccessContext, Depends(get_access_context)],
 ) -> dict[str, Any]:
     _require_paid_user(ctx)
+    if body.criteria is not None and not vehicle_category_enabled(body.criteria.vehicle_category):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Vehicle category '{body.criteria.vehicle_category}' is not enabled.",
+        )
     store = get_account_store(settings.accounts_db_path)
     existing = store.get_alert_subscription(ctx.user_id, subscription_id)
     if existing is None:

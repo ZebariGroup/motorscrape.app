@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveApiUrl } from "@/lib/apiBase";
 import { clampNumber, clampPercent, dealerSiteKey } from "@/lib/inventoryFormat";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
-import { getModelsForMake } from "@/lib/vehicleCatalog";
+import { categoryUsesCatalog, defaultVehicleCategory, getModelsForMake } from "@/lib/vehicleCatalog";
+import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { DealershipProgress, VehicleListing } from "@/types/inventory";
 
 /** Client-side result ordering (applied after filters). */
@@ -18,8 +19,8 @@ export type ListingSortOrder =
   | "days_on_lot_desc";
 
 function listingSortTieBreak(a: AggregatedListing, b: AggregatedListing) {
-  const ka = `${a.vin ?? ""}|${a.listing_url ?? ""}|${a.raw_title ?? ""}|${a.dealership ?? ""}`;
-  const kb = `${b.vin ?? ""}|${b.listing_url ?? ""}|${b.raw_title ?? ""}|${b.dealership ?? ""}`;
+  const ka = `${a.vehicle_identifier ?? ""}|${a.vin ?? ""}|${a.listing_url ?? ""}|${a.raw_title ?? ""}|${a.dealership ?? ""}`;
+  const kb = `${b.vehicle_identifier ?? ""}|${b.vin ?? ""}|${b.listing_url ?? ""}|${b.raw_title ?? ""}|${b.dealership ?? ""}`;
   return ka.localeCompare(kb);
 }
 
@@ -41,9 +42,17 @@ function sortAggregatedListings(list: AggregatedListing[], order: ListingSortOrd
       }
       case "mileage_asc": {
         const av =
-          a.mileage != null && !Number.isNaN(a.mileage) ? a.mileage : Number.POSITIVE_INFINITY;
+          a.usage_value != null && !Number.isNaN(a.usage_value)
+            ? a.usage_value
+            : a.mileage != null && !Number.isNaN(a.mileage)
+              ? a.mileage
+              : Number.POSITIVE_INFINITY;
         const bv =
-          b.mileage != null && !Number.isNaN(b.mileage) ? b.mileage : Number.POSITIVE_INFINITY;
+          b.usage_value != null && !Number.isNaN(b.usage_value)
+            ? b.usage_value
+            : b.mileage != null && !Number.isNaN(b.mileage)
+              ? b.mileage
+              : Number.POSITIVE_INFINITY;
         if (av !== bv) return av - bv;
         return listingSortTieBreak(a, b);
       }
@@ -103,6 +112,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     onFinishedRef.current = options?.onStreamFinished;
   }, [options?.onStreamFinished]);
   const [location, setLocation] = useState("");
+  const [vehicleCategory, setVehicleCategory] = useState<VehicleCategory>(() => defaultVehicleCategory());
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
   const [vehicleCondition, setVehicleCondition] = useState("all");
@@ -152,7 +162,11 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     return Number.isFinite(parsed) ? parsed : 8;
   }, [maxDealerships]);
 
-  const modelOptions = useMemo(() => getModelsForMake(make), [make]);
+  const usesCatalog = useMemo(() => categoryUsesCatalog(vehicleCategory), [vehicleCategory]);
+  const modelOptions = useMemo(
+    () => getModelsForMake(vehicleCategory, make),
+    [make, vehicleCategory],
+  );
 
   const discoveredDealerPercent = useMemo(
     () => clampPercent((dealerList.length / Math.max(targetDealerCount, 1)) * 100),
@@ -350,6 +364,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       location: location.trim(),
       make: make.trim(),
       model: model.trim(),
+      vehicle_category: vehicleCategory,
       vehicle_condition: vehicleCondition,
       radius_miles: radiusMiles,
       inventory_scope: inventoryScope,
@@ -481,6 +496,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     model,
     radiusMiles,
     stopStream,
+    vehicleCategory,
     vehicleCondition,
     running,
   ]);
@@ -489,10 +505,13 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     form: {
       location,
       setLocation,
+      vehicleCategory,
+      setVehicleCategory,
       make,
       setMake,
       model,
       setModel,
+      usesCatalog,
       vehicleCondition,
       setVehicleCondition,
       radiusMiles,

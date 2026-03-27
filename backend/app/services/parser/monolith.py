@@ -25,7 +25,7 @@ from app.services.inventory_filters import (
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You extract vehicle inventory from dealership webpage HTML or JSON data.
+SYSTEM_PROMPT = """You extract motor vehicle inventory from dealership webpage HTML or JSON data.
 
 Filtering (highest priority):
 - The user message includes optional make and model filters.
@@ -35,9 +35,10 @@ Filtering (highest priority):
 - If both filters are empty: extract all real vehicles for sale on the page.
 
 Extraction rules:
-- Only real vehicles for sale (cars, trucks, SUVs). Skip service specials, parts, disclaimers, nav.
+- Only real motor vehicles for sale (cars, trucks, SUVs, motorcycles, boats, and similar powered vehicles). Skip service specials, parts, disclaimers, nav.
 - Prefer listing-specific URLs and images when present.
 - Do not invent VINs, prices, or stock numbers; use null if not clearly present.
+- Keep the listing's category aligned with the requested vehicle category when the page supports it.
 - Set `vehicle_condition` to `new` or `used` when clearly stated; otherwise use null.
 - When MSRP and a lower sale price are both shown, set `msrp` and `price` (sale), and set
   `dealer_discount` to the gap (msrp - sale) if not stated explicitly elsewhere.
@@ -75,6 +76,12 @@ _TEXT_PRICE_RE = re.compile(r"\$([0-9][0-9,]{2,})(?:\.\d{2})?")
 _TEXT_MILEAGE_LABELED_RE = re.compile(r"\bmileage\s*:\s*([0-9][0-9,]{0,6})\b", re.I)
 _TEXT_MILEAGE_UNITS_RE = re.compile(r"\b([0-9][0-9,]{0,6})\s*(?:mi|miles?)\b", re.I)
 _TEXT_VIN_RE = re.compile(r"\b([A-HJ-NPR-Z0-9]{17})\b")
+_TEXT_HIN_RE = re.compile(r"\b([A-Z]{3}[A-Z0-9]{5}[A-Z0-9]{4})\b")
+_TEXT_ENGINE_HOURS_RE = re.compile(r"\b([0-9][0-9,]{0,6})\s*(?:hrs?|hours?)\b", re.I)
+_TEXT_STOCK_RE = re.compile(
+    r"\b(?:stock(?:\s*(?:#|number|no\.?))?)\s*[:#-]?\s*([A-Z0-9-]{4,})\b",
+    re.I,
+)
 _TITLE_YEAR_RE = re.compile(r"^(?P<year>20\d{2}|19\d{2})\s+(?P<rest>.+)$")
 _SAVE_PRICE_MSRP_RE = re.compile(
     r"save:\s*\$[\d,]+\s*\$(?P<price>[\d,]+)\s*msrp\s*\$(?P<msrp>[\d,]+)",
@@ -396,11 +403,121 @@ def _extract_mileage_from_text(text: str | None) -> int | None:
     return None
 
 
+def _extract_engine_hours_from_text(text: str | None) -> int | None:
+    if not text:
+        return None
+    for match in _TEXT_ENGINE_HOURS_RE.finditer(text):
+        hours = _coerce_int(match.group(1))
+        if hours is not None:
+            return hours
+    return None
+
+
 def _extract_vin_from_text(text: str | None) -> str | None:
     if not text:
         return None
     match = _TEXT_VIN_RE.search(text.upper())
     return match.group(1) if match else None
+
+
+def _extract_hin_from_text(text: str | None) -> str | None:
+    if not text:
+        return None
+    match = _TEXT_HIN_RE.search(text.upper())
+    return match.group(1) if match else None
+
+
+def _extract_stock_number_from_text(text: str | None) -> str | None:
+    if not text:
+        return None
+    match = _TEXT_STOCK_RE.search(text)
+    return match.group(1).upper() if match else None
+
+
+def _normalize_vehicle_identifier(value: object, *, vehicle_category: str) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    if not text:
+        return None
+    if _TEXT_VIN_RE.fullmatch(text):
+        return text
+    if vehicle_category == "boat" and _TEXT_HIN_RE.fullmatch(text):
+        return text
+    if re.fullmatch(r"[A-Z0-9-]{4,}", text):
+        return text
+    return None
+
+
+def _pick_vehicle_identifier(
+    d: dict[str, Any],
+    *,
+    vehicle_category: str,
+    fallback_text: str | None = None,
+) -> str | None:
+    candidates = [
+        d.get("vehicle_identifier"),
+        d.get("vin"),
+        d.get("vehicleIdentificationNumber"),
+        d.get("vehicle_identification_number"),
+        d.get("hin"),
+        d.get("hullIdentificationNumber"),
+        d.get("hull_id"),
+        d.get("stock"),
+        d.get("stockNo"),
+        d.get("stock_no"),
+        d.get("stockNumber"),
+        d.get("stock_number"),
+        d.get("identifier"),
+    ]
+    for candidate in candidates:
+        identifier = _normalize_vehicle_identifier(candidate, vehicle_category=vehicle_category)
+        if identifier:
+            return identifier
+    if vehicle_category == "boat":
+        fallback_hin = _extract_hin_from_text(fallback_text)
+        if fallback_hin:
+            return fallback_hin
+    fallback_vin = _extract_vin_from_text(fallback_text)
+    if fallback_vin:
+        return fallback_vin
+    return _extract_stock_number_from_text(fallback_text)
+
+
+def _pick_usage_from_dict(
+    d: dict[str, Any],
+    *,
+    vehicle_category: str,
+    fallback_text: str | None = None,
+) -> tuple[int | None, str | None]:
+    hour_candidates = (
+        d.get("engineHours"),
+        d.get("engine_hours"),
+        d.get("hours"),
+        d.get("hourMeter"),
+        d.get("hour_meter"),
+    )
+    mile_candidates = (
+        d.get("miles"),
+        d.get("mileage"),
+        d.get("odometer"),
+    )
+    if vehicle_category in {"boat", "other"}:
+        for candidate in hour_candidates:
+            hours = _coerce_int(candidate)
+            if hours is not None:
+                return hours, "hours"
+        fallback_hours = _extract_engine_hours_from_text(fallback_text)
+        if fallback_hours is not None:
+            return fallback_hours, "hours"
+    for candidate in mile_candidates:
+        miles = _coerce_int(candidate)
+        if miles is not None:
+            return miles, "miles"
+    fallback_miles = _extract_mileage_from_text(fallback_text)
+    if fallback_miles is not None:
+        return fallback_miles, "miles"
+    return None, None
 
 
 def _parse_title_fields(raw_title: str | None) -> dict[str, Any]:
@@ -773,9 +890,33 @@ def _build_availability_status(
 
 
 def _vehicle_merge_key(v: VehicleListing) -> str:
+    if v.vehicle_identifier:
+        return f"id:{v.vehicle_identifier}"
     if v.vin:
         return f"vin:{v.vin}"
     return f"{v.listing_url or ''}|{v.raw_title or ''}"
+
+
+def _normalize_listing_for_category(v: VehicleListing, *, vehicle_category: str) -> VehicleListing:
+    usage_value = v.usage_value
+    usage_unit = v.usage_unit
+    if usage_value is None and v.mileage is not None:
+        usage_value = v.mileage
+    if usage_unit is None and usage_value is not None:
+        usage_unit = "miles"
+    identifier = v.vehicle_identifier or v.vin or _pick_vehicle_identifier(
+        {},
+        vehicle_category=vehicle_category,
+        fallback_text=v.raw_title,
+    )
+    return v.model_copy(
+        update={
+            "vehicle_category": vehicle_category or v.vehicle_category or "car",
+            "usage_value": usage_value,
+            "usage_unit": usage_unit,
+            "vehicle_identifier": identifier,
+        }
+    )
 
 
 def _prefer_vehicle_fields(existing: VehicleListing, incoming: VehicleListing) -> VehicleListing:
@@ -839,7 +980,12 @@ def _prefer_vehicle_fields(existing: VehicleListing, incoming: VehicleListing) -
     return VehicleListing(**merged)
 
 
-def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing | None:
+def dict_to_vehicle_listing(
+    d: dict[str, Any],
+    base_url: str,
+    *,
+    vehicle_category: str = "car",
+) -> VehicleListing | None:
     """Map a loose inventory/schema dict to VehicleListing; returns None if not vehicle-like."""
     make = d.get("make") or d.get("manufacturer") or d.get("brand")
     model = d.get("model")
@@ -856,12 +1002,19 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
     title_fields = _parse_title_fields(raw_title)
     make_s = str(make).strip() if make else (str(title_fields.get("make")).strip() if title_fields.get("make") else None)
     model_s = str(model).strip() if model else (str(title_fields.get("model")).strip() if title_fields.get("model") else None)
-    vin_s = str(vin).strip() if vin else None
-    if not make_s and not model_s and not vin_s:
+    normalized_category = (vehicle_category or "car").strip().lower() or "car"
+    identifier_s = _pick_vehicle_identifier(
+        d,
+        vehicle_category=normalized_category,
+        fallback_text=raw_title,
+    )
+    vin_s = _normalize_vehicle_identifier(vin, vehicle_category="car") if vin else None
+    if not make_s and not model_s and not identifier_s:
         return None
     if not make_s and not model_s:
-        # VIN-only without make/model is too weak for display
-        return None
+        # Identifier-only without any title context is too weak for display.
+        if not raw_title:
+            return None
 
     vdp = (
         d.get("vdpUrl")
@@ -891,7 +1044,6 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         img = img.get("url") or img.get("contentUrl") or img.get("uri") or img.get("src")
     image_url = urljoin(base_url, str(img).replace("\\/", "/")) if img else None
 
-    miles = d.get("miles") or d.get("mileage") or d.get("odometer")
     trim = d.get("trim")
     if isinstance(trim, dict):
         trim = trim.get("name")
@@ -937,8 +1089,14 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
     msrp, dealer_discount, incentive_labels = _merge_pricing_enrichment(d, final_price=final_price)
     features = _extract_feature_highlights(d)
     stock_date, days_on_lot = _extract_stock_date_and_days(d)
+    usage_value, usage_unit = _pick_usage_from_dict(
+        d,
+        vehicle_category=normalized_category,
+        fallback_text=raw_title,
+    )
 
     return VehicleListing(
+        vehicle_category=normalized_category,
         year=_pick_year(d) or _coerce_int(title_fields.get("year")),
         make=make_s,
         model=model_s,
@@ -946,9 +1104,12 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
         body_style=body_style_s,
         exterior_color=exterior_color_s,
         price=final_price,
-        mileage=_coerce_int(miles),
+        mileage=usage_value if usage_unit == "miles" else None,
+        usage_value=usage_value,
+        usage_unit=usage_unit,
         vehicle_condition=vehicle_condition,
         vin=vin_s,
+        vehicle_identifier=identifier_s or vin_s,
         image_url=image_url,
         listing_url=listing_url,
         raw_title=raw_title,
@@ -974,10 +1135,14 @@ def dict_to_vehicle_listing(d: dict[str, Any], base_url: str) -> VehicleListing 
 
 
 def _vehicle_record_key(d: dict[str, Any]) -> str:
+    vehicle_category = str(d.get("vehicle_category") or "car").strip().lower() or "car"
+    identifier = _pick_vehicle_identifier(d, vehicle_category=vehicle_category)
     vin = str(d.get("vin") or d.get("vehicleIdentificationNumber") or "").strip()
     url = str(
         d.get("vdpUrl") or d.get("vdp_url") or d.get("url") or d.get("listing_url") or ""
     ).strip()
+    if identifier:
+        return f"id:{identifier}"
     if vin:
         return f"vin:{vin}"
     return url
@@ -1049,7 +1214,12 @@ def _parse_dom_vehicle_payload(card: Any) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _extract_search_result_card_vehicles(html: str, page_url: str) -> list[VehicleListing]:
+def _extract_search_result_card_vehicles(
+    html: str,
+    page_url: str,
+    *,
+    vehicle_category: str = "car",
+) -> list[VehicleListing]:
     soup = BeautifulSoup(html, "lxml")
     vehicles: list[VehicleListing] = []
     seen: set[str] = set()
@@ -1084,7 +1254,17 @@ def _extract_search_result_card_vehicles(html: str, page_url: str) -> list[Vehic
             )[0].strip()
         title_fields = _parse_title_fields(title_part)
         raw_title = title_fields.get("raw_title") or title_part or None
+        usage_value, usage_unit = _pick_usage_from_dict(
+            {},
+            vehicle_category=vehicle_category,
+            fallback_text=card_text,
+        )
         vin = _extract_vin_from_text(card_text)
+        vehicle_identifier = _pick_vehicle_identifier(
+            {"vin": vin},
+            vehicle_category=vehicle_category,
+            fallback_text=card_text,
+        )
         price = None
         price_match = _SAVE_PRICE_MSRP_RE.search(card_text)
         if price_match:
@@ -1098,14 +1278,18 @@ def _extract_search_result_card_vehicles(html: str, page_url: str) -> list[Vehic
             image_url = urljoin(page_url, str(img.get("src")))
 
         vehicle = VehicleListing(
+            vehicle_category=vehicle_category,
             year=_coerce_int(title_fields.get("year")),
             make=str(title_fields.get("make")).strip() if title_fields.get("make") else None,
             model=str(title_fields.get("model")).strip() if title_fields.get("model") else None,
             trim=str(title_fields.get("trim")).strip() if title_fields.get("trim") else None,
             price=price,
-            mileage=_extract_mileage_from_text(card_text),
+            mileage=usage_value if usage_unit == "miles" else None,
+            usage_value=usage_value,
+            usage_unit=usage_unit,
             vehicle_condition=normalize_vehicle_condition(raw_title) or normalize_vehicle_condition(listing_url),
             vin=vin,
+            vehicle_identifier=vehicle_identifier or vin,
             image_url=image_url,
             listing_url=listing_url,
             raw_title=raw_title,
@@ -1120,7 +1304,12 @@ def _extract_search_result_card_vehicles(html: str, page_url: str) -> list[Vehic
     return vehicles
 
 
-def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
+def extract_dom_vehicle_cards(
+    html: str,
+    page_url: str,
+    *,
+    vehicle_category: str = "car",
+) -> list[VehicleListing]:
     """
     Pull listings from rendered SRP cards, primarily for DealerOn-style pages that
     expose data-* attrs after JS render but little/no embedded JSON.
@@ -1161,11 +1350,17 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
         model = card.get("data-model") or card.get("data-vehicle-model-name") or card.get("data-dotagging-item-model") or payload.get("model")
         year = _coerce_int(card.get("data-year") or card.get("data-vehicle-model-year") or card.get("data-dotagging-item-year") or payload.get("year"))
         trim = card.get("data-trim") or card.get("data-vehicle-trim") or card.get("data-dotagging-item-variant") or payload.get("trim")
-        mileage = _coerce_int(
-            card.get("data-odometer")
-            or card.get("data-dotagging-item-odometer")
-            or payload.get("mileage")
-            or payload.get("odometer")
+        usage_value, usage_unit = _pick_usage_from_dict(
+            {
+                "mileage": card.get("data-odometer") or payload.get("mileage"),
+                "odometer": card.get("data-dotagging-item-odometer") or payload.get("odometer"),
+                "engineHours": payload.get("engineHours"),
+                "engine_hours": payload.get("engine_hours"),
+                "hours": payload.get("hours"),
+                "hourMeter": payload.get("hourMeter"),
+            },
+            vehicle_category=vehicle_category,
+            fallback_text=card_text,
         )
         msrp_attr = _coerce_float(
             card.get("data-msrp")
@@ -1269,8 +1464,12 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             trim = title_fields.get("trim")
         if price in (None, 0.0):
             price = _extract_price_from_text(card_text) or price
-        if mileage is None:
-            mileage = _extract_mileage_from_text(card_text)
+        if usage_value is None:
+            usage_value, usage_unit = _pick_usage_from_dict(
+                {},
+                vehicle_category=vehicle_category,
+                fallback_text=card_text,
+            )
         vehicle_condition = (
             normalize_vehicle_condition(card.get("data-condition"))
             or normalize_vehicle_condition(card.get("data-newused"))
@@ -1280,6 +1479,17 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
             or normalize_vehicle_condition(raw_title)
             or normalize_vehicle_condition(card_text)
             or normalize_vehicle_condition(listing_url)
+        )
+        vehicle_identifier = _pick_vehicle_identifier(
+            {
+                "vin": vin,
+                "hin": payload.get("hin"),
+                "hullIdentificationNumber": payload.get("hullIdentificationNumber"),
+                "stock": card.get("data-stock") or payload.get("stock"),
+                "stockNo": card.get("data-stock-no") or payload.get("stockNo"),
+            },
+            vehicle_category=vehicle_category,
+            fallback_text=card_text,
         )
 
         key = f"{vin or ''}|{listing_url or ''}|{raw_title or ''}"
@@ -1292,14 +1502,18 @@ def extract_dom_vehicle_cards(html: str, page_url: str) -> list[VehicleListing]:
 
         vehicles.append(
             VehicleListing(
+                vehicle_category=vehicle_category,
                 year=year,
                 make=str(make).strip() if make else None,
                 model=str(model).strip() if model else None,
                 trim=str(trim).strip() if trim else None,
                 price=price,
-                mileage=mileage,
+                mileage=usage_value if usage_unit == "miles" else None,
+                usage_value=usage_value,
+                usage_unit=usage_unit,
                 vehicle_condition=vehicle_condition,
                 vin=str(vin).strip() if vin else None,
+                vehicle_identifier=vehicle_identifier or (str(vin).strip() if vin else None),
                 image_url=image_url,
                 listing_url=listing_url,
                 raw_title=str(raw_title).strip() if raw_title else None,
@@ -1715,6 +1929,7 @@ def try_extract_vehicles_without_llm(
     html: str,
     make_filter: str,
     model_filter: str,
+    vehicle_category: str = "car",
     platform_id: str | None = None,
 ) -> ExtractionResult | None:
     """
@@ -1728,20 +1943,26 @@ def try_extract_vehicles_without_llm(
         dicts = inventory_parser_for_platform(platform_id).normalize_pricing_dicts(dicts)
     by_key: dict[str, VehicleListing] = {}
     for d in dicts:
-        v = dict_to_vehicle_listing(d, page_url)
+        v = dict_to_vehicle_listing(d, page_url, vehicle_category=vehicle_category)
         if v:
             key = _vehicle_merge_key(v)
             by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
-    for v in extract_dom_vehicle_cards(html, page_url):
+    for v in extract_dom_vehicle_cards(html, page_url, vehicle_category=vehicle_category):
         key = _vehicle_merge_key(v)
         by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
-    for v in _extract_search_result_card_vehicles(html, page_url):
+    for v in _extract_search_result_card_vehicles(html, page_url, vehicle_category=vehicle_category):
         key = _vehicle_merge_key(v)
         by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
-    all_vehicles = [apply_page_make_scope(v, page_url, make_filter) for v in by_key.values()]
+    all_vehicles = [
+        _normalize_listing_for_category(
+            apply_page_make_scope(v, page_url, make_filter),
+            vehicle_category=vehicle_category,
+        )
+        for v in by_key.values()
+    ]
     vehicles = [v for v in all_vehicles if listing_matches_filters(v, make_filter, model_filter)]
     fallback_page_size = len(all_vehicles) if all_vehicles else None
     pagination = infer_inventory_pagination(
@@ -1776,6 +1997,7 @@ async def extract_vehicles_from_html(
     html: str,
     make_filter: str,
     model_filter: str,
+    vehicle_category: str = "car",
 ) -> ExtractionResult:
     if not settings.openai_api_key:
         raise ValueError("OPENAI_API_KEY is not set")
@@ -1786,6 +2008,7 @@ async def extract_vehicles_from_html(
 
     user_msg = (
         f"Page URL: {page_url}\n"
+        f"Requested vehicle category: {vehicle_category}\n"
         f"User filters (strict — empty means no filter on that field):\n"
         f"  make: {make_filter or '(any)'}\n"
         f"  model: {model_filter or '(any)'}\n\n"
@@ -1811,10 +2034,18 @@ async def extract_vehicles_from_html(
     parsed = response.choices[0].message.parsed
     if not parsed:
         return ExtractionResult(vehicles=[], next_page_url=None)
+    parsed = parsed.model_copy(
+        update={
+            "vehicles": [
+                _normalize_listing_for_category(vehicle, vehicle_category=vehicle_category)
+                for vehicle in parsed.vehicles
+            ]
+        }
+    )
     fallback_page_size = max(
         len(parsed.vehicles),
-        len(extract_dom_vehicle_cards(html, page_url)),
-        len(_extract_search_result_card_vehicles(html, page_url)),
+        len(extract_dom_vehicle_cards(html, page_url, vehicle_category=vehicle_category)),
+        len(_extract_search_result_card_vehicles(html, page_url, vehicle_category=vehicle_category)),
     )
     pagination = infer_inventory_pagination(
         html,

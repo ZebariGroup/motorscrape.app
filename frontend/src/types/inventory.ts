@@ -1,4 +1,5 @@
 export type VehicleListing = {
+  vehicle_category?: "car" | "motorcycle" | "boat" | "other";
   year?: number;
   make?: string;
   model?: string;
@@ -7,8 +8,11 @@ export type VehicleListing = {
   exterior_color?: string;
   price?: number;
   mileage?: number;
+  usage_value?: number;
+  usage_unit?: "miles" | "hours";
   vehicle_condition?: "new" | "used";
   vin?: string;
+  vehicle_identifier?: string;
   image_url?: string;
   listing_url?: string;
   raw_title?: string;

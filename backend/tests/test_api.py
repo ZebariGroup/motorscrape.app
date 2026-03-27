@@ -39,3 +39,19 @@ def test_search_stream_no_dealers_mocked() -> None:
             body = b"".join(r.iter_bytes())
     assert b"event: done" in body
     assert b"No dealerships" in body
+
+
+def test_search_stream_accepts_vehicle_category() -> None:
+    with patch(
+        "app.services.orchestrator.find_dealerships",
+        new_callable=AsyncMock,
+        return_value=[],
+    ) as mocked_find:
+        with client.stream(
+            "GET",
+            "/search/stream",
+            params={"location": "XX", "vehicle_category": "boat"},
+        ) as r:
+            assert r.status_code == 200
+            _ = b"".join(r.iter_bytes())
+    assert mocked_find.await_args.kwargs["vehicle_category"] == "boat"

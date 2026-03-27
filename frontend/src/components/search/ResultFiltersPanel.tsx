@@ -3,6 +3,7 @@
 import type { Dispatch, SetStateAction } from "react";
 
 import { formatMoney, sliderStep } from "@/lib/inventoryFormat";
+import type { VehicleCategory } from "@/lib/vehicleCatalog";
 
 type Props = {
   filtersExpanded: boolean;
@@ -14,6 +15,7 @@ type Props = {
   bodyStyleFilter: string;
   setBodyStyleFilter: (v: string) => void;
   bodyStyleOptions: string[];
+  vehicleCategory: VehicleCategory;
   colorFilter: string;
   setColorFilter: (v: string) => void;
   colorOptions: string[];
@@ -35,6 +37,7 @@ export function ResultFiltersPanel({
   bodyStyleFilter,
   setBodyStyleFilter,
   bodyStyleOptions,
+  vehicleCategory,
   colorFilter,
   setColorFilter,
   colorOptions,
@@ -45,6 +48,8 @@ export function ResultFiltersPanel({
   setPriceFilterMax,
   onClearFilters,
 }: Props) {
+  const bodyStyleLabel = vehicleCategory === "car" ? "Style" : "Type / class";
+  const bodyStyleAnyLabel = vehicleCategory === "car" ? "All styles" : "All types";
   return (
     <div className="mb-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
       <button
@@ -84,13 +89,13 @@ export function ResultFiltersPanel({
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-xs">
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">Style</span>
+                <span className="font-medium text-zinc-700 dark:text-zinc-300">{bodyStyleLabel}</span>
                 <select
                   value={bodyStyleFilter}
                   onChange={(e) => setBodyStyleFilter(e.target.value)}
                   className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                 >
-                  <option value="">All styles</option>
+                  <option value="">{bodyStyleAnyLabel}</option>
                   {bodyStyleOptions.map((bodyStyle) => (
                     <option key={bodyStyle} value={bodyStyle}>
                       {bodyStyle}

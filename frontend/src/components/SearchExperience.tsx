@@ -83,6 +83,7 @@ export function SearchExperience() {
     location: form.location.trim(),
     make: form.make.trim(),
     model: form.model.trim(),
+    vehicle_category: form.vehicleCategory,
     vehicle_condition: form.vehicleCondition as "all" | "new" | "used",
     radius_miles: Number.parseInt(form.radiusMiles, 10) || 25,
     inventory_scope: form.inventoryScope as "all" | "on_lot_only" | "exclude_shared" | "include_transit",
@@ -138,7 +139,7 @@ export function SearchExperience() {
         <header className="space-y-2">
           <p className="text-sm font-medium tracking-wide text-emerald-700 uppercase">Motorscrape</p>
           <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl dark:text-zinc-50">
-            Local dealership inventory, one place
+            Local motor vehicle inventory, one place
           </h1>
         </header>
 
@@ -147,11 +148,14 @@ export function SearchExperience() {
               reconnecting={search.reconnecting}
               location={form.location}
           setLocation={form.setLocation}
+          vehicleCategory={form.vehicleCategory}
+          setVehicleCategory={form.setVehicleCategory}
           make={form.make}
           setMake={form.setMake}
           model={form.model}
           setModel={form.setModel}
           modelOptions={form.modelOptions}
+          usesCatalog={form.usesCatalog}
           vehicleCondition={form.vehicleCondition}
           setVehicleCondition={form.setVehicleCondition}
           radiusMiles={form.radiusMiles}
@@ -188,6 +192,7 @@ export function SearchExperience() {
               bodyStyleFilter={filters.bodyStyleFilter}
               setBodyStyleFilter={filters.setBodyStyleFilter}
               bodyStyleOptions={filters.bodyStyleOptions}
+              vehicleCategory={form.vehicleCategory}
               colorFilter={filters.colorFilter}
               setColorFilter={filters.setColorFilter}
               colorOptions={filters.colorOptions}
@@ -217,6 +222,7 @@ export function SearchExperience() {
             loadingInventoryCards={listings.loadingInventoryCards}
             sortOrder={listings.sortOrder}
             onSortOrderChange={listings.setSortOrder}
+            vehicleCategory={form.vehicleCategory}
             allowCsvExport={csvOk}
           />
         </div>

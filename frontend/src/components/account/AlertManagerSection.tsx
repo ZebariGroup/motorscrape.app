@@ -5,7 +5,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmailAlertPanel } from "@/components/search/EmailAlertPanel";
 import { MultiModelSelect } from "@/components/search/MultiModelSelect";
 import { resolveApiUrl } from "@/lib/apiBase";
-import { getModelsForMake, VEHICLE_MAKES } from "@/lib/vehicleCatalog";
+import {
+  ENABLED_VEHICLE_CATEGORY_OPTIONS,
+  categoryUsesCatalog,
+  defaultVehicleCategory,
+  getMakesForCategory,
+  getModelsForMake,
+  vehicleCategoryLabel,
+} from "@/lib/vehicleCatalog";
+import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { AccessSummary } from "@/types/access";
 import type { AlertDashboardResponse, AlertRun, AlertSubscription } from "@/types/alerts";
 
@@ -36,7 +44,7 @@ function formatWhen(iso: string | null): string {
 }
 
 function criteriaLabel(criteria: AlertSubscription["criteria"]): string {
-  const parts = [criteria.location, criteria.make, criteria.model].filter(Boolean);
+  const parts = [criteria.vehicle_category, criteria.location, criteria.make, criteria.model].filter(Boolean);
   return parts.join(" · ");
 }
 
@@ -46,6 +54,7 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [location, setLocation] = useState("");
+  const [vehicleCategory, setVehicleCategory] = useState<VehicleCategory>(() => defaultVehicleCategory());
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
   const [vehicleCondition, setVehicleCondition] = useState<AlertSubscription["criteria"]["vehicle_condition"]>("all");
@@ -77,7 +86,9 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
   const maxRadiusCap = access?.limits?.max_radius_miles ?? data?.limits.max_radius_miles ?? 250;
   const inventoryScopePremium = access?.limits?.inventory_scope_premium ?? true;
   const allowAnyModel = ["premium", "enterprise", "custom"].includes(tier.toLowerCase());
-  const modelOptions = useMemo(() => getModelsForMake(make), [make]);
+  const usesCatalog = useMemo(() => categoryUsesCatalog(vehicleCategory), [vehicleCategory]);
+  const makeOptions = useMemo(() => getMakesForCategory(vehicleCategory), [vehicleCategory]);
+  const modelOptions = useMemo(() => getModelsForMake(vehicleCategory, make), [make, vehicleCategory]);
   const radiusOptions = useMemo(() => RADIUS_CHOICES.filter((miles) => miles <= maxRadiusCap), [maxRadiusCap]);
   const dealerOptions = useMemo(() => dealerChoices(maxDealersCap), [maxDealersCap]);
   const canCreateAlert = location.trim().length >= 2 && (allowAnyModel || model.trim().length > 0);
@@ -85,6 +96,7 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
     location: location.trim(),
     make: make.trim(),
     model: model.trim(),
+    vehicle_category: vehicleCategory,
     vehicle_condition: vehicleCondition,
     radius_miles: Number.parseInt(radiusMiles, 10) || 25,
     inventory_scope: inventoryScope,
@@ -211,33 +223,70 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span className="font-medium text-zinc-800 dark:text-zinc-200">Make</span>
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">Vehicle category</span>
                 <select
-                  value={make}
+                  value={vehicleCategory}
                   onChange={(event) => {
-                    setMake(event.target.value);
+                    const nextCategory = event.target.value as VehicleCategory;
+                    setVehicleCategory(nextCategory);
+                    setMake("");
                     setModel("");
                   }}
                   className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                 >
-                  {allowAnyModel && <option value="">Any make</option>}
-                  {!allowAnyModel && !make ? <option value="" disabled>Select make</option> : null}
-                  {VEHICLE_MAKES.map((makeOption) => (
-                    <option key={makeOption} value={makeOption}>
-                      {makeOption}
+                  {ENABLED_VEHICLE_CATEGORY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-sm">
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">Make</span>
+                {usesCatalog ? (
+                  <select
+                    value={make}
+                    onChange={(event) => {
+                      setMake(event.target.value);
+                      setModel("");
+                    }}
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  >
+                    {allowAnyModel && <option value="">Any make</option>}
+                    {!allowAnyModel && !make ? <option value="" disabled>Select make</option> : null}
+                    {makeOptions.map((makeOption) => (
+                      <option key={makeOption} value={makeOption}>
+                        {makeOption}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={make}
+                    onChange={(event) => setMake(event.target.value)}
+                    placeholder={`${vehicleCategoryLabel(vehicleCategory)} make`}
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  />
+                )}
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
                 <span className="font-medium text-zinc-800 dark:text-zinc-200">Model</span>
-                <MultiModelSelect
-                  models={modelOptions}
-                  selectedModels={model ? model.split(",").filter(Boolean) : []}
-                  onChange={(models) => setModel(models.join(","))}
-                  disabled={false}
-                  allowAnyModel={allowAnyModel}
-                />
+                {usesCatalog ? (
+                  <MultiModelSelect
+                    models={modelOptions}
+                    selectedModels={model ? model.split(",").filter(Boolean) : []}
+                    onChange={(models) => setModel(models.join(","))}
+                    disabled={false}
+                    allowAnyModel={allowAnyModel}
+                  />
+                ) : (
+                  <input
+                    value={model}
+                    onChange={(event) => setModel(event.target.value)}
+                    placeholder="Model or comma-separated models"
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  />
+                )}
               </label>
               <label className="flex flex-col gap-1 text-sm">
                 <span className="font-medium text-zinc-800 dark:text-zinc-200">Condition</span>

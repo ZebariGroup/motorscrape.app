@@ -40,7 +40,7 @@ from app.services.orchestrator_utils import (
     prefer_https_website_url,
 )
 from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
-from app.services.places import find_car_dealerships
+from app.services.places import find_car_dealerships, find_dealerships
 from app.services.platform_store import normalize_dealer_domain
 from app.services.provider_router import (
     ProviderRoute,
@@ -213,6 +213,7 @@ def _team_velocity_model_inventory_urls(
 def _listing_emit_key(v: Any) -> str:
     return "|".join(
         [
+            str(getattr(v, "vehicle_identifier", "") or "").strip().lower(),
             str(getattr(v, "vin", "") or "").strip().lower(),
             str(getattr(v, "listing_url", "") or "").strip().lower(),
             str(getattr(v, "raw_title", "") or "").strip().lower(),
@@ -377,12 +378,20 @@ async def _enrich_vehicle_from_vdp(v: VehicleListing) -> VehicleListing:
             html=html,
             make_filter=v.make or "",
             model_filter="",
+            vehicle_category=v.vehicle_category or "car",
         )
     except Exception:
         return v
     if not ext:
         return v
     candidates = ext.vehicles
+    if v.vehicle_identifier:
+        for candidate in candidates:
+            if (
+                candidate.vehicle_identifier
+                and candidate.vehicle_identifier.upper() == v.vehicle_identifier.upper()
+            ):
+                return _merge_vehicle_detail(v, candidate)
     if v.vin:
         for candidate in candidates:
             if candidate.vin and candidate.vin.upper() == v.vin.upper():
@@ -407,6 +416,7 @@ async def stream_search(
     make: str,
     model: str,
     *,
+    vehicle_category: str = "car",
     vehicle_condition: str = "all",
     radius_miles: int = 50,
     inventory_scope: str = "all",
@@ -419,7 +429,9 @@ async def stream_search(
     Yield SSE-formatted strings: status, dealership, vehicles, error, done.
     """
     cid_log = f"[{correlation_id}] " if correlation_id else ""
-    logger.info(f"{cid_log}Starting search: location={location}, make={make}, model={model}")
+    logger.info(
+        f"{cid_log}Starting search: location={location}, category={vehicle_category}, make={make}, model={model}"
+    )
     yield sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
     requested_dealerships = max(1, min(max_dealerships or settings.max_dealerships, 30))
     requested_pages = max(
@@ -460,13 +472,23 @@ async def stream_search(
         return payload
 
     try:
-        dealers = await find_car_dealerships(
-            location,
-            make=make,
-            model=model,
-            limit=min(requested_dealerships * 3, 30),
-            radius_miles=radius_miles,
-        )
+        if (vehicle_category or "car").strip().lower() == "car":
+            dealers = await find_car_dealerships(
+                location,
+                make=make,
+                model=model,
+                limit=min(requested_dealerships * 3, 30),
+                radius_miles=radius_miles,
+            )
+        else:
+            dealers = await find_dealerships(
+                location,
+                make=make,
+                model=model,
+                vehicle_category=vehicle_category,
+                limit=min(requested_dealerships * 3, 30),
+                radius_miles=radius_miles,
+            )
     except Exception as e:
         logger.exception(f"{cid_log}Places search failed")
         yield sse_pack("search_error", {"message": str(e), "phase": "places"})
@@ -485,6 +507,7 @@ async def stream_search(
                 {
                     "ok": True,
                     "dealerships": 0,
+                    "vehicle_category": vehicle_category,
                     "radius_miles": radius_miles,
                     "vehicle_condition": vehicle_condition,
                     "inventory_scope": inventory_scope,
@@ -503,7 +526,7 @@ async def stream_search(
             "message": (
                 f"Found {len(dealers)} dealerships. Scraping inventory… "
                 f"(requested {requested_dealerships}, radius {radius_miles} mi, "
-                f"condition {vehicle_condition}, workers {effective_concurrency})"
+                f"condition {vehicle_condition}, category {vehicle_category}, workers {effective_concurrency})"
             ),
             "phase": "scrape",
         },
@@ -1134,6 +1157,7 @@ async def stream_search(
                         html=current_html,
                         make_filter=make,
                         model_filter=model,
+                        vehicle_category=vehicle_category,
                         platform_id=route.platform_id if route else None,
                     )
                     extraction_mode = "structured" if ext_result is not None else None
@@ -1211,6 +1235,7 @@ async def stream_search(
                                 html=current_html,
                                 make_filter=make,
                                 model_filter=model,
+                                vehicle_category=vehicle_category,
                             ),
                             timeout=llm_timeout,
                         )

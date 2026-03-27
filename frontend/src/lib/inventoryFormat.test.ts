@@ -18,10 +18,11 @@ describe("inventoryFormat", () => {
       listingIdentityKey({
         dealership: "BMW of Ann Arbor",
         dealership_website: "https://www.bmwofannarbor.com/",
+        vehicle_identifier: "WBATEST12345",
         raw_title: "2025 BMW X3 xDrive30",
         price: 52995,
       }, "fallback-1"),
-    ).toContain("bmwofannarbor.com");
+    ).toContain("wbatest12345");
   });
 
   it("listingIdentityKey falls back when listing is otherwise blank", () => {
