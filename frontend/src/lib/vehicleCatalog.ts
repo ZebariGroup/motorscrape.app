@@ -223,16 +223,56 @@ const MOTORCYCLE_CATALOG = [
 
 const BOAT_CATALOG = [
   {
+    make: "Axis",
+    models: ["A20", "A225", "A245", "T220", "T235", "T250"],
+  },
+  {
     make: "Bayliner",
     models: ["Ciera 8", "DX2000", "DX2050", "M15", "M17", "M19", "T18", "T20", "T22CC", "VR4", "VR5"],
+  },
+  {
+    make: "Barletta",
+    models: ["Aria", "Cabrio", "Corsa", "Lusso", "Leggera", "Reserve"],
   },
   {
     make: "Bennington",
     models: ["20 SVL", "21 SSB", "22 SXSR", "23 LSB", "24 LXSB", "24 RX Sport", "25 QX Sport"],
   },
   {
+    make: "Boston Whaler",
+    models: ["170 Montauk", "190 Montauk", "210 Vantage", "230 Outrage", "240 Vantage", "280 Dauntless"],
+  },
+  {
     make: "Chaparral",
     models: ["19 SSi", "21 Surf", "21 SSi", "23 Surf", "23 SSi", "247 SSX", "250 OSX", "267 SSX", "30 Surf"],
+  },
+  {
+    make: "Chris Craft",
+    models: ["Calypso 24", "Calypso 30", "Catalina 30", "Launch 25 GT", "Launch 28 GT", "Sportster 25"],
+  },
+  {
+    make: "Cobalt",
+    models: ["A29", "CS23", "R4", "R6", "R8", "R30"],
+  },
+  {
+    make: "Crestliner",
+    models: ["1650 Fish Hawk", "1750 Fish Hawk", "1850 Super Hawk", "MX 19", "VT 17", "XF 189"],
+  },
+  {
+    make: "Four Winns",
+    models: ["H1", "H2", "H4", "HD3", "HD5", "TH36"],
+  },
+  {
+    make: "Godfrey",
+    models: ["AquaPatio 235UL", "Monaco 235SB", "Sweetwater 2286 SB", "Sweetwater 2486 SFL", "Xperience 2086 CX", "Xperience 2286 SBX"],
+  },
+  {
+    make: "Hurricane",
+    models: ["185 SS", "188 OB", "201 OB", "217 SD", "231 OB", "2600"],
+  },
+  {
+    make: "Key West Boats",
+    models: ["1720CC", "188BR", "203FS", "219FS", "239FS", "263FS"],
   },
   {
     make: "Lund",
@@ -243,16 +283,52 @@ const BOAT_CATALOG = [
     models: ["20 VTX", "21 LX", "21 MLX", "22 LSV", "23 LSV", "23 MXZ", "24 MXZ", "25 LSV", "M220", "M230", "M240"],
   },
   {
+    make: "Manitou",
+    models: ["Aurora LE", "Cruise 22", "Explore 24", "LX 25", "XT 25", "X-Plode 25"],
+  },
+  {
     make: "MasterCraft",
     models: ["NXT20", "NXT22", "NXT24", "ProStar", "X22", "X24", "XStar", "XT22", "XT23"],
+  },
+  {
+    make: "Moomba",
+    models: ["Craz", "Kaiyen", "Makai", "Max", "Mojo", "Tykon"],
+  },
+  {
+    make: "Monterey",
+    models: ["218SS", "255SS", "275SS", "298SS", "M-225", "M-45"],
+  },
+  {
+    make: "Nautique",
+    models: ["G21", "G23", "GS20", "GS22", "S23", "S25"],
+  },
+  {
+    make: "Premier",
+    models: ["230 Solaris", "230 Sunsation", "250 Intrigue", "250 Solaris", "290 Grand Majestic", "Boundary Waters 231"],
   },
   {
     make: "Ranger Boats",
     models: ["2080MS Angler", "620FS Pro", "621FS Pro", "RT178", "RT188", "VS1660 SC", "VS1682 WT", "Z175", "Z185", "Z520R"],
   },
   {
+    make: "Regal",
+    models: ["26 XO", "33 XO", "36 XO", "LS2", "LX4", "LX6"],
+  },
+  {
+    make: "Robalo",
+    models: ["160", "200ES", "202EX", "222EX", "226 Cayman", "R317"],
+  },
+  {
     make: "Sea Ray",
     models: ["SDX 250", "SDX 270", "SLX 260", "SLX 280", "SPX 190", "SPX 210", "SPX 230", "Sundancer 320", "Sundancer 370"],
+  },
+  {
+    make: "Starcraft",
+    models: ["EX 20 C", "LX 20 R", "SVX 171 OB", "SVX 191 OB", "SVX 211 OB", "MX 25 L"],
+  },
+  {
+    make: "Sylvan",
+    models: ["L-3 DLZ", "Mirage 820", "Mirage X3", "S3 CRS", "X1", "X3 CLZ"],
   },
   {
     make: "Tracker",

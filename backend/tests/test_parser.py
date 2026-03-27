@@ -166,6 +166,89 @@ def test_try_extract_brand_inventory_boat_card() -> None:
     assert v.availability_status is not None
 
 
+def test_try_extract_wilson_unit_row_boat_card() -> None:
+    html = """
+    <html><body>
+      <div class="unit-row row">
+        <div class="col-xs-12 col-sm-4 t-mb-30">
+          <a href="/inventory/2024-bayliner-dx2200-54716">
+            <img alt="2024 Bayliner DX2200" class="unit-img" src="https://images.example.com/bayliner.jpg" />
+          </a>
+        </div>
+        <div class="col-xs-12 col-sm-4">
+          <p class="unit-status">Available</p>
+          <a href="/inventory/2024-bayliner-dx2200-54716"><h3 class="unit-name-vlp">2024 Bayliner DX2200</h3></a>
+          <div class="vlp-spec-row">
+            <div class="d-flex"><p class="fw-bold">Stock Number</p><p>54716</p></div>
+            <div class="d-flex"><p class="fw-bold">Condition</p><p class="unit-condition">NEW</p></div>
+            <div class="d-flex"><p class="fw-bold">Location</p><p class="unit-condition">Wixom</p></div>
+          </div>
+          <p class="sales-price unit-sale m0">$60,226</p>
+        </div>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/bayliner-boats-for-sale",
+        html=html,
+        make_filter="Bayliner",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.year == 2024
+    assert v.make == "Bayliner"
+    assert v.model == "DX2200"
+    assert v.price == 60226
+    assert v.vehicle_condition == "new"
+    assert v.vehicle_identifier == "54716"
+    assert v.inventory_location == "Wixom"
+    assert v.image_url == "https://images.example.com/bayliner.jpg"
+
+
+def test_try_extract_grand_pointe_inv_card() -> None:
+    html = """
+    <html><body>
+      <article class="inv-card">
+        <a href="https://dealer.example/boat/bayliner-element-m17-123/">
+          <div class="inv-thumb">
+            <img src="https://images.example.com/element.jpg" />
+          </div>
+          <div class="inv-content">
+            <div class="inv-content-top">
+              <span class="inv-stock">STOCK #: 123</span>
+              <h3>2024 Bayliner Element M17</h3>
+            </div>
+            <div class="inv-content-bottom">
+              <span class="inv-price">$24,999</span>
+              <div class="inv-location">Detroit, MI</div>
+            </div>
+          </div>
+        </a>
+      </article>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/boats/",
+        html=html,
+        make_filter="Bayliner",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.year == 2024
+    assert v.make == "Bayliner"
+    assert v.model == "Element"
+    assert v.trim == "M17"
+    assert v.price == 24999
+    assert v.inventory_location == "Detroit, MI"
+    assert v.listing_url == "https://dealer.example/boat/bayliner-element-m17-123/"
+
+
 def test_try_extract_boat_usage_and_identifier() -> None:
     html = """
     <html><body>
@@ -213,6 +296,50 @@ def test_try_extract_boat_multiword_make_from_title_card() -> None:
     v = result.vehicles[0]
     assert v.make == "Sea Ray"
     assert v.model == "SLX"
+
+
+def test_try_extract_boat_key_west_multiword_make_from_title_card() -> None:
+    html = """
+    <html><body>
+      <a class="c-widget--vehicle" href="/inventory/key-west-1">
+        2024 Key West Boats 203FS
+      </a>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/boats",
+        html=html,
+        make_filter="Key West Boats",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.make == "Key West Boats"
+    assert v.model == "203FS"
+
+
+def test_try_extract_boat_axis_make_from_title_card() -> None:
+    html = """
+    <html><body>
+      <a class="c-widget--vehicle" href="/inventory/axis-1">
+        2024 Axis A225
+      </a>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/boats",
+        html=html,
+        make_filter="Axis",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.make == "Axis"
+    assert v.model == "A225"
 
 
 def test_try_extract_applies_page_make_scope_for_make_filtered_inventory_pages() -> None:

@@ -124,15 +124,27 @@ _KNOWN_MAKE_PREFIXES = tuple(
     sorted(
         {
             "Alfa Romeo",
+            "Barletta",
+            "Bennington",
+            "Boston Whaler",
             "Land Rover",
             "Mercedes-Benz",
             "Harley-Davidson",
             "Indian Motorcycle",
             "BMW Motorrad",
             "Can-Am",
-            "Sea Ray",
-            "Yamaha Boats",
+            "Chris Craft",
+            "Cobalt",
+            "Crestliner",
+            "Four Winns",
+            "Godfrey",
+            "Key West Boats",
+            "MasterCraft",
+            "Robalo",
             "Ranger Boats",
+            "Yamaha Boats",
+            "Sea Ray",
+            "Starcraft",
         },
         key=len,
         reverse=True,
@@ -1376,6 +1388,8 @@ def extract_dom_vehicle_cards(
         ".result-wrap.new-vehicle",
         ".new-vehicle[data-vehicle]",
         ".brandInventoryCard",
+        ".unit-row",
+        ".inv-card",
         ".v7list-results__item",
         ".v7list-vehicle",
         ".si-vehicle-box",
@@ -1413,6 +1427,18 @@ def extract_dom_vehicle_cards(
         tv_current_price = _text_or_none(card.select_one(".vehicle-price--current .vehicle-price__price"))
         tv_old_price = _text_or_none(card.select_one(".vehicle-price--old .vehicle-price__price"))
         tv_savings = _text_or_none(card.select_one(".vehicle-price--savings .vehicle-price__price"))
+        wilson_title = _text_or_none(card.select_one(".unit-name-vlp"))
+        wilson_status = _text_or_none(card.select_one(".unit-status"))
+        wilson_price = _text_or_none(card.select_one(".unit-sale"))
+        wilson_specs: dict[str, str] = {}
+        for row in card.select(".vlp-spec-row .d-flex"):
+            columns = [text.strip() for text in row.stripped_strings if text and text.strip()]
+            if len(columns) >= 2:
+                wilson_specs[columns[0].strip().lower().rstrip(":")] = columns[-1].strip()
+        gp_title = _text_or_none(card.select_one(".inv-content h3")) or _text_or_none(card.select_one("h3"))
+        gp_stock = _text_or_none(card.select_one(".inv-stock"))
+        gp_price = _text_or_none(card.select_one(".inv-price"))
+        gp_location = _text_or_none(card.select_one(".inv-location"))
         vin = (
             card.get("data-vin")
             or card.get("data-vehicle-vin")
@@ -1464,6 +1490,8 @@ def extract_dom_vehicle_cards(
             or payload.get("internetPrice")
             or payload.get("salePrice")
             or tv_current_price
+            or wilson_price
+            or gp_price
         )
         if price in (None, 0.0):
             price = _pick_price_from_pricelib(card.get("data-pricelib")) or price
@@ -1501,6 +1529,7 @@ def extract_dom_vehicle_cards(
         inventory_location = card.get("data-dotagging-item-location")
         card_status_text = (
             _text_or_none(card.select_one(".promotionBannerText"))
+            or wilson_status
             or _text_or_none(card.select_one(".fearuredCardLocation span:last-child"))
         )
         availability_status = _build_availability_status(
@@ -1526,6 +1555,8 @@ def extract_dom_vehicle_cards(
             or _text_or_none(card.select_one(".inventoryList-bike-details-title > a"))
             or _text_or_none(card.select_one(".vehicle-heading__link"))
             or _text_or_none(card.select_one(".featuredCardHeading"))
+            or wilson_title
+            or gp_title
             or tv_title
             or _text_or_none(card.select_one(".vehicle-card__title"))
             or _text_or_none(card.select_one(".vehicleTitle"))
@@ -1579,6 +1610,7 @@ def extract_dom_vehicle_cards(
             or normalize_vehicle_condition(payload.get("condition"))
             or normalize_vehicle_condition(payload.get("type"))
             or normalize_vehicle_condition(tv_condition)
+            or normalize_vehicle_condition(wilson_specs.get("condition"))
             or normalize_vehicle_condition(raw_title)
             or normalize_vehicle_condition(card_text)
             or normalize_vehicle_condition(listing_url)
@@ -1588,7 +1620,7 @@ def extract_dom_vehicle_cards(
                 "vin": vin,
                 "hin": payload.get("hin"),
                 "hullIdentificationNumber": payload.get("hullIdentificationNumber"),
-                "stock": card.get("data-stock") or payload.get("stock") or tv_stock,
+                "stock": card.get("data-stock") or payload.get("stock") or tv_stock or wilson_specs.get("stock number") or gp_stock,
                 "stockNo": card.get("data-stock-no") or payload.get("stockNo"),
             },
             vehicle_category=vehicle_category,
@@ -1620,7 +1652,9 @@ def extract_dom_vehicle_cards(
                 image_url=image_url,
                 listing_url=listing_url,
                 raw_title=str(raw_title).strip() if raw_title else None,
-                inventory_location=str(inventory_location or tv_location).strip() if (inventory_location or tv_location) else None,
+                inventory_location=str(inventory_location or tv_location or wilson_specs.get("location") or gp_location).strip()
+                if (inventory_location or tv_location or wilson_specs.get("location") or gp_location)
+                else None,
                 availability_status=availability_status,
                 is_offsite=False,
                 is_in_transit=is_in_transit,
