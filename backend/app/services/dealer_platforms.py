@@ -102,6 +102,38 @@ def _inventory_ready_playwright_instructions(scroll_rounds: int = 2) -> str:
     return _compact_instruction_payload(steps)
 
 
+def _dealer_on_playwright_instructions(scroll_rounds: int = 2) -> str:
+    steps: list[dict[str, Any]] = [
+        {"wait_for_response_url": "/api/vhcliaa/", "timeout_ms": 2500},
+        {"wait_for_selector": ".vehicle-card--mod,.vehicle-card", "timeout_ms": 5000},
+    ]
+    for _ in range(max(1, scroll_rounds)):
+        steps.extend(
+            [
+                {"scroll": "bottom"},
+                {"wait": 900},
+                {"wait_for_selector": ".vehicle-card--mod,.vehicle-card", "timeout_ms": 2500},
+            ]
+        )
+    return _compact_instruction_payload(steps)
+
+
+def _dealer_inspire_playwright_instructions(scroll_rounds: int = 3) -> str:
+    steps: list[dict[str, Any]] = [
+        {"wait_for_response_url": "/api/v1/facets/", "timeout_ms": 3000},
+        {"wait_for_selector": "[data-vehicle],.result-wrap.new-vehicle", "timeout_ms": 5000},
+    ]
+    for _ in range(max(1, scroll_rounds)):
+        steps.extend(
+            [
+                {"scroll": "bottom"},
+                {"wait": 900},
+                {"wait_for_selector": "[data-vehicle],.result-wrap.new-vehicle", "timeout_ms": 2500},
+            ]
+        )
+    return _compact_instruction_payload(steps)
+
+
 def _oneaudi_falcon_playwright_instructions(rounds: int = 8) -> str:
     steps = json.loads(_oneaudi_falcon_inventory_js_instructions(rounds=rounds))
     if not isinstance(steps, list):
@@ -113,6 +145,8 @@ def _oneaudi_falcon_playwright_instructions(rounds: int = 8) -> str:
 # ZenRows `js_instructions` for infinite-scroll SRPs (e.g. OneAudi Falcon) — host-based, not hard-coded in scraper.
 _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS = _oneaudi_falcon_inventory_js_instructions()
 _ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS = _oneaudi_falcon_playwright_instructions()
+_DEALER_ON_PLAYWRIGHT_INSTRUCTIONS = _dealer_on_playwright_instructions()
+_DEALER_INSPIRE_PLAYWRIGHT_INSTRUCTIONS = _dealer_inspire_playwright_instructions()
 _RENDER_REQUIRED_PLAYWRIGHT_INSTRUCTIONS = _inventory_ready_playwright_instructions()
 
 _ONEAUDI_FALCON_INVENTORY_HOST_FRAGMENTS: frozenset[str] = frozenset(
@@ -168,6 +202,10 @@ def playwright_inventory_instructions_for_url(url: str, platform_id: str | None 
     """Return Playwright-specific interaction steps for inventory URLs, if any."""
     if platform_id == "oneaudi_falcon":
         return _ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS.strip()
+    if platform_id == "dealer_on":
+        return _DEALER_ON_PLAYWRIGHT_INSTRUCTIONS.strip()
+    if platform_id == "dealer_inspire":
+        return _DEALER_INSPIRE_PLAYWRIGHT_INSTRUCTIONS.strip()
     if url and _looks_like_oneaudi_falcon_inventory_url(url):
         return _ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS.strip()
     definition = _platform_definition_for_id(platform_id)

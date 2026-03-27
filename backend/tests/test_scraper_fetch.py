@@ -327,6 +327,42 @@ async def test_fetch_page_html_passes_platform_playwright_instructions(monkeypat
     assert captured["url"] == "https://dealer.example/searchnew.aspx"
     assert captured["js_instructions"] is not None
     assert "wait_for_selector" in captured["js_instructions"]
+    assert "/api/vhcliaa/" in captured["js_instructions"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_page_html_passes_dealer_inspire_playwright_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ZENROWS_API_KEY", "zr-test-key")
+    monkeypatch.setenv("PLAYWRIGHT_ENABLED", "true")
+    _fresh_settings(monkeypatch)
+    captured: dict[str, str | None] = {}
+
+    async def fake_pw(url: str, js_instructions: str | None = None) -> str:
+        captured["url"] = url
+        captured["js_instructions"] = js_instructions
+        return _inventory_html()
+
+    monkeypatch.setattr(
+        "app.services.playwright_fetch.fetch_html_via_playwright",
+        fake_pw,
+    )
+
+    respx.get("https://dealer.example/new-vehicles/").mock(return_value=Response(403, text="denied"))
+    respx.get("https://api.zenrows.com/v1/").mock(return_value=Response(500, text="unused"))
+
+    html, method = await fetch_page_html(
+        "https://dealer.example/new-vehicles/",
+        page_kind="inventory",
+        prefer_render=True,
+        platform_id="dealer_inspire",
+    )
+
+    assert method == "playwright"
+    assert "vehicle-card" in html
+    assert captured["url"] == "https://dealer.example/new-vehicles/"
+    assert captured["js_instructions"] is not None
+    assert "/api/v1/facets/" in captured["js_instructions"]
 
 
 @respx.mock

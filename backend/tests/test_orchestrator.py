@@ -112,6 +112,12 @@ async def test_stream_search_done_includes_fetch_metrics() -> None:
     ]
 
     async def fake_fetch(*_args, **_kwargs):
+        metrics = _kwargs.get("metrics")
+        if isinstance(metrics, dict):
+            metrics["playwright_recipe_used"] = metrics.get("playwright_recipe_used", 0) + 1
+            metrics["playwright_recipe_platform_dealer_on"] = (
+                metrics.get("playwright_recipe_platform_dealer_on", 0) + 1
+            )
         return "<html></html>", "direct"
 
     with (
@@ -166,6 +172,8 @@ async def test_stream_search_done_includes_fetch_metrics() -> None:
     tail = "".join(chunks)
     assert "fetch_metrics" in tail
     assert "fetch_direct" in tail
+    assert "playwright_recipe_used" in tail
+    assert "playwright_recipe_platform_dealer_on" in tail
     assert "extraction_metrics" in tail
     assert "pages_llm" in tail
 

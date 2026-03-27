@@ -182,9 +182,28 @@ async def _playwright_pass(
     failures: list[str],
     metric_bump: Callable[[str], None],
     js_instructions: str | None = None,
+    platform_id: str | None = None,
 ) -> tuple[str, str] | None:
     if not settings.playwright_enabled:
         return None
+    instruction_steps = 0
+    targeted_waits = False
+    if js_instructions:
+        try:
+            from app.services.playwright_fetch import _instruction_steps as _pw_instruction_steps
+            from app.services.playwright_fetch import _instructions_include_targeted_waits as _pw_targeted_waits
+
+            steps = _pw_instruction_steps(js_instructions)
+            instruction_steps = len(steps)
+            targeted_waits = _pw_targeted_waits(steps)
+        except Exception:
+            pass
+    if instruction_steps > 0:
+        metric_bump("playwright_recipe_used")
+    if targeted_waits:
+        metric_bump("playwright_recipe_targeted_waits")
+    if platform_id:
+        metric_bump(f"playwright_recipe_platform_{platform_id}")
     try:
         from app.services.playwright_fetch import fetch_html_via_playwright
     except ImportError as e:
@@ -202,9 +221,41 @@ async def _playwright_pass(
     if not html:
         failures.append("playwright: empty")
         metric_bump("playwright_empty")
+        logger.info(
+            "Playwright returned empty HTML for %s (platform=%s steps=%s targeted_waits=%s)",
+            url,
+            platform_id or "",
+            instruction_steps,
+            targeted_waits,
+        )
         return None
     html = await _maybe_append_inventory_api_data(url, html, timeout)
-    if _direct_html_sufficient(html, page_kind=page_kind):
+    lower = html.lower()
+    inventory_signal_count = sum(
+        1
+        for marker in (
+            "[data-vehicle",
+            "result-wrap new-vehicle",
+            "vehicle-card",
+            "vehicle-card--mod",
+            "si-vehicle-box",
+            "data-component=\"result-tile\"",
+            "data-component='result-tile'",
+        )
+        if marker in lower
+    )
+    html_sufficient = _direct_html_sufficient(html, page_kind=page_kind)
+    logger.info(
+        "Playwright fetched %s (platform=%s steps=%s targeted_waits=%s html_chars=%s inventory_signals=%s sufficient=%s)",
+        url,
+        platform_id or "",
+        instruction_steps,
+        targeted_waits,
+        len(html),
+        inventory_signal_count,
+        html_sufficient,
+    )
+    if html_sufficient:
         metric_bump("playwright_ok")
         return html, "playwright"
     failures.append("playwright: insufficient")
@@ -295,6 +346,7 @@ async def fetch_page_html(
             failures=failures,
             metric_bump=_m,
             js_instructions=playwright_instructions,
+            platform_id=platform_id,
         )
         if pw_early is not None:
             return pw_early
@@ -384,6 +436,7 @@ async def fetch_page_html(
         failures=failures,
         metric_bump=_m,
         js_instructions=playwright_instructions if page_kind == "inventory" else None,
+        platform_id=platform_id,
     )
     if pw_result is not None:
         return pw_result

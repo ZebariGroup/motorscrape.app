@@ -543,18 +543,22 @@ async def stream_search(
             platform_id: str | None = None,
         ) -> tuple[str, str]:
             host_key = normalize_dealer_domain(url) or domain or "unknown"
+            local_fetch_metrics: dict[str, int] = {}
             async with domain_fetch_limiter(host_key):
                 html, method = await fetch_page_html(
                     url,
                     page_kind=page_kind,
                     prefer_render=prefer_render,
-                    metrics=None,
+                    metrics=local_fetch_metrics,
                     platform_id=platform_id,
                 )
             fetch_methods_used.append(method)
             async with metrics_lock:
                 key = f"fetch_{method}"
                 fetch_metrics[key] += 1
+                for metric_key, metric_value in local_fetch_metrics.items():
+                    if metric_value:
+                        fetch_metrics[metric_key] += metric_value
             return html, method
 
         def _phase_timeout(
