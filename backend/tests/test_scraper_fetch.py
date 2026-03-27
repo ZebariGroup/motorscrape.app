@@ -296,6 +296,79 @@ async def test_fetch_page_html_playwright_before_zenrows(monkeypatch: pytest.Mon
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_passes_platform_playwright_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ZENROWS_API_KEY", "zr-test-key")
+    monkeypatch.setenv("PLAYWRIGHT_ENABLED", "true")
+    _fresh_settings(monkeypatch)
+    captured: dict[str, str | None] = {}
+
+    async def fake_pw(url: str, js_instructions: str | None = None) -> str:
+        captured["url"] = url
+        captured["js_instructions"] = js_instructions
+        return _inventory_html()
+
+    monkeypatch.setattr(
+        "app.services.playwright_fetch.fetch_html_via_playwright",
+        fake_pw,
+    )
+
+    respx.get("https://dealer.example/searchnew.aspx").mock(return_value=Response(403, text="denied"))
+    respx.get("https://api.zenrows.com/v1/").mock(return_value=Response(500, text="unused"))
+
+    html, method = await fetch_page_html(
+        "https://dealer.example/searchnew.aspx",
+        page_kind="inventory",
+        prefer_render=True,
+        platform_id="dealer_on",
+    )
+
+    assert method == "playwright"
+    assert "vehicle-card" in html
+    assert captured["url"] == "https://dealer.example/searchnew.aspx"
+    assert captured["js_instructions"] is not None
+    assert "wait_for_selector" in captured["js_instructions"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_page_html_playwright_insufficient_then_zenrows_rendered(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ZENROWS_API_KEY", "zr-test-key")
+    monkeypatch.setenv("PLAYWRIGHT_ENABLED", "true")
+    _fresh_settings(monkeypatch)
+    calls: list[str] = []
+
+    async def fake_pw(url: str, js_instructions: str | None = None) -> str:
+        calls.append("pw")
+        return "<html><body><div>loading inventory...</div></body></html>"
+
+    monkeypatch.setattr(
+        "app.services.playwright_fetch.fetch_html_via_playwright",
+        fake_pw,
+    )
+
+    respx.get("https://blocked.example/inv").mock(return_value=Response(403, text="denied"))
+
+    def zenrows_route(request: httpx.Request) -> Response:
+        calls.append("zenrows")
+        assert request.url.params.get("js_render") == "true"
+        return Response(200, text=_inventory_html())
+
+    respx.get("https://api.zenrows.com/v1/").mock(side_effect=zenrows_route)
+
+    html, method = await fetch_page_html(
+        "https://blocked.example/inv",
+        page_kind="inventory",
+        prefer_render=True,
+        platform_id="dealer_on",
+    )
+
+    assert method == "zenrows_rendered"
+    assert "vehicle-card" in html
+    assert calls == ["pw", "zenrows"]
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_all_fail_raises(zenrows_key: None) -> None:
     respx.get("https://fail.example/").mock(return_value=Response(403, text="denied"))
     respx.get("https://api.zenrows.com/v1/").mock(return_value=Response(422, text="no"))

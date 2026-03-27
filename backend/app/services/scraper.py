@@ -16,7 +16,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
-from app.services.dealer_platforms import zenrows_inventory_js_instructions_for_url
+from app.services.dealer_platforms import inventory_render_plan_for_url
 from app.services.scraper_strategies import zenrows_try_once
 
 logger = logging.getLogger(__name__)
@@ -282,11 +282,9 @@ async def fetch_page_html(
         return tuple(out)
 
     effective_url = url
-    inventory_js_instructions = (
-        zenrows_inventory_js_instructions_for_url(url, platform_id=platform_id)
-        if page_kind == "inventory"
-        else None
-    )
+    inventory_render_plan = inventory_render_plan_for_url(url, platform_id=platform_id) if page_kind == "inventory" else None
+    playwright_instructions = inventory_render_plan.playwright_instructions if inventory_render_plan else None
+    zenrows_js_instructions = inventory_render_plan.zenrows_js_instructions if inventory_render_plan else None
 
     if prefer_render and page_kind == "inventory":
         # OneAudi Falcon (and similar): try local browser before paid JS render APIs.
@@ -296,7 +294,7 @@ async def fetch_page_html(
             page_kind=page_kind,
             failures=failures,
             metric_bump=_m,
-            js_instructions=inventory_js_instructions,
+            js_instructions=playwright_instructions,
         )
         if pw_early is not None:
             return pw_early
@@ -313,7 +311,7 @@ async def fetch_page_html(
                     wait_ms=wait_ms,
                     metric_prefix="zenrows_rendered",
                     failure_label="zenrows_rendered_preferred",
-                    js_instructions=inventory_js_instructions,
+                    js_instructions=zenrows_js_instructions,
                 )
                 if html is not None:
                     return html, "zenrows_rendered"
@@ -385,7 +383,7 @@ async def fetch_page_html(
         page_kind=page_kind,
         failures=failures,
         metric_bump=_m,
-        js_instructions=inventory_js_instructions if page_kind == "inventory" else None,
+        js_instructions=playwright_instructions if page_kind == "inventory" else None,
     )
     if pw_result is not None:
         return pw_result
@@ -419,10 +417,12 @@ async def fetch_page_html(
 
         if allow_managed_js_render:
             for wait_ms in _retry_waits(settings.zenrows_wait_ms):
-                js_instructions = zenrows_inventory_js_instructions_for_url(
-                    effective_url,
-                    platform_id=platform_id,
+                effective_render_plan = (
+                    inventory_render_plan_for_url(effective_url, platform_id=platform_id)
+                    if page_kind == "inventory"
+                    else None
                 )
+                js_instructions = effective_render_plan.zenrows_js_instructions if effective_render_plan else None
 
                 html = await zenrows_try_once(
                     url=effective_url,

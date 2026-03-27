@@ -268,7 +268,7 @@ export default function AccountPage() {
               </form>
             </section>
 
-            <AlertManagerSection authenticated={Boolean(me)} tier={me.tier} />
+            <AlertManagerSection authenticated={Boolean(me)} tier={me.tier} access={access} />
           </div>
         )}
 

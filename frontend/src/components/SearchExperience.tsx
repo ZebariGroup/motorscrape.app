@@ -176,7 +176,7 @@ export function SearchExperience() {
           inventoryScopePremium={scopePremium}
           allowAnyModel={access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom"}
         />
-        <EmailAlertPanel access={access} criteria={alertCriteria} canSearch={canSearch} />
+        <EmailAlertPanel access={access} criteria={alertCriteria} canSearch={canSearch} dismissible />
 
         <div className="grid gap-8 lg:grid-cols-3">
           <section className="lg:col-span-1">

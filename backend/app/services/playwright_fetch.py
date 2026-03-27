@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 from app.config import settings
@@ -81,30 +82,116 @@ async def shutdown_playwright() -> None:
             _playwright = None
 
 
-async def _apply_js_instructions(page: Any, js_instructions: str | None) -> None:
+def _page_url(page: Any) -> str:
+    try:
+        return str(page.url)
+    except Exception:
+        return "url"
+
+
+def _instruction_steps(js_instructions: str | None) -> list[dict[str, Any]]:
     if not js_instructions:
-        return
+        return []
     try:
         steps = json.loads(js_instructions)
     except (TypeError, json.JSONDecodeError):
-        logger.debug("Unable to parse JS instructions JSON for %s", page.url if hasattr(page, "url") else "url")
-        return
+        return []
     if not isinstance(steps, list):
-        logger.debug("Ignoring non-list JS instructions payload for %s", page.url if hasattr(page, "url") else "url")
+        return []
+    return [step for step in steps if isinstance(step, dict)]
+
+
+def _instruction_timeout_ms(step: dict[str, Any], default_ms: int = 4000) -> int:
+    raw = step.get("timeout_ms")
+    if isinstance(raw, (int, float)) and raw > 0:
+        return int(raw)
+    return default_ms
+
+
+def _instructions_include_targeted_waits(steps: list[dict[str, Any]]) -> bool:
+    return any(
+        any(key in step for key in ("wait_for_selector", "wait_for_url", "wait_for_response_url"))
+        for step in steps
+    )
+
+
+async def _apply_js_instructions(page: Any, js_instructions: str | None) -> None:
+    steps = _instruction_steps(js_instructions)
+    if not steps:
+        if js_instructions:
+            logger.debug("Unable to use JS instructions payload for %s", _page_url(page))
         return
     for step in steps:
-        if not isinstance(step, dict):
-            continue
         if "evaluate" in step:
             raw_script = step.get("evaluate")
             if isinstance(raw_script, str) and raw_script.strip():
                 try:
                     await page.evaluate(raw_script)
                 except Exception as e:
-                    logger.debug("Playwright JS evaluate failed for %s: %s", page.url, e)
+                    logger.debug("Playwright JS evaluate failed for %s: %s", _page_url(page), e)
         wait_ms = step.get("wait")
         if isinstance(wait_ms, (int, float)) and wait_ms > 0:
             await page.wait_for_timeout(int(wait_ms))
+        selector = step.get("wait_for_selector")
+        if isinstance(selector, str) and selector.strip():
+            try:
+                state = step.get("state")
+                if state not in {"attached", "detached", "visible", "hidden"}:
+                    state = "visible"
+                await page.wait_for_selector(
+                    selector,
+                    state=state,
+                    timeout=_instruction_timeout_ms(step),
+                )
+            except Exception as e:
+                logger.debug("Playwright wait_for_selector failed for %s: %s", _page_url(page), e)
+        click_selector = step.get("click")
+        if isinstance(click_selector, str) and click_selector.strip():
+            try:
+                await page.click(click_selector, timeout=_instruction_timeout_ms(step))
+            except Exception as e:
+                logger.debug("Playwright click failed for %s: %s", _page_url(page), e)
+        wait_for_url = step.get("wait_for_url")
+        if isinstance(wait_for_url, str) and wait_for_url.strip():
+            try:
+                timeout_ms = _instruction_timeout_ms(step)
+                if wait_for_url.startswith("re:"):
+                    await page.wait_for_url(re.compile(wait_for_url[3:]), timeout=timeout_ms)
+                else:
+                    await page.wait_for_url(lambda current: wait_for_url in str(current), timeout=timeout_ms)
+            except Exception as e:
+                logger.debug("Playwright wait_for_url failed for %s: %s", _page_url(page), e)
+        response_url = step.get("wait_for_response_url")
+        if isinstance(response_url, str) and response_url.strip():
+            try:
+                response_status = step.get("status")
+                timeout_ms = _instruction_timeout_ms(step)
+                await page.wait_for_response(
+                    lambda response: response_url in response.url
+                    and (not isinstance(response_status, int) or response.status == response_status),
+                    timeout=timeout_ms,
+                )
+            except Exception as e:
+                logger.debug("Playwright wait_for_response failed for %s: %s", _page_url(page), e)
+        scroll = step.get("scroll")
+        if scroll == "bottom":
+            try:
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            except Exception as e:
+                logger.debug("Playwright scroll-bottom failed for %s: %s", _page_url(page), e)
+        elif scroll == "top":
+            try:
+                await page.evaluate("window.scrollTo(0, 0)")
+            except Exception as e:
+                logger.debug("Playwright scroll-top failed for %s: %s", _page_url(page), e)
+        elif isinstance(scroll, dict):
+            x = scroll.get("x", 0)
+            y = scroll.get("y", 0)
+            if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+                try:
+                    await page.evaluate("([x, y]) => window.scrollBy(x, y)", [int(x), int(y)])
+                except Exception as e:
+                    logger.debug("Playwright scroll-by failed for %s: %s", _page_url(page), e)
 
 
 async def fetch_html_via_playwright(url: str, js_instructions: str | None = None) -> str | None:
@@ -115,7 +202,10 @@ async def fetch_html_via_playwright(url: str, js_instructions: str | None = None
     """
     if not settings.playwright_enabled:
         return None
+    steps = _instruction_steps(js_instructions)
+    targeted_waits = _instructions_include_targeted_waits(steps)
     async with _semaphore():
+        context: Any = None
         try:
             browser = await _ensure_browser()
             context = await browser.new_context(
@@ -145,20 +235,26 @@ async def fetch_html_via_playwright(url: str, js_instructions: str | None = None
                 await page.wait_for_timeout(post)
             # Wait for network idle to ensure JS renders if it's a SPA
             try:
-                await page.wait_for_load_state("networkidle", timeout=10000)
+                await page.wait_for_load_state("networkidle", timeout=4000 if targeted_waits else 10000)
             except Exception:
                 pass
             await _apply_js_instructions(page, js_instructions)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=8000)
-            except Exception:
-                pass
+            if not targeted_waits:
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=5000)
+                except Exception:
+                    pass
             html = await page.content()
-            await context.close()
         except Exception as e:
             err = e.__class__.__name__ if not str(e) else str(e)
             logger.warning("Playwright fetch failed for %s: %s", url, err)
             return None
+        finally:
+            if context is not None:
+                try:
+                    await context.close()
+                except Exception as e:
+                    logger.debug("Playwright context close failed for %s: %s", url, e)
     if not html or len(html.strip()) < 80:
         return None
     return html

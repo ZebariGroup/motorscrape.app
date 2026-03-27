@@ -21,15 +21,30 @@ type Props = {
   access: AccessSummary | null;
   criteria: AlertCriteria;
   canSearch: boolean;
+  tierOverride?: string;
+  title?: string;
+  description?: string;
+  dismissible?: boolean;
+  onSaved?: () => void | Promise<void>;
 };
 
-function isPaidTier(access: AccessSummary | null): boolean {
-  return ["standard", "premium", "enterprise", "custom"].includes((access?.tier ?? "").toLowerCase());
+function isPaidTier(tier: string | null | undefined): boolean {
+  return ["standard", "premium", "enterprise", "custom"].includes((tier ?? "").toLowerCase());
 }
 
-export function EmailAlertPanel({ access, criteria, canSearch }: Props) {
-  const paid = isPaidTier(access);
+export function EmailAlertPanel({
+  access,
+  criteria,
+  canSearch,
+  tierOverride,
+  title = "Scheduled email alerts",
+  description = "Save this search as a recurring alert and send results to your account email, with an optional CSV attachment.",
+  dismissible = false,
+  onSaved,
+}: Props) {
+  const paid = isPaidTier(tierOverride ?? access?.tier);
   const [isOpen, setIsOpen] = useState(false);
+  const [isDismissed, setIsDismissed] = useState(false);
   const [name, setName] = useState("");
   const [cadence, setCadence] = useState<"daily" | "weekly">("daily");
   const [dayOfWeek, setDayOfWeek] = useState("0");
@@ -84,6 +99,7 @@ export function EmailAlertPanel({ access, criteria, canSearch }: Props) {
       }
       setMessage("Email alert saved. It will run on schedule and send results to your account email.");
       setIsOpen(false);
+      await onSaved?.();
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -91,38 +107,70 @@ export function EmailAlertPanel({ access, criteria, canSearch }: Props) {
     }
   };
 
+  if (dismissible && isDismissed) {
+    return (
+      <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title} hidden</h2>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Show this panel again when you want to save the current search as an email alert.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsDismissed(false)}
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900"
+          >
+            Show email alerts
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
-          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Scheduled email alerts</h2>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Save this search as a recurring alert and send results to your account email, with an optional CSV attachment.
-          </p>
+          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{title}</h2>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">{description}</p>
         </div>
-        {paid ? (
-          <button
-            type="button"
-            onClick={openModal}
-            disabled={!canSearch}
-            className="rounded-lg border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
-          >
-            Create email alert
-          </button>
-        ) : (
-          <div className="text-sm text-zinc-600 dark:text-zinc-400">
-            <span>Email alerts are included with Standard and above. </span>
-            {access?.authenticated ? (
-              <Link href="/account" className="font-medium text-emerald-700 hover:underline dark:text-emerald-400">
-                Upgrade your plan
-              </Link>
-            ) : (
-              <Link href="/signup" className="font-medium text-emerald-700 hover:underline dark:text-emerald-400">
-                Create an account to upgrade
-              </Link>
-            )}
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {paid ? (
+            <button
+              type="button"
+              onClick={openModal}
+              disabled={!canSearch}
+              className="rounded-lg border border-emerald-300 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
+            >
+              Create email alert
+            </button>
+          ) : (
+            <div className="text-sm text-zinc-600 dark:text-zinc-400">
+              <span>Email alerts are included with Standard and above. </span>
+              {access?.authenticated ? (
+                <Link href="/account" className="font-medium text-emerald-700 hover:underline dark:text-emerald-400">
+                  Upgrade your plan
+                </Link>
+              ) : (
+                <Link href="/signup" className="font-medium text-emerald-700 hover:underline dark:text-emerald-400">
+                  Create an account to upgrade
+                </Link>
+              )}
+            </div>
+          )}
+          {dismissible ? (
+            <button
+              type="button"
+              onClick={() => setIsDismissed(true)}
+              className="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              aria-label={`Hide ${title.toLowerCase()}`}
+            >
+              <span className="text-xl leading-none">×</span>
+            </button>
+          ) : null}
+        </div>
       </div>
       {!paid ? (
         <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">

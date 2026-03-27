@@ -2,7 +2,9 @@ import json
 
 from app.services.dealer_platforms import (
     detect_platform_profile,
+    inventory_render_plan_for_url,
     inventory_hints_for_platform,
+    playwright_inventory_instructions_for_url,
     zenrows_inventory_js_instructions_for_url,
 )
 
@@ -32,6 +34,28 @@ def test_oneaudi_js_instructions_do_not_match_non_audi_inventory_url() -> None:
         "https://www.example-subaru.com/inventory/new/"
     )
     assert instructions is None
+
+
+def test_inventory_render_plan_keeps_oneaudi_instructions_for_both_playwright_and_zenrows() -> None:
+    plan = inventory_render_plan_for_url(
+        "https://www.audibirminghammi.com/en/inventory/new/",
+        platform_id="oneaudi_falcon",
+    )
+    assert plan.zenrows_js_instructions is not None
+    assert plan.playwright_instructions is not None
+    assert "window.__zrClickMore=()=>".replace(" ", "") in plan.playwright_instructions.replace(" ", "")
+    assert "wait_for_selector" in plan.playwright_instructions
+
+
+def test_playwright_inventory_instructions_cover_render_required_platforms() -> None:
+    instructions = playwright_inventory_instructions_for_url(
+        "https://dealer.example/searchnew.aspx",
+        platform_id="dealer_on",
+    )
+    assert instructions is not None
+    steps = json.loads(instructions)
+    assert any(step.get("wait_for_selector") for step in steps)
+    assert any(step.get("scroll") == "bottom" for step in steps)
 
 
 def test_detect_platform_profile_matches_d2c_media_homepage_markers() -> None:

@@ -33,6 +33,12 @@ class PlatformDefinition:
     requires_render: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class InventoryRenderPlan:
+    playwright_instructions: str | None = None
+    zenrows_js_instructions: str | None = None
+
+
 _ONEAUDI_FALCON_DEFINE_LOAD_MORE_HELPER_JS = (
     "window.__zrClickMore=()=>{"
     "for(const e of document.querySelectorAll('button,a,[role=\"button\"]')){"
@@ -44,6 +50,22 @@ _ONEAUDI_FALCON_DEFINE_LOAD_MORE_HELPER_JS = (
 )
 _ONEAUDI_FALCON_SCROLL_BOTTOM_JS = "window.scrollTo(0,document.body.scrollHeight)"
 _ONEAUDI_FALCON_CLICK_LOAD_MORE_JS = "window.__zrClickMore&&window.__zrClickMore()"
+_PLAYWRIGHT_INVENTORY_READY_SELECTOR = ",".join(
+    (
+        "[data-vehicle]",
+        ".result-wrap.new-vehicle",
+        ".carbox",
+        ".vehicle-card",
+        ".vehicle-card--mod",
+        ".si-vehicle-box",
+        "li[data-component='result-tile']",
+        "[data-component='result-tile']",
+    )
+)
+
+
+def _compact_instruction_payload(steps: list[dict[str, Any]]) -> str:
+    return json.dumps(steps, separators=(",", ":"))
 
 
 def _oneaudi_falcon_inventory_js_instructions(rounds: int = 8) -> str:
@@ -62,11 +84,36 @@ def _oneaudi_falcon_inventory_js_instructions(rounds: int = 8) -> str:
                 {"wait": 1800},
             ]
         )
-    return json.dumps(steps, separators=(",", ":"))
+    return _compact_instruction_payload(steps)
+
+
+def _inventory_ready_playwright_instructions(scroll_rounds: int = 2) -> str:
+    steps: list[dict[str, Any]] = [
+        {"wait_for_selector": _PLAYWRIGHT_INVENTORY_READY_SELECTOR, "timeout_ms": 4500},
+    ]
+    for _ in range(max(1, scroll_rounds)):
+        steps.extend(
+            [
+                {"scroll": "bottom"},
+                {"wait": 900},
+                {"wait_for_selector": _PLAYWRIGHT_INVENTORY_READY_SELECTOR, "timeout_ms": 2500},
+            ]
+        )
+    return _compact_instruction_payload(steps)
+
+
+def _oneaudi_falcon_playwright_instructions(rounds: int = 8) -> str:
+    steps = json.loads(_oneaudi_falcon_inventory_js_instructions(rounds=rounds))
+    if not isinstance(steps, list):
+        steps = []
+    steps.append({"wait_for_selector": _PLAYWRIGHT_INVENTORY_READY_SELECTOR, "timeout_ms": 4000})
+    return _compact_instruction_payload(steps)
 
 
 # ZenRows `js_instructions` for infinite-scroll SRPs (e.g. OneAudi Falcon) — host-based, not hard-coded in scraper.
 _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS = _oneaudi_falcon_inventory_js_instructions()
+_ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS = _oneaudi_falcon_playwright_instructions()
+_RENDER_REQUIRED_PLAYWRIGHT_INSTRUCTIONS = _inventory_ready_playwright_instructions()
 
 _ONEAUDI_FALCON_INVENTORY_HOST_FRAGMENTS: frozenset[str] = frozenset(
     {
@@ -106,6 +153,35 @@ def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None 
     if _looks_like_oneaudi_falcon_inventory_url(url):
         return _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS.strip()
     return None
+
+
+def _platform_definition_for_id(platform_id: str | None) -> PlatformDefinition | None:
+    if not platform_id:
+        return None
+    for definition in _PLATFORM_REGISTRY:
+        if definition.platform_id == platform_id:
+            return definition
+    return None
+
+
+def playwright_inventory_instructions_for_url(url: str, platform_id: str | None = None) -> str | None:
+    """Return Playwright-specific interaction steps for inventory URLs, if any."""
+    if platform_id == "oneaudi_falcon":
+        return _ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS.strip()
+    if url and _looks_like_oneaudi_falcon_inventory_url(url):
+        return _ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS.strip()
+    definition = _platform_definition_for_id(platform_id)
+    if definition and definition.requires_render:
+        return _RENDER_REQUIRED_PLAYWRIGHT_INSTRUCTIONS.strip()
+    return None
+
+
+def inventory_render_plan_for_url(url: str, platform_id: str | None = None) -> InventoryRenderPlan:
+    """Return the local-browser and managed-render instruction plan for an inventory URL."""
+    return InventoryRenderPlan(
+        playwright_instructions=playwright_inventory_instructions_for_url(url, platform_id=platform_id),
+        zenrows_js_instructions=zenrows_inventory_js_instructions_for_url(url, platform_id=platform_id),
+    )
 
 
 _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (

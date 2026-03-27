@@ -116,11 +116,14 @@ The terminal SSE `done` event includes **`duration_ms`** and **`economics`** (`c
 
 When **`PLAYWRIGHT_ENABLED=true`**, the API loads each URL in **headless Chromium** (after direct HTTP fails or returns HTML without inventory signals, and **before** ZenRows / ScrapingBee). That cuts paid API usage on many dealer SPAs that only need client-side rendering, not commercial anti-bot bypass.
 
+The Playwright path now supports **platform-aware interaction recipes** before falling back to managed renderers. For inventory pages this can include targeted waits for result tiles, local scroll passes, and platform-specific load-more logic, which helps recover more listings without paying for ZenRows JS rendering.
+
 **Setup (own server / Docker / local):**
 
 1. Install Python deps (`playwright` is in [`backend/requirements.txt`](backend/requirements.txt)).
 2. Install the browser once: `cd backend && playwright install chromium`
 3. Set env: `PLAYWRIGHT_ENABLED=true` (optional: `PLAYWRIGHT_MAX_WORKERS`, `PLAYWRIGHT_TIMEOUT_MS`, `PLAYWRIGHT_POST_LOAD_WAIT_MS` — see [`.env.example`](.env.example)).
+4. Watch **`fetch_metrics`** after rollout. A healthy change should increase `playwright_ok` and reduce `zenrows_rendered` without reducing listing completeness.
 
 **Vercel:** leave Playwright **disabled** (no bundled Chromium on typical serverless runtimes). Use ZenRows/ScrapingBee there, or run the FastAPI worker on a VM with Playwright enabled.
 

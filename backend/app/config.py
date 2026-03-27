@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     playwright_enabled: bool = False
     playwright_max_workers: int = 2
     playwright_timeout_ms: int = 45_000
+    # Baseline settle wait before any platform-specific Playwright interaction recipe runs.
     playwright_post_load_wait_ms: int = 2500
 
     # Max dealerships per search (quality vs speed tradeoff).
