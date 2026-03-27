@@ -208,6 +208,36 @@ def test_resolve_inventory_url_for_provider_keeps_generic_ddc_srp_for_single_bra
     assert url == "https://www.bmwofannarbor.com/new-inventory/index.htm"
 
 
+def test_resolve_inventory_url_for_provider_avoids_single_brand_bmw_marketing_landings() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-inventory",),
+        inventory_url_hint="https://www.bmwofrochesterhills.com/new-inventory/index.htm",
+    )
+    html = """
+    <html><body>
+      <a href="/bmw-electric-vehicles.htm">BMW Electric Vehicles</a>
+      <a href="/bmw-plug-in-hybrid-vehicles.htm">BMW Plug-In Hybrid Vehicles</a>
+      <a href="/new-inventory/index.htm">New Inventory</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.bmwofrochesterhills.com/",
+        route,
+        fallback_url="https://www.bmwofrochesterhills.com/new-inventory/index.htm",
+        make="BMW",
+        model="",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.bmwofrochesterhills.com/new-inventory/index.htm"
+
+
 def test_resolve_inventory_url_for_provider_canonicalizes_stale_dealer_on_inventory_hint() -> None:
     route = ProviderRoute(
         platform_id="dealer_on",

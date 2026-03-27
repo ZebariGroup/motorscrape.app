@@ -211,6 +211,22 @@ def _looks_like_specific_dealer_dot_com_landing(url: str) -> bool:
     )
 
 
+def _looks_like_make_specific_dealer_dot_com_inventory_path(url: str, make: str, condition: str) -> bool:
+    make_slug = _slugify_model_path(make)
+    if not make_slug:
+        return False
+    path = urlsplit(url).path.lower().rstrip("/")
+    if f"/new-{make_slug}/" in path or f"/used-{make_slug}/" in path:
+        return True
+    if "/inventory/" in path and make_slug in path:
+        return True
+    if condition == "new" and f"make={make_slug}" in url.lower():
+        return True
+    if condition == "used" and f"make={make_slug}" in url.lower():
+        return True
+    return False
+
+
 def _dealer_on_condition_matches(url: str, condition: str) -> bool:
     path = urlsplit(url).path.lower()
     if condition == "new":
@@ -762,7 +778,11 @@ def resolve_inventory_url_for_provider(
                     "/searchused.aspx",
                 )
             )
-            make_specific_path = bool(make_norm) and _url_path_contains_token(generic_base, make_norm)
+            make_specific_path = bool(make_norm) and _looks_like_make_specific_dealer_dot_com_inventory_path(
+                generic_base,
+                make,
+                condition,
+            )
             specific_model_landing = _looks_like_specific_dealer_dot_com_landing(generic_base) and "vehicles" not in path
             if path in {"", "/"} or specific_model_landing or (not is_canonical_srp and not make_specific_path):
                 generic_base = _canonical_dealer_dot_com_inventory_url(generic_base, condition)
