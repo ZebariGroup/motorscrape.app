@@ -774,7 +774,7 @@ async def test_stream_search_auto_expands_pagination_from_site_counts() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_search_caps_dealer_on_pagination_depth_even_when_more_pages_exist() -> None:
+async def test_stream_search_auto_expands_dealer_on_pagination_beyond_initial_route_budget() -> None:
     from app.schemas import ExtractionResult, PaginationInfo, VehicleListing
 
     dealers = [
@@ -841,6 +841,19 @@ async def test_stream_search_caps_dealer_on_pagination_depth_even_when_more_page
             next_page_url="https://dealeron-example.test/inventory?page=4",
             pagination=PaginationInfo(current_page=3, total_pages=10, page_size=24, total_results=240, source="api"),
         ),
+        ExtractionResult(
+            vehicles=[
+                VehicleListing(
+                    year=2024,
+                    make="Chevrolet",
+                    model="Blazer",
+                    price=32004,
+                    listing_url="https://dealeron-example.test/vdp/4",
+                )
+            ],
+            next_page_url=None,
+            pagination=PaginationInfo(current_page=4, total_pages=10, page_size=24, total_results=240, source="api"),
+        ),
     ]
 
     with (
@@ -881,11 +894,11 @@ async def test_stream_search_caps_dealer_on_pagination_depth_even_when_more_page
             chunks.append(c)
 
     tail = "".join(chunks)
-    assert mock_structured.call_count == 3
+    assert mock_structured.call_count == 4
     assert mock_llm.await_count == 0
-    assert tail.count("https://dealeron-example.test/vdp/") == 3
-    assert '"listings_found": 3' in tail
-    assert '"pages_scraped": 3' in tail
+    assert tail.count("https://dealeron-example.test/vdp/") == 4
+    assert '"listings_found": 4' in tail
+    assert '"pages_scraped": 4' in tail
 
 
 @pytest.mark.asyncio

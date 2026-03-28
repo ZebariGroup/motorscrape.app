@@ -1317,8 +1317,9 @@ async def stream_search(
             pages_scraped = 0
             route_page_cap = _effective_max_pages_for_route(requested_pages, route)
             absolute_page_cap = max(1, settings.search_max_pages_per_dealer_cap)
-            if route_page_cap < requested_pages:
-                absolute_page_cap = min(absolute_page_cap, route_page_cap)
+            # Keep render-heavy route caps as the *initial* budget only; once the
+            # site reports additional pages (or keeps yielding next-page URLs),
+            # allow controlled expansion up to the global safety cap.
             page_budget = min(route_page_cap, absolute_page_cap)
             total_vehicles = 0
             skip_info: str | None = None
