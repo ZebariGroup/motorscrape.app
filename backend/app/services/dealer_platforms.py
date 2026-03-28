@@ -362,6 +362,7 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         ),
         inventory_path_hints=("inventory/new", "inventory/used", "new-", "used-", "certified", "pre-owned"),
         extraction_mode="structured_html",
+        requires_render=True,
     ),
     PlatformDefinition(
         platform_id="ford_family_inventory",
@@ -392,6 +393,7 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         ),
         inventory_path_hints=("inventory/new", "inventory/used", "new-", "used-", "certified", "pre-owned"),
         extraction_mode="structured_html",
+        requires_render=True,
     ),
     PlatformDefinition(
         platform_id="toyota_lexus_oem_inventory",

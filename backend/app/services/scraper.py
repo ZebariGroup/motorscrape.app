@@ -637,8 +637,26 @@ def _should_retry_zenrows_with_premium_proxy(html: str, *, page_kind: PageKind) 
     )
 
 
+def _looks_like_sonic_teamvelocity_spa(html: str) -> bool:
+    """Detect Sonic/TeamVelocity DMS inventory pages that are pure Vue SPAs.
+    These pages embed a small number of vehicles in JSON-LD for SEO but load
+    the full inventory list via JavaScript — direct HTML is always incomplete.
+    """
+    lower = html.lower()
+    return (
+        "inventory_listing" in lower
+        and "unlockctadiscountdata" in lower
+        and "secureoffersites.com" in lower
+        and ("teamvelocityportal.com" in lower or "sonic" in lower or "resultcount" in lower)
+    )
+
+
 def _direct_html_sufficient(html: str, *, page_kind: PageKind) -> bool:
     if _looks_like_block_page(html):
+        return False
+    # Sonic/TeamVelocity SPA pages put a small JSON-LD snippet for SEO but load
+    # the real inventory via Vue.js — treat them as render-required always.
+    if page_kind == "inventory" and _looks_like_sonic_teamvelocity_spa(html):
         return False
     if _has_structured_inventory_hint(html):
         return True
