@@ -110,6 +110,14 @@ def test_normalize_dealer_website_url_rejects_javascript_void() -> None:
     assert places._normalize_dealer_website_url("https://dealer.com/") != ""
 
 
+def test_normalize_dealer_website_url_rejects_aggregator_profiles() -> None:
+    assert places._normalize_dealer_website_url("http://www.boats.com/sites/activemarine") == ""
+    assert places._normalize_dealer_website_url("https://www.cars.com/dealers/12345/") == ""
+    assert places._normalize_dealer_website_url("https://www.boattrader.com/dealers/some-marina") == ""
+    assert places._normalize_dealer_website_url("https://www.cycletrader.com/dealer/ABC") == ""
+    assert places._normalize_dealer_website_url("https://www.mydealer.com/inventory") != ""
+
+
 @respx.mock
 @pytest.mark.asyncio
 async def test_place_details_website_ok(places_api_key: str) -> None:

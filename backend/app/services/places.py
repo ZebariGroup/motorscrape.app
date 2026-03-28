@@ -300,6 +300,38 @@ def _normalize_dealer_website_url(website: str) -> str:
     if not parts.scheme or not parts.netloc:
         return raw
 
+    # Reject well-known aggregator/marketplace profile URLs — these are not dealer websites.
+    # e.g. boats.com/sites/<dealer>, cars.com/dealers/<id>, autotrader.com/dealers/...
+    # Trying to scrape inventory from these fails because the aggregator blocks bots
+    # and the page is a marketplace listing, not the dealer's own inventory system.
+    _AGGREGATOR_HOSTS = {
+        "www.boats.com",
+        "boats.com",
+        "www.cars.com",
+        "cars.com",
+        "www.autotrader.com",
+        "autotrader.com",
+        "www.truecar.com",
+        "truecar.com",
+        "www.cargurus.com",
+        "cargurus.com",
+        "www.carmax.com",
+        "carmax.com",
+        "www.rvtrader.com",
+        "rvtrader.com",
+        "www.cycletrader.com",
+        "cycletrader.com",
+        "www.boattrader.com",
+        "boattrader.com",
+        "www.yacht.com",
+        "yacht.com",
+        "www.yachtworld.com",
+        "yachtworld.com",
+    }
+    host = parts.netloc.lower().split("@")[-1].split(":")[0]
+    if host in _AGGREGATOR_HOSTS:
+        return ""
+
     tracking_prefixes = ("utm_",)
     tracking_keys = {
         "gclid",
