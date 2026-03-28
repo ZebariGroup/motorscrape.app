@@ -15,6 +15,7 @@ from app.services.orchestrator import (
     _team_velocity_inventory_url_from_model_hub,
     _team_velocity_model_inventory_urls,
     _bounded_phase_timeout,
+    _effective_dealer_timeout,
     _effective_max_pages_for_route,
     stream_search,
 )
@@ -75,6 +76,13 @@ def test_bounded_phase_timeout_returns_none_when_budget_exhausted() -> None:
         min_timeout=5.0,
     )
     assert timeout is None
+
+
+def test_effective_dealer_timeout_scales_for_deep_searches(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.services.orchestrator.settings.dealership_timeout", 150.0)
+    assert _effective_dealer_timeout(3) == 150.0
+    assert _effective_dealer_timeout(5) == 180.0
+    assert _effective_dealer_timeout(10) == 210.0
 
 
 def test_effective_max_pages_for_route_caps_render_heavy_dealer_platforms() -> None:

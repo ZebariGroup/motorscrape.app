@@ -1088,10 +1088,31 @@ def _pick_year(d: dict[str, Any]) -> int | None:
 
 
 def _pick_inventory_location(d: dict[str, Any]) -> str | None:
-    for key in ("location", "inventoryLocation", "accountName", "dealerName", "dealer_name", "owner"):
+    for key in (
+        "location",
+        "inventoryLocation",
+        "dealerLocation",
+        "locationName",
+        "lotLocation",
+        "storeName",
+        "store",
+        "accountName",
+        "dealerName",
+        "dealer_name",
+        "owner",
+        "cityState",
+    ):
         value = d.get(key)
+        if isinstance(value, list) and value:
+            value = value[0]
         if isinstance(value, dict):
-            value = value.get("name") or value.get("text")
+            value = (
+                value.get("name")
+                or value.get("text")
+                or value.get("label")
+                or value.get("value")
+                or value.get("city")
+            )
         if value:
             return str(value).strip()
     return None
@@ -1322,19 +1343,62 @@ def dict_to_vehicle_listing(
     exterior_color = (
         d.get("colorExterior")
         or d.get("exteriorColor")
+        or d.get("extColorName")
+        or d.get("extColor")
+        or d.get("exterior_color")
         or d.get("ext_color")
+        or d.get("colorName")
         or d.get("color")
     )
     if isinstance(exterior_color, dict):
-        exterior_color = exterior_color.get("name")
+        exterior_color = (
+            exterior_color.get("name")
+            or exterior_color.get("text")
+            or exterior_color.get("label")
+            or exterior_color.get("value")
+        )
     exterior_color_s = str(exterior_color).strip() if exterior_color else None
-    is_offsite = _coerce_bool(d.get("offSite") or d.get("offsite"))
-    is_shared_inventory = _coerce_bool(d.get("sharedVehicle") or d.get("shared_inventory"))
-    is_in_transit = _coerce_bool(d.get("inTransit") or d.get("in_transit"))
-    is_in_stock = _coerce_bool(d.get("inStock") or d.get("in_stock"))
-    status_text = d.get("status")
+    status_text = (
+        d.get("status")
+        or d.get("availabilityStatus")
+        or d.get("availability")
+        or d.get("inventoryStatus")
+        or d.get("stockStatus")
+        or d.get("vehicleStatus")
+    )
+    if isinstance(status_text, list) and status_text:
+        status_text = status_text[0]
+    if isinstance(status_text, dict):
+        status_text = (
+            status_text.get("name")
+            or status_text.get("status")
+            or status_text.get("text")
+            or status_text.get("label")
+        )
+    status_text_norm = str(status_text).strip().lower() if status_text else ""
     if status_text:
         status_text = str(status_text).replace("_", " ").strip().title()
+    is_offsite = _coerce_bool(
+        d.get("offSite") or d.get("offsite") or d.get("isOffsite") or d.get("is_offsite")
+    )
+    is_shared_inventory = _coerce_bool(
+        d.get("sharedVehicle") or d.get("shared_inventory") or d.get("isSharedInventory")
+    )
+    is_in_transit = _coerce_bool(
+        d.get("inTransit") or d.get("in_transit") or d.get("isInTransit")
+    )
+    is_in_stock = _coerce_bool(
+        d.get("inStock") or d.get("in_stock") or d.get("isInStock")
+    )
+    if is_in_transit is None and any(token in status_text_norm for token in ("in transit", "arriving", "en route")):
+        is_in_transit = True
+    if is_offsite is None and any(
+        token in status_text_norm
+        for token in ("off site", "off-site", "dealer trade", "transfer", "shared")
+    ):
+        is_offsite = True
+    if is_in_stock is None and any(token in status_text_norm for token in ("in stock", "on lot", "available")):
+        is_in_stock = True
 
     if not raw_title:
         title_parts = [str(x) for x in [_pick_year(d), make_s, model_s, trim_s] if x]
@@ -1968,15 +2032,74 @@ def extract_dom_vehicle_cards(
         stock_dom, days_dom = _extract_stock_date_and_days(dom_stock_payload)
         if dom_days is not None:
             days_dom = dom_days
-        is_in_stock = _coerce_bool(card.get("data-instock"))
-        is_in_transit = _coerce_bool(card.get("data-intransit"))
-        inventory_location = card.get("data-dotagging-item-location")
+        is_in_stock = _coerce_bool(
+            card.get("data-instock")
+            or card.get("data-in-stock")
+            or card.get("data-is-in-stock")
+        )
+        is_in_transit = _coerce_bool(
+            card.get("data-intransit")
+            or card.get("data-in-transit")
+            or card.get("data-is-in-transit")
+        )
+        inventory_location = (
+            card.get("data-dotagging-item-location")
+            or card.get("data-location")
+            or card.get("data-inventory-location")
+            or card.get("data-dealer-location")
+            or payload.get("inventoryLocation")
+            or payload.get("dealerLocation")
+            or payload.get("location")
+        )
+        if isinstance(inventory_location, dict):
+            inventory_location = (
+                inventory_location.get("name")
+                or inventory_location.get("text")
+                or inventory_location.get("label")
+            )
+        exterior_color = (
+            card.get("data-exterior-color")
+            or card.get("data-exteriorcolor")
+            or card.get("data-color-exterior")
+            or card.get("data-dotagging-item-color")
+            or payload.get("colorExterior")
+            or payload.get("exteriorColor")
+            or payload.get("extColorName")
+            or payload.get("extColor")
+            or payload.get("color")
+        )
+        if isinstance(exterior_color, dict):
+            exterior_color = (
+                exterior_color.get("name")
+                or exterior_color.get("text")
+                or exterior_color.get("label")
+                or exterior_color.get("value")
+            )
         card_status_text = (
             _text_or_none(card.select_one(".promotionBannerText"))
             or temptation_status
             or wilson_status
             or _text_or_none(card.select_one(".fearuredCardLocation span:last-child"))
+            or card.get("data-status")
+            or card.get("data-availability")
+            or payload.get("status")
+            or payload.get("availabilityStatus")
+            or payload.get("availability")
         )
+        if isinstance(card_status_text, dict):
+            card_status_text = (
+                card_status_text.get("name")
+                or card_status_text.get("status")
+                or card_status_text.get("text")
+                or card_status_text.get("label")
+            )
+        if card_status_text not in (None, ""):
+            card_status_text = str(card_status_text).strip()
+        status_hint = str(card_status_text or card_text or "").lower()
+        if is_in_transit is None and any(token in status_hint for token in ("in transit", "arriving", "en route")):
+            is_in_transit = True
+        if is_in_stock is None and any(token in status_hint for token in ("in stock", "on lot", "available")):
+            is_in_stock = True
         availability_status = _build_availability_status(
             status_text=card_status_text,
             is_in_stock=is_in_stock,
@@ -2118,6 +2241,7 @@ def extract_dom_vehicle_cards(
                 make=str(make).strip() if make else None,
                 model=str(model).strip() if model else None,
                 trim=str(trim).strip() if trim else None,
+                exterior_color=str(exterior_color).strip() if exterior_color else None,
                 price=price,
                 mileage=usage_value if usage_unit == "miles" else None,
                 usage_value=usage_value,

@@ -69,6 +69,62 @@ def test_try_extract_dom_vehicle_card() -> None:
     assert v.listing_url == "https://dealer.example/inventory/v1"
 
 
+def test_try_extract_dom_vehicle_card_reads_color_location_and_status_aliases() -> None:
+    html = """
+    <html><body>
+      <div class="vehicle-card"
+           data-year="2026"
+           data-make="Chevrolet"
+           data-model="Blazer"
+           data-price="34778"
+           data-exterior-color="Sterling Gray Metallic"
+           data-location="Southfield, MI"
+           data-availability="In Stock">
+        <a href="/new-Southfield-2026-Chevrolet-Blazer-2LT-3GNKBCR47TS151416">2026 Chevrolet Blazer 2LT</a>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.serrachevrolet.com/searchnew.aspx?Make=Chevrolet",
+        html=html,
+        make_filter="Chevrolet",
+        model_filter="Blazer",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.exterior_color == "Sterling Gray Metallic"
+    assert v.inventory_location == "Southfield, MI"
+    assert v.availability_status is not None
+    assert v.is_in_stock is True
+
+
+def test_try_extract_json_vehicle_uses_extended_status_and_color_aliases() -> None:
+    pad = "x" * 220
+    html = f"""
+    <html><body>
+    <script type="application/json">
+    {{"vehicles":[{{"make":"Chevrolet","model":"Blazer EV","year":2025,
+    "vdpUrl":"/new-ev-blazer","extColorName":"Riptide Blue Metallic",
+    "availabilityStatus":"In Stock","dealerLocation":"Southfield, MI","_pad":"{pad}"}}]}}
+    </script>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.serrachevrolet.com/searchnew.aspx?ModelAndTrim=Blazer+EV",
+        html=html,
+        make_filter="Chevrolet",
+        model_filter="Blazer EV",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.exterior_color == "Riptide Blue Metallic"
+    assert v.inventory_location == "Southfield, MI"
+    assert v.availability_status is not None
+    assert v.is_in_stock is True
+
+
 def test_try_extract_dom_msrp_and_discount_from_attributes() -> None:
     html = """
     <html><body>

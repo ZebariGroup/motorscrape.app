@@ -409,6 +409,27 @@ def _needs_vdp_enrichment(vehicles: list[VehicleListing]) -> bool:
     return missing_details >= max(1, len(vehicles) // 2)
 
 
+def _needs_vdp_attribute_enrichment(vehicles: list[VehicleListing]) -> bool:
+    if not vehicles:
+        return False
+    missing_fields = 0
+    for v in vehicles:
+        if not v.listing_url:
+            continue
+        if (not v.exterior_color) or (not v.availability_status) or (not v.inventory_location):
+            missing_fields += 1
+    return missing_fields >= max(1, len(vehicles) // 2)
+
+
+def _effective_dealer_timeout(requested_pages: int) -> float:
+    base_timeout = max(30.0, settings.dealership_timeout)
+    if requested_pages >= 8:
+        return max(base_timeout, 210.0)
+    if requested_pages >= 5:
+        return max(base_timeout, 180.0)
+    return base_timeout
+
+
 def _effective_max_pages_for_route(
     requested_pages: int,
     route: ProviderRoute | None,
@@ -741,7 +762,7 @@ async def stream_search(
     )
 
     sem = asyncio.Semaphore(effective_concurrency)
-    dealer_timeout = max(30.0, settings.dealership_timeout)
+    dealer_timeout = _effective_dealer_timeout(requested_pages)
     # Keep per-phase timeouts inside the overall dealer worker budget.
     fetch_timeout = min(settings.scrape_timeout * 3 + 5.0, max(20.0, dealer_timeout * 0.5))
     parse_timeout = min(settings.openai_timeout + 5.0, max(20.0, dealer_timeout * 0.35))
@@ -806,7 +827,7 @@ async def stream_search(
         def _phase_timeout(
             base_timeout: float,
             *,
-            reserve_seconds: float = 8.0,
+            reserve_seconds: float = 20.0,
             min_timeout: float = 5.0,
         ) -> float | None:
             elapsed = time.perf_counter() - dealer_started_at
@@ -1601,11 +1622,22 @@ async def stream_search(
                     and listing_matches_vehicle_condition(v, vehicle_condition)
                     and listing_matches_inventory_scope(v, inventory_scope)
                 ]
-                if route and route.platform_id == "dealer_on" and _needs_vdp_enrichment(filtered):
-                    enriched_prefix = await asyncio.gather(
-                        *[_enrich_vehicle_from_vdp(v) for v in filtered[:12]]
+                if (
+                    route
+                    and route.platform_id == "dealer_on"
+                    and (
+                        _needs_vdp_enrichment(filtered)
+                        or (
+                            len(filtered) <= 18
+                            and _needs_vdp_attribute_enrichment(filtered)
+                        )
                     )
-                    filtered = list(enriched_prefix) + filtered[12:]
+                ):
+                    enrich_limit = min(10, len(filtered))
+                    enriched_prefix = await asyncio.gather(
+                        *[_enrich_vehicle_from_vdp(v) for v in filtered[:enrich_limit]]
+                    )
+                    filtered = list(enriched_prefix) + filtered[enrich_limit:]
                 page_progress_payload = _pagination_progress_payload(
                     latest_pagination,
                     pages_scraped=pages_scraped + 1,
@@ -1829,7 +1861,7 @@ async def stream_search(
         try:
             return await asyncio.wait_for(
                 process_one(index, d),
-                timeout=dealer_timeout,
+                timeout=dealer_timeout + 8.0,
             )
         except asyncio.TimeoutError:
             website = d.website or ""
