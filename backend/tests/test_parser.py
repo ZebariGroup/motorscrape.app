@@ -1307,6 +1307,60 @@ def test_try_extract_inventory_anchor_cards_for_harley_style_srp() -> None:
     assert first.listing_url == "https://dealer.example/inventory/959629/used-2025-harley-davidson-tri-glide-ultra"
 
 
+def test_try_extract_room58_inventory_card_with_click_for_price_keeps_vin_and_color() -> None:
+    html = """
+    <html><body>
+      <ul id="inventoryBikesList" class="inventoryList-bikes inventoryList-bikes--gridView">
+        <li class="inventoryList-bike">
+          <a href="/inventory/959100/2026-harley-davidson-street-glide-limited-flhxl" class="inventoryList-bike-image-primary">
+            <img class="bike-img" src="//cdn.room58.com/unit.jpg" alt="2026 Harley-Davidson Street Glide Limited FLHXL">
+          </a>
+          <div class="inventoryList-bike-details">
+            <h2 class="inventoryList-bike-details-title">
+              <a href="/inventory/959100/2026-harley-davidson-street-glide-limited-flhxl">
+                2026 Harley-Davidson Street Glide Limited FLHXL
+              </a>
+              <span class="inventoryList-bike-details-price"></span>
+            </h2>
+            <div class="inventoryList-bike-details-cta is-under-price">
+              <a href="/inventory/959100/2026-harley-davidson-street-glide-limited-flhxl/9354/form/3920" aria-label="Click For Price">Click For Price</a>
+            </div>
+            <div class="mm-wmbp-button" vin="1HD1AHN12TB618543" mm-wmbp-button-type="srp"></div>
+            <section class="inventoryModel-details-keyDetails">
+              <div class="inventoryModel-details-keyDetails-row">
+                <dl class="inventoryModel-keyDetails-item">
+                  <dd class="inventoryModel-keyDetails-item-description" aria-label="Stock number">H618543</dd>
+                </dl>
+                <dl class="inventoryModel-keyDetails-item">
+                  <dd class="inventoryModel-keyDetails-item-description" aria-label="Mileage">4 mi</dd>
+                </dl>
+                <dl class="icon--color__container inventoryModel-keyDetails-item">
+                  <dd class="inventoryModel-keyDetails-item-description" aria-label="Color">Dark Billiard Gray Black Trim</dd>
+                </dl>
+              </div>
+            </section>
+          </div>
+        </li>
+      </ul>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/new-inventory",
+        html=html,
+        make_filter="Harley-Davidson",
+        model_filter="",
+        vehicle_category="motorcycle",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    first = result.vehicles[0]
+    assert first.vin == "1HD1AHN12TB618543"
+    assert first.vehicle_identifier == "1HD1AHN12TB618543"
+    assert first.exterior_color == "Dark Billiard Gray Black Trim"
+    assert first.mileage == 4
+    assert first.listing_url == "https://dealer.example/inventory/959100/2026-harley-davidson-street-glide-limited-flhxl"
+
+
 def test_try_extract_returns_empty_result_when_filters_miss_but_more_pages_exist() -> None:
     html = """
     <html><body>

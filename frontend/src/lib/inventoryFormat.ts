@@ -5,8 +5,8 @@ export type AggregatedListing = VehicleListing & {
   dealership_website: string;
 };
 
-export function formatMoney(n: number | undefined) {
-  if (n == null || Number.isNaN(n)) return "—";
+export function formatMoney(n: number | undefined, emptyLabel = "—") {
+  if (n == null || Number.isNaN(n)) return emptyLabel;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",

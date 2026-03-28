@@ -7,6 +7,10 @@ describe("inventoryFormat", () => {
     expect(formatMoney(undefined)).toBe("—");
   });
 
+  it("formatMoney supports a custom empty label", () => {
+    expect(formatMoney(undefined, "Visit site for price")).toBe("Visit site for price");
+  });
+
   it("clampPercent bounds", () => {
     expect(clampPercent(-5)).toBe(0);
     expect(clampPercent(50)).toBe(50);

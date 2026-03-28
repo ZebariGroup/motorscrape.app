@@ -11,8 +11,10 @@ from app.schemas import DealershipFound
 from app.services.orchestrator import (
     _dealer_on_multi_model_inventory_urls,
     _dealer_inspire_model_inventory_urls,
+    _effective_absolute_page_cap,
     _find_inventory_url,
     _inventory_url_recovery_candidates,
+    _room58_detail_overlay,
     _team_velocity_inventory_url_from_model_hub,
     _team_velocity_model_inventory_urls,
     _bounded_phase_timeout,
@@ -97,6 +99,67 @@ def test_effective_max_pages_for_route_caps_render_heavy_dealer_platforms() -> N
         inventory_path_hints=("inventory",),
     )
     assert _effective_max_pages_for_route(10, route) == 3
+
+
+def test_effective_absolute_page_cap_extends_harley_shift_digital_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    route = ProviderRoute(
+        platform_id="shift_digital",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory",),
+    )
+    monkeypatch.setattr("app.services.orchestrator.settings.harley_search_max_pages_per_dealer_cap", 24)
+    assert _effective_absolute_page_cap(12, make="Harley-Davidson", route=route) == 24
+
+
+def test_room58_detail_overlay_extracts_price_and_tracking_fields() -> None:
+    html = """
+    <html><body>
+      <span class="inventoryModel-details-priceOld">$16,484</span>
+      <span class="inventoryModel-details-price">Now $12,888</span>
+      <script>
+        var TRACKING_DATA_LAYER = {
+          "dealerName":"Motown Harley-Davidson",
+          "dealerCity":"Taylor",
+          "dealerState":"MI",
+          "vehicleDetails":{
+            "status":"New",
+            "year":"2026",
+            "make":"Harley-Davidson",
+            "model":"Road Glide Limited",
+            "exteriorColor":"Vivid Black",
+            "vin":"1HD1ALN18TB618713",
+            "msrp":0,
+            "displayedPrice":0
+          }
+        };
+        window.TRACKING_FORM_DISPLAY_DATA = {};
+      </script>
+    </body></html>
+    """
+    from app.schemas import VehicleListing
+
+    overlay = _room58_detail_overlay(
+        VehicleListing(
+            vehicle_category="motorcycle",
+            listing_url="https://motownharley.com/inventory/962780/2026-harley-davidson-road-glide-limited-fltrxl",
+            make="Harley-Davidson",
+            model="Road Glide Limited",
+        ),
+        html,
+    )
+    assert overlay is not None
+    assert overlay.price == 12888
+    assert overlay.msrp == 16484
+    assert overlay.vin == "1HD1ALN18TB618713"
+    assert overlay.exterior_color == "Vivid Black"
+    assert overlay.vehicle_condition == "new"
+    assert overlay.inventory_location == "Motown Harley-Davidson (Taylor, MI)"
 
 
 def test_dealer_inspire_model_inventory_urls_filters_to_requested_model() -> None:

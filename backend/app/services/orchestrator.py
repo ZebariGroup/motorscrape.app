@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -375,14 +376,17 @@ def _team_velocity_model_inventory_urls(
 
 
 def _listing_emit_key(v: Any) -> str:
-    return "|".join(
-        [
-            str(getattr(v, "vehicle_identifier", "") or "").strip().lower(),
-            str(getattr(v, "vin", "") or "").strip().lower(),
-            str(getattr(v, "listing_url", "") or "").strip().lower(),
-            str(getattr(v, "raw_title", "") or "").strip().lower(),
-        ]
-    )
+    listing_url = str(getattr(v, "listing_url", "") or "").strip().lower()
+    if listing_url:
+        return f"url:{listing_url.rstrip('/')}"
+    vin = str(getattr(v, "vin", "") or "").strip().lower()
+    if vin:
+        return f"vin:{vin}"
+    vehicle_identifier = str(getattr(v, "vehicle_identifier", "") or "").strip().lower()
+    if vehicle_identifier:
+        return f"id:{vehicle_identifier}"
+    raw_title = str(getattr(v, "raw_title", "") or "").strip().lower()
+    return f"title:{raw_title}"
 
 
 def _looks_like_model_index_batch(vdicts: list[dict[str, Any]], current_url: str) -> bool:
@@ -427,6 +431,156 @@ def _needs_vdp_attribute_enrichment(vehicles: list[VehicleListing]) -> bool:
         if (not v.exterior_color) or (not v.availability_status) or (not v.inventory_location):
             missing_fields += 1
     return missing_fields >= max(1, len(vehicles) // 2)
+
+
+def _is_harley_search(make: str, route: ProviderRoute | None) -> bool:
+    make_norm = re.sub(r"[^a-z0-9]", "", (make or "").lower())
+    if "harley" in make_norm:
+        return True
+    return bool(route and route.platform_id == "harley_digital_showroom")
+
+
+def _effective_absolute_page_cap(
+    base_cap: int,
+    *,
+    make: str,
+    route: ProviderRoute | None,
+) -> int:
+    cap = max(1, int(base_cap))
+    if _is_harley_search(make, route) and route and route.platform_id in {"shift_digital", "harley_digital_showroom"}:
+        harley_cap = max(1, int(getattr(settings, "harley_search_max_pages_per_dealer_cap", 24)))
+        return max(cap, harley_cap)
+    return cap
+
+
+def _needs_harley_vdp_enrichment(vehicles: list[VehicleListing]) -> bool:
+    if not vehicles:
+        return False
+    missing_price = 0
+    missing_core = 0
+    for v in vehicles:
+        if not v.listing_url:
+            continue
+        if v.price is None:
+            missing_price += 1
+        if (not v.vin) or (not v.exterior_color) or (not v.availability_status):
+            missing_core += 1
+    threshold = max(1, len(vehicles) // 2)
+    return missing_price >= threshold or missing_core >= threshold
+
+
+def _first_dollar_amount(text: str) -> float | None:
+    m = re.search(r"\$([0-9][0-9,]{2,})(?:\.\d{2})?", text or "")
+    if not m:
+        return None
+    try:
+        return float(m.group(1).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _extract_room58_tracking_payload(html: str) -> dict[str, Any] | None:
+    m = re.search(
+        r"TRACKING_DATA_LAYER\s*=\s*(\{.*?\})\s*;\s*(?:\(|window\.)",
+        html,
+        re.S,
+    )
+    if not m:
+        return None
+    try:
+        payload = json.loads(m.group(1))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _room58_detail_overlay(v: VehicleListing, html: str) -> VehicleListing | None:
+    if not v.listing_url:
+        return None
+    try:
+        parts = urlsplit(v.listing_url)
+    except Exception:
+        return None
+    host = parts.netloc.lower().split("@")[-1].split(":")[0]
+    if "harley" not in host:
+        return None
+
+    overlay_data: dict[str, Any] = {}
+    id_match = re.search(r"/inventory/(\d+)(?:/|$)", parts.path.lower())
+    if id_match:
+        overlay_data["vehicle_identifier"] = id_match.group(1)
+
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        soup = None
+    if soup is not None:
+        price_el = soup.select_one(".inventoryModel-details-price")
+        msrp_el = soup.select_one(".inventoryModel-details-priceOld")
+        if price_el is not None:
+            price_val = _first_dollar_amount(price_el.get_text(" ", strip=True))
+            if price_val is not None and price_val > 0:
+                overlay_data["price"] = price_val
+        if msrp_el is not None:
+            msrp_val = _first_dollar_amount(msrp_el.get_text(" ", strip=True))
+            if msrp_val is not None and msrp_val > 0:
+                overlay_data["msrp"] = msrp_val
+        if (
+            overlay_data.get("price") is not None
+            and overlay_data.get("msrp") is not None
+            and overlay_data["msrp"] > overlay_data["price"]
+        ):
+            overlay_data["dealer_discount"] = overlay_data["msrp"] - overlay_data["price"]
+
+    tracking = _extract_room58_tracking_payload(html)
+    if tracking:
+        details = tracking.get("vehicleDetails") if isinstance(tracking.get("vehicleDetails"), dict) else {}
+        if not details and isinstance(tracking.get("formVehicle"), dict):
+            details = tracking.get("formVehicle") or {}
+        vin = str(details.get("vin") or "").strip()
+        if re.fullmatch(r"[A-HJ-NPR-Z0-9]{17}", vin.upper()):
+            overlay_data["vin"] = vin.upper()
+            overlay_data["vehicle_identifier"] = vin.upper()
+        color = str(details.get("exteriorColor") or "").strip()
+        if color:
+            overlay_data["exterior_color"] = color
+        status = str(details.get("status") or "").strip()
+        if status:
+            overlay_data["availability_status"] = status
+            status_l = status.lower()
+            if "new" in status_l:
+                overlay_data["vehicle_condition"] = "new"
+            elif "used" in status_l or "pre-owned" in status_l or "preowned" in status_l:
+                overlay_data["vehicle_condition"] = "used"
+        make = str(details.get("make") or "").strip()
+        model = str(details.get("model") or "").strip()
+        year_raw = str(details.get("year") or "").strip()
+        if make:
+            overlay_data["make"] = make
+        if model:
+            overlay_data["model"] = model
+        if year_raw.isdigit():
+            year_int = int(year_raw)
+            if 1900 <= year_int <= 2100:
+                overlay_data["year"] = year_int
+        dealer_name = str(tracking.get("dealerName") or "").strip()
+        dealer_city = str(tracking.get("dealerCity") or "").strip()
+        dealer_state = str(tracking.get("dealerState") or "").strip()
+        location = dealer_name
+        if dealer_city and dealer_state:
+            location = f"{dealer_name} ({dealer_city}, {dealer_state})" if dealer_name else f"{dealer_city}, {dealer_state}"
+        elif dealer_city and dealer_name:
+            location = f"{dealer_name} ({dealer_city})"
+        if location:
+            overlay_data["inventory_location"] = location
+
+    if not overlay_data:
+        return None
+    return VehicleListing(
+        vehicle_category=v.vehicle_category or "car",
+        listing_url=v.listing_url,
+        **overlay_data,
+    )
 
 
 def _effective_dealer_timeout(requested_pages: int) -> float:
@@ -637,11 +791,16 @@ def _merge_vehicle_detail(base: VehicleListing, enriched: VehicleListing) -> Veh
     return VehicleListing(**merged)
 
 
-async def _enrich_vehicle_from_vdp(v: VehicleListing) -> VehicleListing:
+async def _enrich_vehicle_from_vdp(
+    v: VehicleListing,
+    *,
+    prefer_detail_overlay: bool = False,
+) -> VehicleListing:
     if not v.listing_url:
         return v
     try:
         html, _ = await fetch_page_html(v.listing_url, page_kind="inventory", prefer_render=False)
+        detail_overlay = _room58_detail_overlay(v, html) if prefer_detail_overlay else None
         ext = try_extract_vehicles_without_llm(
             page_url=v.listing_url,
             html=html,
@@ -652,7 +811,7 @@ async def _enrich_vehicle_from_vdp(v: VehicleListing) -> VehicleListing:
     except Exception:
         return v
     if not ext:
-        return v
+        return _merge_vehicle_detail(v, detail_overlay) if detail_overlay else v
     candidates = ext.vehicles
     if v.vehicle_identifier:
         for candidate in candidates:
@@ -660,15 +819,20 @@ async def _enrich_vehicle_from_vdp(v: VehicleListing) -> VehicleListing:
                 candidate.vehicle_identifier
                 and candidate.vehicle_identifier.upper() == v.vehicle_identifier.upper()
             ):
-                return _merge_vehicle_detail(v, candidate)
+                enriched = _merge_vehicle_detail(v, candidate)
+                return _merge_vehicle_detail(enriched, detail_overlay) if detail_overlay else enriched
     if v.vin:
         for candidate in candidates:
             if candidate.vin and candidate.vin.upper() == v.vin.upper():
-                return _merge_vehicle_detail(v, candidate)
+                enriched = _merge_vehicle_detail(v, candidate)
+                return _merge_vehicle_detail(enriched, detail_overlay) if detail_overlay else enriched
     if v.listing_url:
         for candidate in candidates:
             if candidate.listing_url and candidate.listing_url.rstrip("/") == v.listing_url.rstrip("/"):
-                return _merge_vehicle_detail(v, candidate)
+                enriched = _merge_vehicle_detail(v, candidate)
+                return _merge_vehicle_detail(enriched, detail_overlay) if detail_overlay else enriched
+    if detail_overlay:
+        return _merge_vehicle_detail(v, detail_overlay)
     if candidates:
         return _merge_vehicle_detail(v, candidates[0])
     return v
@@ -1528,7 +1692,14 @@ async def stream_search(
             current_url = inv_url
             pages_scraped = 0
             route_page_cap = _effective_max_pages_for_route(requested_pages, route)
-            absolute_page_cap = max(1, settings.search_max_pages_per_dealer_cap)
+            absolute_page_cap = _effective_absolute_page_cap(
+                settings.search_max_pages_per_dealer_cap,
+                make=make,
+                route=route,
+            )
+            if absolute_page_cap > max(1, settings.search_max_pages_per_dealer_cap):
+                async with metrics_lock:
+                    fetch_metrics["harley_page_cap_extended"] += 1
             # Keep render-heavy route caps as the *initial* budget only; once the
             # site reports additional pages (or keeps yielding next-page URLs),
             # allow controlled expansion up to the global safety cap.
@@ -1806,6 +1977,48 @@ async def stream_search(
                         continue
                     emitted_listing_keys.add(key)
                     deduped_filtered.append(v)
+                if (
+                    route
+                    and route.platform_id in {"shift_digital", "harley_digital_showroom"}
+                    and _is_harley_search(make, route)
+                    and _needs_harley_vdp_enrichment(deduped_filtered)
+                ):
+                    seconds_remaining = dealer_timeout - (time.perf_counter() - dealer_started_at)
+                    candidate_indexes = [
+                        i
+                        for i, listing in enumerate(deduped_filtered)
+                        if listing.listing_url
+                        and (
+                            listing.price is None
+                            or (not listing.vin)
+                            or (not listing.exterior_color)
+                            or (not listing.availability_status)
+                        )
+                    ]
+                    enrich_limit = min(4, len(candidate_indexes))
+                    if seconds_remaining < 75.0:
+                        enrich_limit = 0
+                    elif seconds_remaining < 110.0:
+                        enrich_limit = min(enrich_limit, 2)
+                    if enrich_limit == 0:
+                        logger.info(
+                            "Skipping Harley VDP enrichment for %s due to low remaining budget (%.1fs)",
+                            d.name,
+                            seconds_remaining,
+                        )
+                    else:
+                        target_indexes = candidate_indexes[:enrich_limit]
+                        enriched_listings = await asyncio.gather(
+                            *[
+                                _enrich_vehicle_from_vdp(
+                                    deduped_filtered[idx],
+                                    prefer_detail_overlay=True,
+                                )
+                                for idx in target_indexes
+                            ]
+                        )
+                        for idx, enriched_listing in zip(target_indexes, enriched_listings, strict=False):
+                            deduped_filtered[idx] = enriched_listing
                 vdicts = [v.model_dump(exclude_none=True) for v in deduped_filtered]
                 logger.info(
                     "scrape_inventory_page dealer=%r domain=%s platform=%s url=%s page=%s/%s "

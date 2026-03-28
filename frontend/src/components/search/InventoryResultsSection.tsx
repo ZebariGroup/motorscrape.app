@@ -210,7 +210,7 @@ export function InventoryResultsSection({
                     ) : null}
                     <div className="absolute bottom-0 left-0 right-0 px-2 pb-1.5 pt-8 text-white sm:px-3 sm:pb-2">
                       <div className="text-base font-bold leading-none drop-shadow sm:text-xl">
-                        {formatMoney(v.price)}
+                        {formatMoney(v.price, "Visit site for price")}
                       </div>
                       {v.msrp != null &&
                       v.price != null &&
@@ -233,7 +233,7 @@ export function InventoryResultsSection({
                     <div className="flex justify-between sm:contents">
                       <dt className="font-medium text-zinc-500">Price</dt>
                       <dd className="font-semibold text-zinc-900 dark:text-zinc-50 sm:font-normal sm:text-zinc-600 sm:dark:text-zinc-400">
-                        {formatMoney(v.price)}
+                        {formatMoney(v.price, "Visit site for price")}
                       </dd>
                     </div>
                   ) : null}
@@ -358,7 +358,7 @@ export function InventoryResultsSection({
                 <div className="flex flex-wrap items-baseline justify-between gap-4 border-b border-zinc-100 pb-4 dark:border-zinc-800/50">
                   <div>
                     <div className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
-                      {formatMoney(selectedListing.price)}
+                      {formatMoney(selectedListing.price, "Visit site for price")}
                     </div>
                     {selectedListing.msrp != null &&
                     selectedListing.price != null &&

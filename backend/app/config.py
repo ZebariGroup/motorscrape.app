@@ -107,6 +107,9 @@ class Settings(BaseSettings):
     # Absolute safety cap for auto-pagination. Each page fetch can take 10-30s through
     # managed scrapers, so this must stay low enough to fit within dealership_timeout.
     search_max_pages_per_dealer_cap: int = 12
+    # Room58/Harley dealer SRPs often expose very large inventories and paginate cheaply over
+    # direct HTTP; allow a higher safety cap only for Harley-focused searches.
+    harley_search_max_pages_per_dealer_cap: int = 24
     # Max HTML chars sent to the LLM per page (smaller = cheaper/faster).
     max_html_chars: int = 60_000
     # HTTP timeout for each scraper call (seconds). Keep this moderate so stuck sites fail fast.

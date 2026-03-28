@@ -1949,6 +1949,9 @@ def extract_dom_vehicle_cards(
             or _text_or_none(card.select_one(".vehicle-specs__item--odometer .vehicle-specs__value"))
             or _text_or_none(card.select_one(".vehicle-specs__item--miles .vehicle-specs__value"))
         )
+        room58_vin = card.select_one(".mm-wmbp-button[vin]")
+        room58_stock = _text_or_none(card.select_one(".inventoryModel-keyDetails-item-description[aria-label='Stock number']"))
+        room58_color = _text_or_none(card.select_one(".inventoryModel-keyDetails-item-description[aria-label='Color']"))
         tv_current_price = _text_or_none(card.select_one(".vehicle-price--current .vehicle-price__price"))
         tv_old_price = _text_or_none(card.select_one(".vehicle-price--old .vehicle-price__price"))
         tv_savings = _text_or_none(card.select_one(".vehicle-price--savings .vehicle-price__price"))
@@ -2015,6 +2018,7 @@ def extract_dom_vehicle_cards(
             or card.get("data-dotagging-item-id")
             or card.get("data-boat-hin")
             or payload.get("vin")
+            or (room58_vin.get("vin") if room58_vin is not None else None)
             or tv_vin
             or _extract_vin_from_text(card_text)
         )
@@ -2155,6 +2159,7 @@ def extract_dom_vehicle_cards(
             or payload.get("extColorName")
             or payload.get("extColor")
             or payload.get("color")
+            or room58_color
         )
         if isinstance(exterior_color, dict):
             exterior_color = (
@@ -2297,6 +2302,8 @@ def extract_dom_vehicle_cards(
             or normalize_vehicle_condition(card_text)
             or normalize_vehicle_condition(listing_url)
         )
+        if availability_status is None and room58_vin is not None and vehicle_condition in {"new", "used"}:
+            availability_status = "New" if vehicle_condition == "new" else "Used"
         vehicle_identifier = _pick_vehicle_identifier(
             {
                 "vin": vin,
@@ -2308,6 +2315,7 @@ def extract_dom_vehicle_cards(
                     card.get("data-stock")
                     or payload.get("stock")
                     or tv_stock
+                    or room58_stock
                     or onewater_stock
                     or marinemax_stock
                     or wilson_specs.get("stock number")
