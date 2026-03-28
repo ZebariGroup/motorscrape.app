@@ -548,12 +548,15 @@ async def find_dealerships(
             category_matches = [
                 d for d in results if _dealer_matches_category_context(d.name, d.website or "", vehicle_category=category)
             ]
-            # For multi-brand categories (boat, motorcycle) prefer dealers that at
-            # least carry the category signal (marina, boat sales, etc.) so we don't
-            # flood results with completely unrelated businesses when the brand is
-            # niche (e.g. Axis, Malibu).
+            # For multi-brand categories (boat, motorcycle) with a specific make that
+            # has no brand-name matches in the dealer list, limit how many generic
+            # marinas we return.  Google Places already ran brand-specific queries
+            # (e.g. "Boston Whaler boat dealer near …") so the first results are the
+            # most likely candidates. Returning all 20+ generic marinas wastes time
+            # on dealers that almost certainly don't carry the brand.
             if category_matches:
-                return category_matches
+                max_generic = min(len(category_matches), max(5, limit // 3))
+                return category_matches[:max_generic]
 
         brand_matches = [d for d in results if _name_matches_make(d.name, make_q)]
         # If we found brand-specific dealers, prefer those so searches feel sane to users.
