@@ -47,6 +47,7 @@ def test_text_mentions_make_matches_aliases() -> None:
     assert text_mentions_make("Factory authorized BMW dealer", "BMW Motorrad")
     assert text_mentions_make("Shop Indian bikes", "Indian Motorcycle")
     assert text_mentions_make("Yamaha jet boats in stock", "Yamaha Boats")
+    assert text_mentions_make("2026 Can-Am® Outlander", "canham")
 
 
 def test_listing_matches_filters_uses_make_aliases() -> None:

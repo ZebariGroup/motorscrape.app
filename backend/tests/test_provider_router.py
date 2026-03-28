@@ -87,6 +87,29 @@ def test_resolve_inventory_url_for_provider_drops_fragment_filters_from_dealer_s
     assert url == "https://www.indianoftoledo.com/default.asp?page=xallinventory"
 
 
+def test_resolve_inventory_url_for_provider_rewrites_dealer_spike_inventory_v1_to_legacy_asp() -> None:
+    """React /inventory/v1/... pages omit NVehInv.js; scraping must use default.asp SRPs."""
+    route = ProviderRoute(
+        platform_id="dealer_spike",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("default.asp?page=xnewinventory",),
+        inventory_url_hint="https://www.riverraisinpowersports.com/inventory/v1/Current/Can-Am/ATV",
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html></html>",
+        "https://www.riverraisinpowersports.com/",
+        route,
+        fallback_url="https://www.riverraisinpowersports.com/",
+        make="Can-Am",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.riverraisinpowersports.com/default.asp?page=xallinventory&make=can-am"
+
+
 def test_resolve_inventory_url_for_provider_avoids_scoped_team_velocity_used_links_when_filters_empty() -> None:
     route = ProviderRoute(
         platform_id="team_velocity",

@@ -2172,7 +2172,7 @@ def _query_lower_dict(url: str) -> dict[str, str]:
 
 def _current_page_from_url(url: str) -> int:
     q = _query_lower_dict(url)
-    for k in ("page", "pt", "_p", "pn", "currentpage", "sbpage"):
+    for k in ("page", "pt", "_p", "pn", "pg", "currentpage", "sbpage"):
         if k in q:
             try:
                 return int(q[k])
@@ -2331,7 +2331,15 @@ def _pagination_info_from_page_links(html: str, page_url: str) -> PaginationInfo
     for a in soup.find_all("a", href=True):
         parsed = urljoin(page_url, str(a["href"]))
         q = _query_lower_dict(parsed)
-        raw = q.get("page") or q.get("pt") or q.get("_p") or q.get("pn") or q.get("currentpage") or q.get("sbpage")
+        raw = (
+            q.get("page")
+            or q.get("pt")
+            or q.get("_p")
+            or q.get("pn")
+            or q.get("pg")
+            or q.get("currentpage")
+            or q.get("sbpage")
+        )
         if not raw:
             data_val = str(a.get("data-val") or "").strip()
             raw = data_val if data_val.isdigit() else None
@@ -2400,6 +2408,7 @@ def _pagination_link_tokens() -> tuple[str, ...]:
         "pt=",
         "_p=",
         "pn=",
+        "pg=",
         "sbpage=",
         "p=",
         "offset=",
@@ -2503,7 +2512,7 @@ def synthesize_next_page_url(page_url: str, next_page_num: int) -> str | None:
     """Build URL for page N, reusing an existing page query param when possible."""
     parts = urlsplit(page_url)
     pairs = parse_qsl(parts.query, keep_blank_values=True)
-    page_key_names = ("pt", "page", "_p", "pn", "currentpage", "sbpage")
+    page_key_names = ("pt", "page", "_p", "pn", "pg", "currentpage", "sbpage")
     idx: int | None = None
     key_used: str | None = None
     for i, (k, v) in enumerate(pairs):
@@ -2597,7 +2606,15 @@ def find_next_page_url(html: str, base_url: str) -> str | None:
         href = str(a["href"])
         parsed = urljoin(base_url, href)
         q = _query_lower_dict(parsed)
-        page_val = q.get("page") or q.get("pt") or q.get("_p") or q.get("pn") or q.get("currentpage") or q.get("sbpage")
+        page_val = (
+            q.get("page")
+            or q.get("pt")
+            or q.get("_p")
+            or q.get("pn")
+            or q.get("pg")
+            or q.get("currentpage")
+            or q.get("sbpage")
+        )
         if not page_val:
             data_val = str(a.get("data-val") or "").strip()
             page_val = data_val if data_val.isdigit() else None

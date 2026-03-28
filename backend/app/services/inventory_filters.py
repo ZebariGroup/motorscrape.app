@@ -15,6 +15,8 @@ _MAKE_ALIAS_VARIANTS: dict[str, tuple[str, ...]] = {
     "yamahaboats": ("Yamaha Boats", "Yamaha"),
     "harleydavidson": ("Harley-Davidson", "Harley Davidson"),
     "canam": ("Can-Am", "Can Am"),
+    # Common typo / voice-to-text for Can-Am
+    "canham": ("Can-Am", "Can Am"),
     "chriscraft": ("Chris Craft",),
     "fourwinns": ("Four Winns",),
     "keywestboats": ("Key West Boats", "Key West"),

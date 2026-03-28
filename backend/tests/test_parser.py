@@ -895,6 +895,14 @@ def test_find_next_page_inspire_p_param() -> None:
     assert "_p=2" in nxt
 
 
+def test_find_next_page_pg_param() -> None:
+    html = '<html><body><a href="/used-inventory?pg=2" class="pagination__next">Next</a></body></html>'
+    base = "https://dealer.example/used-inventory?pg=1"
+    nxt = find_next_page_url(html, base)
+    assert nxt is not None
+    assert "pg=2" in nxt
+
+
 def test_find_next_page_numbered_pn() -> None:
     html = (
         '<html><body>'
@@ -905,6 +913,19 @@ def test_find_next_page_numbered_pn() -> None:
     nxt = find_next_page_url(html, base)
     assert nxt is not None
     assert "pn=2" in nxt
+
+
+def test_find_next_page_numbered_pg() -> None:
+    html = (
+        '<html><body>'
+        '<a href="/inventory?pg=1">1</a>'
+        '<a href="/inventory?pg=2">2</a>'
+        "</body></html>"
+    )
+    base = "https://dealer.example/inventory?pg=1"
+    nxt = find_next_page_url(html, base)
+    assert nxt is not None
+    assert "pg=2" in nxt
 
 
 def test_find_next_page_onewater_sbpage() -> None:
@@ -954,6 +975,28 @@ def test_try_extract_synthesizes_next_from_inventory_api_json() -> None:
     assert result.pagination is not None
     assert result.pagination.total_pages == 4
     assert result.pagination.page_size == 12
+
+
+def test_try_extract_synthesizes_next_from_inventory_api_json_with_pg_param() -> None:
+    html = """
+    <html><body>
+    <script type="application/json" data-ms-source="inventory-api">
+    {"page":1,"totalPages":4,"pageSize":12,"vehicles":[]}
+    </script>
+    <div class="vehicle-card" data-year="2024" data-make="Honda" data-model="Street Glide" data-price="18900">
+      <a href="/inventory/v1">2024 Honda Street Glide</a>
+    </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/used-inventory?pg=1",
+        html=html,
+        make_filter="",
+        model_filter="",
+    )
+    assert result is not None
+    assert result.next_page_url is not None
+    assert "pg=2" in result.next_page_url
 
 
 def test_try_extract_synthesizes_next_from_inventory_api_json_after_page_two() -> None:

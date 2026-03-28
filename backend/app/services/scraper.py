@@ -996,7 +996,7 @@ def _inventory_page_number_from_url(url: str) -> int:
         query = {k.lower(): v for k, v in parse_qsl(urlsplit(url).query, keep_blank_values=True)}
     except Exception:
         return 1
-    for key in ("page", "pageindex", "pt", "_p", "pn", "p", "currentpage"):
+    for key in ("page", "pageindex", "pt", "_p", "pn", "pg", "p", "currentpage"):
         raw = query.get(key)
         if not raw:
             continue
@@ -1034,6 +1034,7 @@ def _sanitize_inventory_query_url(url: str) -> str:
             "pt",
             "_p",
             "pn",
+            "pg",
             "p",
             "currentpage",
             "sort",
@@ -1218,7 +1219,7 @@ def _rewrite_inventory_get_query_for_page(
     page_key_value: str | None = None
     for key, value in page_pairs:
         lower = key.lower()
-        if lower in {"page", "pageindex", "pt", "_p", "pn", "p", "currentpage"}:
+        if lower in {"page", "pageindex", "pt", "_p", "pn", "pg", "p", "currentpage"}:
             page_key_name = key
             page_key_value = value
             continue
@@ -1231,7 +1232,7 @@ def _rewrite_inventory_get_query_for_page(
 
     page_num = _inventory_page_number_from_url(page_url)
     if page_num > 1:
-        page_param_keys = ("page", "pt", "_p", "pn", "currentpage", "pageindex", "p")
+        page_param_keys = ("page", "pt", "_p", "pn", "pg", "currentpage", "pageindex", "p")
         page_size_keys = (
             "page_size",
             "pagesize",

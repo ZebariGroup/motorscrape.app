@@ -513,6 +513,49 @@ def _dealer_spike_inventory_path_score(url: str, condition: str) -> int:
     return score
 
 
+def _dealer_spike_prefer_legacy_asp_inventory_url(
+    url: str,
+    base_url: str,
+    *,
+    vehicle_condition: str,
+    make: str,
+) -> str:
+    """
+    Dealer Spike React routes under /inventory/v1/... are often empty shells in raw HTML (no
+    embedded /imglib/.../NVehInv.js). Legacy default.asp inventory pages include the cached
+    vehicle script and are what our scraper can enrich.
+    """
+    try:
+        parts = urlsplit(url)
+    except Exception:
+        return url
+    if "/inventory/v1/" not in parts.path.lower():
+        return url
+    try:
+        base_parts = urlsplit(base_url)
+    except Exception:
+        return url
+    host = base_parts.netloc or parts.netloc
+    if not host:
+        return url
+    scheme = base_parts.scheme or parts.scheme or "https"
+    cond = (vehicle_condition or "all").strip().lower()
+    if cond == "new":
+        page = "xnewinventory"
+    elif cond == "used":
+        page = "xpreownedinventory"
+    else:
+        page = "xallinventory"
+    params: list[tuple[str, str]] = [("page", page)]
+    mk = (make or "").strip()
+    if mk:
+        slug = _slugify_model_path(mk)
+        if slug:
+            params.append(("make", slug))
+    query = urlencode(params)
+    return urlunsplit((scheme, host, "/default.asp", query, ""))
+
+
 def _d2c_media_inventory_path_score(url: str, condition: str) -> int:
     path = urlsplit(url).path.lower().rstrip("/")
     if condition == "new":
@@ -881,8 +924,12 @@ def resolve_inventory_url_for_provider(
             score += _family_inventory_path_score(href, condition)
         if route and route.platform_id == "team_velocity" and not model_norm:
             score += _team_velocity_inventory_path_score(href, condition)
-        if route and route.platform_id == "dealer_spike" and not model_norm:
-            score += _dealer_spike_inventory_path_score(href, condition)
+        if route and route.platform_id == "dealer_spike":
+            if not model_norm:
+                score += _dealer_spike_inventory_path_score(href, condition)
+            # React /inventory/v1/... SRPs usually omit NVehInv.js; legacy default.asp pages embed it.
+            if "/inventory/v1/" in href_lower:
+                score -= 130
         if route and route.platform_id == "d2c_media" and not model_norm:
             score += _d2c_media_inventory_path_score(href, condition)
         if route and route.platform_id == "hyundai_inventory_search" and not model_norm:
@@ -1126,5 +1173,13 @@ def resolve_inventory_url_for_provider(
             if _looks_like_dealer_on_srp(generic_base):
                 updates["ModelAndTrim"] = model
             best_url = _with_query_params(generic_base, updates)
+
+    if route and route.platform_id == "dealer_spike":
+        best_url = _dealer_spike_prefer_legacy_asp_inventory_url(
+            best_url,
+            base_url,
+            vehicle_condition=vehicle_condition,
+            make=make,
+        )
 
     return best_url

@@ -110,6 +110,19 @@ def test_rewrite_inventory_get_query_for_page_rewrites_page_and_start() -> None:
     assert "start=9" in rewritten["params"]
 
 
+def test_rewrite_inventory_get_query_for_page_with_pg_key_and_page_rewrite() -> None:
+    rewritten = _rewrite_inventory_get_query_for_page(
+        {"pageSize": "9", "start": "0", "params": "pageSize=9&start=0"},
+        "https://dealer.example/new-inventory/index.htm?make=Harley-Davidson&pg=2",
+    )
+    assert rewritten["pageSize"] == "9"
+    assert rewritten["start"] == "9"
+    assert rewritten["make"] == "Harley-Davidson"
+    assert "start=9" in rewritten["params"]
+    # preserve original pg key in query string for downstream consumers
+    assert "pg=2" in rewritten["params"]
+
+
 def test_extract_inventory_api_urls_normalizes_single_quoted_escaped_urls() -> None:
     html = """
     <script>
