@@ -441,6 +441,17 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         extraction_mode="structured_html",
     ),
     PlatformDefinition(
+        platform_id="harley_digital_showroom",
+        markers=(
+            # Harley-Davidson corporate / dealer "digital showroom" motorcycle SRP (shared group inventory)
+            "page_infofilters",
+            "harley-davidson",
+        ),
+        inventory_path_hints=("new-inventory", "used-inventory", "inventory"),
+        extraction_mode="structured_html",
+        requires_render=True,
+    ),
+    PlatformDefinition(
         platform_id="honda_acura_inventory",
         markers=(
             "honda",
@@ -546,6 +557,11 @@ def _family_stack_allowed_for_url(platform_id: str, page_url: str) -> bool:
         return "hyundai" in host or "hyundai" in target
     if platform_id == "kia_inventory":
         return "kia" in host or "kia" in target
+    if platform_id == "harley_digital_showroom":
+        # National H-D template: /new-inventory and /used-inventory on harley* dealer domains.
+        return "harley" in host and (
+            "new-inventory" in target or "used-inventory" in target or "/inventory" in target
+        )
     return True
 
 

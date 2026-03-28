@@ -35,6 +35,7 @@ _HANDLERS = {
     "shift_digital": generic_franchise.extract_inventory,
     "purecars": generic_franchise.extract_inventory,
     "jazel": generic_franchise.extract_inventory,
+    "harley_digital_showroom": generic_franchise.extract_inventory,
 }
 
 

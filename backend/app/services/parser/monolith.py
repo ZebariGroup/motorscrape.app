@@ -2168,9 +2168,13 @@ def _merge_pagination_info(
     if (page_size is None or page_size <= 0) and fallback_page_size is not None and fallback_page_size > 0:
         merged["page_size"] = fallback_page_size
         page_size = fallback_page_size
-    if total_pages is None and total_results is not None and page_size is not None and page_size > 0:
-        merged["total_pages"] = max(1, (total_results + page_size - 1) // page_size)
-        total_pages = _coerce_int(merged.get("total_pages"))
+    # Prefer total_pages derived from total_results when "Showing X–Y of Z" is authoritative —
+    # visible page-number links often only reflect a short window (e.g. 1–5) and would cap pagination too early.
+    if total_results is not None and page_size is not None and page_size > 0:
+        computed_tp = max(1, (total_results + page_size - 1) // page_size)
+        if total_pages is None or computed_tp > total_pages:
+            merged["total_pages"] = computed_tp
+            total_pages = computed_tp
     if current_page is not None and total_pages is not None and total_pages < current_page:
         merged["total_pages"] = current_page
     return PaginationInfo(**merged)
@@ -2208,6 +2212,24 @@ def _pagination_info_from_inventory_api(html: str, page_url: str) -> PaginationI
 
 
 def _pagination_info_from_dom_summary(html: str, page_url: str) -> PaginationInfo | None:
+    # Match on raw HTML first — SPA shells sometimes omit range text from stripped_strings.
+    for pattern in _DISPLAY_RANGE_TOTAL_RES:
+        match = pattern.search(html)
+        if not match:
+            continue
+        start = _coerce_int(match.group("start"))
+        end = _coerce_int(match.group("end"))
+        total = _coerce_int(match.group("total"))
+        if start is None or end is None or total is None or start <= 0 or end < start or total < end:
+            continue
+        page_size = end - start + 1
+        current_page = ((start - 1) // page_size) + 1 if page_size > 0 else _current_page_from_url(page_url)
+        return _pagination_info(
+            current_page=current_page,
+            page_size=page_size,
+            total_results=total,
+            source="dom_summary",
+        )
     try:
         soup = BeautifulSoup(html, "lxml")
     except Exception:
@@ -2451,6 +2473,31 @@ def synthesize_next_page_url(page_url: str, next_page_num: int) -> str | None:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, q, parts.fragment))
 
 
+def _infer_next_page_url_from_showing_range(html: str, page_url: str) -> str | None:
+    """Last-resort next URL when only the 'Showing X - Y of Z' banner proves more pages exist."""
+    current_page = _current_page_from_url(page_url)
+    if current_page <= 0:
+        current_page = 1
+    for pattern in _DISPLAY_RANGE_TOTAL_RES:
+        m = pattern.search(html)
+        if not m:
+            continue
+        start = _coerce_int(m.group("start"))
+        end = _coerce_int(m.group("end"))
+        total = _coerce_int(m.group("total"))
+        if start is None or end is None or total is None or end < start or total < end:
+            continue
+        if total <= end:
+            return None
+        page_size = end - start + 1
+        if page_size <= 0:
+            continue
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        if current_page < total_pages:
+            return synthesize_next_page_url(page_url, current_page + 1)
+    return None
+
+
 def find_next_page_url(html: str, base_url: str) -> str | None:
     """Best-effort rel=next / pagination link without calling the LLM."""
     try:
@@ -2569,6 +2616,8 @@ def try_extract_vehicles_without_llm(
             pagination,
             fallback_page_size=fallback_page_size,
         )
+    if not next_u:
+        next_u = _infer_next_page_url_from_showing_range(html, page_url)
     if not vehicles:
         if next_u or pagination is not None:
             return ExtractionResult(vehicles=[], next_page_url=next_u, pagination=pagination)

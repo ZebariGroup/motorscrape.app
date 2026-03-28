@@ -171,3 +171,17 @@ def test_detect_platform_profile_matches_basspro_markers() -> None:
     assert profile is not None
     assert profile.platform_id == "basspro_boating_center"
     assert "boats-for-sale.html" in inventory_hints_for_platform("basspro_boating_center")
+
+
+def test_detect_platform_profile_matches_harley_digital_showroom() -> None:
+    html = """
+    <html><body>
+      <div class="page_infoFilters"></div>
+      <p>Harley-Davidson® motorcycles</p>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.motownharley.com/new-inventory")
+    assert profile is not None
+    assert profile.platform_id == "harley_digital_showroom"
+    assert profile.requires_render is True
+    assert "new-inventory" in inventory_hints_for_platform("harley_digital_showroom")

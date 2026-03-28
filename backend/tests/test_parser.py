@@ -2,7 +2,47 @@
 
 from __future__ import annotations
 
-from app.services.parser import find_next_page_url, try_extract_vehicles_without_llm
+from app.services.parser import find_next_page_url, infer_inventory_pagination, try_extract_vehicles_without_llm
+
+
+def test_infer_inventory_pagination_uses_total_results_over_short_page_number_window() -> None:
+    html = """
+    <html><body>
+      <a href="/new-inventory?page=2">2</a>
+      <a href="/new-inventory?page=3">3</a>
+      <a href="/new-inventory?page=5">5</a>
+      <p>Showing 1 - 12 of 833 results</p>
+    </body></html>
+    """
+    p = infer_inventory_pagination(html, "https://www.motorcityharley.com/new-inventory")
+    assert p is not None
+    assert p.total_results == 833
+    assert p.page_size == 12
+    assert p.total_pages is not None and p.total_pages >= 69
+
+
+def test_try_extract_next_page_from_showing_banner_when_links_missing() -> None:
+    html = """
+    <html><body>
+      <div>Showing 1 - 9 of 50 results</div>
+      <section class="inventory-item">
+        <h2>Used 2025 Harley-Davidson Tri Glide Ultra</h2>
+        <a href="/inventory/959629/used-2025-harley-davidson-tri-glide-ultra/9307/form/3871">CLICK FOR PRICE</a>
+        <div>U850174 4515 mi Black</div>
+        <a href="/inventory/959629/used-2025-harley-davidson-tri-glide-ultra">MORE INFO</a>
+      </section>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/new-inventory",
+        html=html,
+        make_filter="Harley-Davidson",
+        model_filter="",
+        vehicle_category="motorcycle",
+    )
+    assert result is not None
+    assert result.next_page_url is not None
+    assert "page=2" in result.next_page_url
 
 
 def test_try_extract_dom_vehicle_card() -> None:
