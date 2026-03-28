@@ -82,14 +82,39 @@ def _find_inventory_url(
         condition = (vehicle_condition or "all").strip().lower()
 
         for a in soup.find_all("a", href=True):
-            href = a['href'].lower()
+            href_raw = str(a["href"])
+            href = href_raw.lower()
             text = a.get_text(strip=True).lower()
+            href_parts = urlsplit(href_raw)
+            href_fragment = href_parts.fragment.lower()
             score = 0
 
             if "inventory" in href or "inventory" in text:
                 score += 20
-            if any(token in href or token in text for token in ("showroom", "boats", "boat", "marine", "motorcycle", "powersports", "models")):
-                score += 12
+            if any(token in href or token in text for token in ("boats", "boat", "marine", "motorcycle", "powersports")):
+                score += 8
+            if any(
+                token in href
+                for token in (
+                    "default.asp?page=xallinventory",
+                    "default.asp?page=xnewinventory",
+                    "default.asp?page=xpreownedinventory",
+                    "all-inventory-in-stock",
+                    "new-inventory-in-stock",
+                    "used-inventory-in-stock",
+                )
+            ):
+                score += 60
+            if "in stock" in text or "in-stock" in href:
+                score += 30
+            if any(token in href for token in ("manufacturer-models", "model-list")) or "model list" in text:
+                score -= 80
+            if "showroom" in href or "showroom" in text:
+                score -= 15
+            if href_fragment:
+                score -= 20
+            if any(token in href or token in href_fragment for token in ("?make=", "&make=", "vc=", "sq=", "model=")):
+                score -= 25
             if condition == "new":
                 if "new-inventory" in href:
                     score += 40
@@ -144,7 +169,11 @@ def _find_inventory_url(
 
             if score > best_score and score > 0:
                 best_score = score
-                best_url = urljoin(base_url, a['href'])
+                absolute_url = urljoin(base_url, href_raw)
+                absolute_parts = urlsplit(absolute_url)
+                best_url = urlunsplit(
+                    (absolute_parts.scheme, absolute_parts.netloc, absolute_parts.path, absolute_parts.query, "")
+                )
 
         return best_url
     except Exception as e:

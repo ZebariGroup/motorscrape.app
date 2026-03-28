@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.schemas import DealershipFound
 from app.services.orchestrator import (
+    _find_inventory_url,
     _bounded_phase_timeout,
     stream_search,
 )
@@ -14,6 +15,7 @@ from app.services.orchestrator_utils import (
     effective_max_pages_for_route,
     effective_search_concurrency,
     guess_franchise_inventory_srp_url,
+    html_mentions_make,
     prefer_https_website_url,
 )
 from app.services.provider_router import ProviderRoute
@@ -82,6 +84,36 @@ def test_effective_search_concurrency_caps_to_managed_capacity(monkeypatch: pyte
     monkeypatch.setattr("app.services.orchestrator_utils.settings.managed_scraper_max_concurrency", 3)
     monkeypatch.setattr("app.services.orchestrator_utils.settings.search_workers_per_managed_slot", 2)
     assert effective_search_concurrency() == 4
+
+
+def test_html_mentions_make_accepts_brand_aliases() -> None:
+    assert html_mentions_make("<html><body>BMW motorcycles in stock</body></html>", "BMW Motorrad")
+    assert html_mentions_make("<html><body>Indian bikes</body></html>", "Indian Motorcycle")
+
+
+def test_find_inventory_url_prefers_real_inventory_over_model_list() -> None:
+    html = """
+    <html><body>
+      <a href="/Brands/Manufacturer-Models/Model-List/Triumph">Triumph Models</a>
+      <a href="/Inventory/All-Inventory-In-Stock">View Inventory</a>
+    </body></html>
+    """
+    assert _find_inventory_url(html, "https://www.werkspowersports.com/") == (
+        "https://www.werkspowersports.com/Inventory/All-Inventory-In-Stock"
+    )
+
+
+def test_find_inventory_url_prefers_unfiltered_inventory_over_fragment_scoped_shortcuts() -> None:
+    html = """
+    <html><body>
+      <a href="/default.asp?page=xallinventory#page=xallinventory&vc=Cruiser">Cruiser View Inventory</a>
+      <a href="/default.asp?page=xallinventory#page=xallinventory&make=polaris%20slingshot">Slingshot View Inventory</a>
+      <a href="/default.asp?page=xallinventory">Shop Inventory</a>
+    </body></html>
+    """
+    assert _find_inventory_url(html, "https://www.indianoftoledo.com/") == (
+        "https://www.indianoftoledo.com/default.asp?page=xallinventory"
+    )
 
 
 @pytest.mark.asyncio

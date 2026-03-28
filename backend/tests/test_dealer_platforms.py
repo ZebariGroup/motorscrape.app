@@ -99,3 +99,16 @@ def test_team_velocity_inventory_hints_cover_inventory_new_paths() -> None:
     hints = inventory_hints_for_platform("team_velocity")
     assert "inventory/new" in hints
     assert "inventory/used" in hints
+
+
+def test_detect_platform_profile_matches_dealer_spike_homepage_markers() -> None:
+    html = """
+    <html><body>
+      <a href="/default.asp?page=xAllInventory">Shop Inventory</a>
+      <footer>Dealer Spike Powersports</footer>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.indianoftoledo.com/")
+    assert profile is not None
+    assert profile.platform_id == "dealer_spike"
+    assert "default.asp?page=xallinventory" in inventory_hints_for_platform("dealer_spike")

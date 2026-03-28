@@ -68,6 +68,8 @@ def test_display_name() -> None:
 def test_name_matches_make() -> None:
     assert places._name_matches_make("Ford of Detroit", "Ford")
     assert places._name_matches_make("McDonald Ford", "Ford")
+    assert places._name_matches_make("BMW Motorcycles of Detroit", "BMW Motorrad")
+    assert places._name_matches_make("Factory authorized BMW dealer", "BMW Motorrad")
     assert not places._name_matches_make("Toyota Town", "Ford")
     assert places._name_matches_make("Any", "")
 
@@ -327,6 +329,47 @@ async def test_find_dealerships_boats_skips_false_positive_retailers(places_api_
     )
     assert len(out) == 1
     assert out[0].name == "Temptation Yacht Sales"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_find_dealerships_motorcycles_caps_generic_fallback_candidates(places_api_key: str) -> None:
+    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
+    search_response = {
+        "places": [
+            {
+                "id": f"ChIJ{i}",
+                "name": f"places/ChIJ{i}",
+                "displayName": {"text": f"Generic Powersports {i}"},
+                "formattedAddress": f"{i} Main",
+                "websiteUri": f"https://generic-powersports-{i}.example/",
+            }
+            for i in range(6)
+        ]
+    }
+
+    def _route(request: object) -> Response:
+        try:
+            raw = request.content.decode() if getattr(request, "content", None) else "{}"  # type: ignore[union-attr]
+            body = json.loads(raw) if raw else {}
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return Response(200, json={"places": []})
+        if body.get("textQuery") == "Detroit MI":
+            return Response(200, json=loc_response)
+        return Response(200, json=search_response)
+
+    respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
+
+    out = await places.find_dealerships(
+        "Detroit MI",
+        vehicle_category="motorcycle",
+        make="Triumph",
+        limit=20,
+        radius_miles=25,
+    )
+    assert len(out) == 3
 
 
 @respx.mock

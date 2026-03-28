@@ -5,7 +5,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from app.config import settings
 from app.schemas import DealershipFound, PaginationInfo
-from app.services.inventory_filters import model_filter_variants
+from app.services.inventory_filters import model_filter_variants, text_mentions_make
 from app.services.platform_store import normalize_dealer_domain
 from app.services.provider_router import ProviderRoute
 
@@ -63,10 +63,7 @@ def html_mentions_model(html: str, model: str) -> bool:
 
 
 def html_mentions_make(html: str, make: str) -> bool:
-    mk = make.strip().lower()
-    if not mk:
-        return True
-    return mk in html.lower()
+    return text_mentions_make(html, make)
 
 
 def prefer_https_website_url(url: str) -> str:

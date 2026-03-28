@@ -14,6 +14,7 @@ from app.services.dealer_platforms import (
     detect_platform_profile,
     inventory_hints_for_platform,
 )
+from app.services.inventory_filters import make_filter_normalized_variants, normalize_model_text
 from app.services.platform_store import PlatformCacheEntry, platform_store
 
 logger = logging.getLogger(__name__)
@@ -28,14 +29,16 @@ _KNOWN_BRAND_TOKENS: frozenset[str] = frozenset(
         "bayliner",
         "bennington",
         "bmw",
+        "bmwmotorrad",
         "bostonwhaler",
         "buick",
         "cadillac",
         "canam",
         "chaparral",
+        "chriscraft",
+        "ducati",
         "chevrolet",
         "chevy",
-        "chriscraft",
         "cobalt",
         "crestliner",
         "chrysler",
@@ -46,14 +49,18 @@ _KNOWN_BRAND_TOKENS: frozenset[str] = frozenset(
         "fourwinns",
         "gmc",
         "godfrey",
+        "harleydavidson",
         "honda",
         "hurricane",
         "hyundai",
+        "indian",
         "indianmotorcycle",
         "infiniti",
         "jeep",
+        "kawasaki",
         "kia",
         "keywestboats",
+        "ktm",
         "lexus",
         "lincoln",
         "lund",
@@ -68,6 +75,7 @@ _KNOWN_BRAND_TOKENS: frozenset[str] = frozenset(
         "maritimo",
         "nautique",
         "navan",
+        "polaris",
         "prestige",
         "nissan",
         "premier",
@@ -75,15 +83,20 @@ _KNOWN_BRAND_TOKENS: frozenset[str] = frozenset(
         "rangerboats",
         "regal",
         "robalo",
+        "royalenfield",
+        "seadoo",
         "searay",
         "starcraft",
         "subaru",
+        "suzuki",
         "sylvan",
         "tracker",
+        "triumph",
         "toyota",
         "volkswagen",
         "volvo",
         "vw",
+        "yamaha",
         "yamahaboats",
     }
 )
@@ -133,6 +146,9 @@ def _normalize_inventory_candidate_url(url: str) -> str:
     # Ensure OneAudi Falcon /inventory/new URLs have a trailing slash,
     # otherwise some of their CDN edge nodes return 404 instead of 301
     parts = urlsplit(url)
+    if parts.fragment:
+        url = urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
+        parts = urlsplit(url)
     path_lower = parts.path.lower()
     if path_lower.endswith("/inventory/new") or path_lower.endswith("/inventory/used"):
         url = urlunsplit((parts.scheme, parts.netloc, parts.path + "/", parts.query, parts.fragment))
@@ -401,6 +417,27 @@ def _team_velocity_inventory_path_score(url: str, condition: str) -> int:
     return score
 
 
+def _dealer_spike_inventory_path_score(url: str, condition: str) -> int:
+    parts = urlsplit(url)
+    path = parts.path.lower().rstrip("/")
+    query = parts.query.lower()
+    score = 0
+
+    if "manufacturer-models" in path or "model-list" in path:
+        return -120
+
+    if path.endswith("/inventory/all-inventory-in-stock") or "page=xallinventory" in query:
+        score += 130 if condition == "all" else 35
+    if path.endswith("/inventory/new-inventory-in-stock") or "page=xnewinventory" in query:
+        score += 130 if condition == "new" else (-40 if condition == "used" else 20)
+    if path.endswith("/inventory/used-inventory") or path.endswith("/inventory/used-inventory-in-stock") or "page=xpreownedinventory" in query:
+        score += 130 if condition == "used" else (-40 if condition == "new" else 20)
+    if "in-stock" in path:
+        score += 25
+
+    return score
+
+
 def _d2c_media_inventory_path_score(url: str, condition: str) -> int:
     path = urlsplit(url).path.lower().rstrip("/")
     if condition == "new":
@@ -631,13 +668,14 @@ def resolve_inventory_url_for_provider(
         soup = BeautifulSoup(html, "lxml")
     except Exception:
         if route and route.inventory_url_hint:
-            return route.inventory_url_hint
-        return fallback_url
+            return _normalize_inventory_candidate_url(route.inventory_url_hint)
+        return _normalize_inventory_candidate_url(fallback_url)
 
-    best_url = (route.inventory_url_hint if route else None) or fallback_url
+    best_url = _normalize_inventory_candidate_url((route.inventory_url_hint if route else None) or fallback_url)
     best_score = -1
     hints = tuple(h.lower() for h in (route.inventory_path_hints if route else ()))
-    make_norm = _norm(make)
+    make_norm = normalize_model_text(make)
+    make_norms = make_filter_normalized_variants(make)
     model = (model or "").strip()
     multi_model_filter = "," in model
     if multi_model_filter:
@@ -666,11 +704,11 @@ def resolve_inventory_url_for_provider(
             score += _hint_score(hint, href_lower, condition)
 
         mentioned_brand_tokens = _mentioned_brand_tokens(f"{text} {href_lower}")
-        if make_norm and make_norm in combined_norm:
+        if make_norms and any(variant in combined_norm for variant in make_norms):
             score += 30
-        if make_norm and make_norm in mentioned_brand_tokens:
+        if make_norms and mentioned_brand_tokens.intersection(make_norms):
             score += 40
-        elif make_norm and mentioned_brand_tokens:
+        elif make_norms and mentioned_brand_tokens:
             score -= 140
         if make_norm and not model_norm and _looks_like_inventory_detail_url(href):
             score -= 120
@@ -764,6 +802,8 @@ def resolve_inventory_url_for_provider(
             score += _family_inventory_path_score(href, condition)
         if route and route.platform_id == "team_velocity" and not model_norm:
             score += _team_velocity_inventory_path_score(href, condition)
+        if route and route.platform_id == "dealer_spike" and not model_norm:
+            score += _dealer_spike_inventory_path_score(href, condition)
         if route and route.platform_id == "d2c_media" and not model_norm:
             score += _d2c_media_inventory_path_score(href, condition)
         if route and route.platform_id == "hyundai_inventory_search" and not model_norm:

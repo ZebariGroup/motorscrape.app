@@ -32,6 +32,61 @@ def test_resolve_inventory_url_for_provider_prefers_team_velocity_all_inventory_
     assert url == "https://www.examplepowersports.com/--inventory"
 
 
+def test_resolve_inventory_url_for_provider_prefers_dealer_spike_inventory_over_model_list() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_spike",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=(
+            "default.asp?page=xallinventory",
+            "inventory/new-inventory-in-stock",
+            "inventory/used-inventory",
+        ),
+        inventory_url_hint=None,
+    )
+    html = """
+    <html><body>
+      <a href="/Brands/Manufacturer-Models/Model-List/Triumph">Triumph Models</a>
+      <a href="/Inventory/New-Inventory-In-Stock">New Inventory</a>
+      <a href="/Inventory/Used-Inventory">Used Inventory</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.werkspowersports.com/",
+        route,
+        fallback_url="https://www.werkspowersports.com/",
+        make="Triumph",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.werkspowersports.com/Inventory/New-Inventory-In-Stock"
+
+
+def test_resolve_inventory_url_for_provider_drops_fragment_filters_from_dealer_spike_inventory() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_spike",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("default.asp?page=xallinventory",),
+        inventory_url_hint=None,
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html></html>",
+        "https://www.indianoftoledo.com/",
+        route,
+        fallback_url="https://www.indianoftoledo.com/default.asp?page=xallinventory#page=xallinventory&vc=Cruiser",
+        make="Indian Motorcycle",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.indianoftoledo.com/default.asp?page=xallinventory"
+
+
 def test_resolve_inventory_url_for_provider_avoids_scoped_team_velocity_used_links_when_filters_empty() -> None:
     route = ProviderRoute(
         platform_id="team_velocity",

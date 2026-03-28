@@ -11,6 +11,7 @@ import httpx
 
 from app.config import settings
 from app.schemas import DealershipFound
+from app.services.inventory_filters import text_mentions_make
 
 logger = logging.getLogger(__name__)
 
@@ -136,14 +137,9 @@ def _display_name(place: dict[str, Any]) -> str:
 
 def _name_matches_make(dealer_name: str, make: str) -> bool:
     """Loose brand match on dealership name to avoid unrelated franchises."""
-    mk = make.strip().lower()
-    nm = dealer_name.strip().lower()
-    if not mk:
+    if not make.strip():
         return True
-    # Treat punctuation/spacing variants as equivalent.
-    mk_compact = "".join(ch for ch in mk if ch.isalnum())
-    nm_compact = "".join(ch for ch in nm if ch.isalnum())
-    return mk in nm or (mk_compact and mk_compact in nm_compact)
+    return text_mentions_make(dealer_name, make)
 
 
 def _dealer_matches_category_context(
@@ -555,7 +551,12 @@ async def find_dealerships(
             # most likely candidates. Returning all 20+ generic marinas wastes time
             # on dealers that almost certainly don't carry the brand.
             if category_matches:
-                max_generic = min(len(category_matches), max(5, limit // 3))
+                generic_cap = {
+                    "motorcycle": 3,
+                    "boat": 4,
+                    "other": 4,
+                }.get(category, 4)
+                max_generic = min(len(category_matches), generic_cap)
                 return category_matches[:max_generic]
 
         brand_matches = [d for d in results if _name_matches_make(d.name, make_q)]

@@ -301,6 +301,31 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         extraction_mode="hybrid",
     ),
     PlatformDefinition(
+        platform_id="dealer_spike",
+        markers=(
+            "dealer spike",
+            "default.asp?page=xallinventory",
+            "default.asp?page=xnewinventory",
+            "default.asp?page=xpreownedinventory",
+            "/inventory/all-inventory-in-stock",
+            "/inventory/new-inventory-in-stock",
+            "/inventory/used-inventory",
+        ),
+        inventory_path_hints=(
+            "default.asp?page=xallinventory",
+            "default.asp?page=xnewinventory",
+            "default.asp?page=xpreownedinventory",
+            "inventory/all-inventory-in-stock",
+            "inventory/new-inventory-in-stock",
+            "inventory/used-inventory",
+            "inventory/used-inventory-in-stock",
+            "all-inventory-in-stock",
+            "new-inventory-in-stock",
+            "used-inventory-in-stock",
+        ),
+        extraction_mode="hybrid",
+    ),
+    PlatformDefinition(
         platform_id="d2c_media",
         markers=(
             "d2c media",

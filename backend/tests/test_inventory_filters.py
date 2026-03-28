@@ -1,4 +1,10 @@
-from app.services.inventory_filters import infer_vehicle_condition_from_page
+from app.schemas import VehicleListing
+from app.services.inventory_filters import (
+    infer_vehicle_condition_from_page,
+    listing_matches_filters,
+    make_filter_variants,
+    text_mentions_make,
+)
 
 
 def test_infer_vehicle_condition_from_inventory_new_path() -> None:
@@ -29,3 +35,26 @@ def test_infer_vehicle_condition_from_query_params() -> None:
         )
         == "new"
     )
+
+
+def test_make_filter_variants_include_common_aliases() -> None:
+    assert "BMW" in make_filter_variants("BMW Motorrad")
+    assert "Indian" in make_filter_variants("Indian Motorcycle")
+    assert "Yamaha" in make_filter_variants("Yamaha Boats")
+
+
+def test_text_mentions_make_matches_aliases() -> None:
+    assert text_mentions_make("Factory authorized BMW dealer", "BMW Motorrad")
+    assert text_mentions_make("Shop Indian bikes", "Indian Motorcycle")
+    assert text_mentions_make("Yamaha jet boats in stock", "Yamaha Boats")
+
+
+def test_listing_matches_filters_uses_make_aliases() -> None:
+    listing = VehicleListing(
+        year=2024,
+        make="BMW",
+        model="R 1300 GS",
+        raw_title="2024 BMW R 1300 GS",
+        listing_url="https://example.test/listing/1",
+    )
+    assert listing_matches_filters(listing, "BMW Motorrad", "")
