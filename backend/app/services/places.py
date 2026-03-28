@@ -292,6 +292,10 @@ def _normalize_dealer_website_url(website: str) -> str:
     if not raw:
         return ""
 
+    # Reject non-HTTP pseudo-URLs from Places data (e.g. javascript:void(0))
+    if not raw.startswith("http://") and not raw.startswith("https://"):
+        return ""
+
     parts = urlsplit(raw)
     if not parts.scheme or not parts.netloc:
         return raw
@@ -512,6 +516,10 @@ async def find_dealerships(
             category_matches = [
                 d for d in results if _dealer_matches_category_context(d.name, d.website or "", vehicle_category=category)
             ]
+            # For multi-brand categories (boat, motorcycle) prefer dealers that at
+            # least carry the category signal (marina, boat sales, etc.) so we don't
+            # flood results with completely unrelated businesses when the brand is
+            # niche (e.g. Axis, Malibu).
             if category_matches:
                 return category_matches
 

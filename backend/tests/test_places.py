@@ -102,6 +102,14 @@ def test_normalize_dealer_website_url_strips_tracking() -> None:
     assert "dealer.com" in u
 
 
+def test_normalize_dealer_website_url_rejects_javascript_void() -> None:
+    assert places._normalize_dealer_website_url("javascript:void(0)") == ""
+    assert places._normalize_dealer_website_url("javascript:void(0);") == ""
+    assert places._normalize_dealer_website_url("tel:+13135551234") == ""
+    assert places._normalize_dealer_website_url("mailto:info@dealer.com") == ""
+    assert places._normalize_dealer_website_url("https://dealer.com/") != ""
+
+
 @respx.mock
 @pytest.mark.asyncio
 async def test_place_details_website_ok(places_api_key: str) -> None:
