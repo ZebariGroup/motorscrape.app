@@ -267,7 +267,13 @@ def _looks_like_exact_bmw_inventory_path(url: str, model: str) -> bool:
 def _canonical_dealer_on_inventory_url(url: str, condition: str) -> str:
     parts = urlsplit(url)
     host = parts.netloc.lower().split("@")[-1].split(":")[0]
-    if host.startswith("express."):
+    if host.startswith("buy."):
+        base = host.removeprefix("buy.")
+        if base and not base.startswith("buy."):
+            netloc = parts.netloc.replace(host, f"www.{base}", 1)
+        else:
+            netloc = parts.netloc
+    elif host.startswith("express."):
         base = host.removeprefix("express.")
         if base and not base.startswith("express."):
             netloc = parts.netloc.replace(host, f"www.{base}", 1)
@@ -280,7 +286,10 @@ def _canonical_dealer_on_inventory_url(url: str, condition: str) -> str:
     elif condition == "used":
         path = "/searchused.aspx"
     else:
-        path = "/searchall.aspx"
+        # DealerOn inventory pages typically use dedicated new/used SRPs only.
+        # Fall back to the new-inventory SRP for mixed searches to avoid 404s
+        # from non-existent `/searchall.aspx` endpoints.
+        path = "/searchnew.aspx"
     return urlunsplit((parts.scheme, netloc, path, "", ""))
 
 
@@ -290,6 +299,15 @@ def _canonical_dealer_inspire_inventory_url(url: str, condition: str) -> str:
         path = "/used-vehicles/"
     else:
         path = "/new-vehicles/"
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
+def _canonical_family_inventory_url(url: str, condition: str) -> str:
+    parts = urlsplit(url)
+    if condition == "used":
+        path = "/inventory/used"
+    else:
+        path = "/inventory/new"
     return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
@@ -440,6 +458,22 @@ def _family_inventory_path_score(url: str, condition: str) -> int:
         if "/inventory/used-" in path:
             return -40
     return 0
+
+
+def _looks_like_team_velocity_inventory_stack(html: str, url: str = "") -> bool:
+    target = f"{html} {url}".lower()
+    return any(
+        marker in target
+        for marker in (
+            "teamvelocitymarketing.com",
+            "teamvelocity",
+            "team velocity",
+            "inventory_listing",
+            "unlockctadiscountdata",
+            "si-vehicle-box",
+            "/viewdetails/",
+        )
+    )
 
 
 def _team_velocity_inventory_path_score(url: str, condition: str) -> int:
@@ -1115,7 +1149,10 @@ def resolve_inventory_url_for_provider(
             (route.inventory_url_hint if route else None) or fallback_url
         )
         if generic_base:
-            generic_base = _canonical_dealer_inspire_inventory_url(generic_base, condition)
+            if _looks_like_team_velocity_inventory_stack(html, generic_base):
+                generic_base = _canonical_family_inventory_url(generic_base, condition)
+            else:
+                generic_base = _canonical_dealer_inspire_inventory_url(generic_base, condition)
             best_url = generic_base
 
     if route and not model_norm and not make_norm and route.platform_id == "team_velocity":

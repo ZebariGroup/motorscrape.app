@@ -619,6 +619,35 @@ def test_resolve_inventory_url_for_provider_canonicalizes_dealer_inspire_filtere
     assert url == "https://www.northlandchryslerjeepdodge.com/new-vehicles/"
 
 
+def test_resolve_inventory_url_for_provider_uses_family_inventory_for_team_velocity_like_dealer_inspire_html() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=1.0,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles", "inventory/new"),
+        inventory_url_hint="https://www.jeffreyacura.com/inventory/new",
+    )
+    html = """
+    <html><body>
+      <footer>Website by Team Velocity - https://www.teamvelocitymarketing.com/</footer>
+      <a href="/inventory/new">New Inventory</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.jeffreyacura.com/",
+        route,
+        fallback_url="https://www.jeffreyacura.com/inventory/new",
+        make="Acura",
+        model="",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.jeffreyacura.com/inventory/new"
+
+
 def test_resolve_inventory_url_for_provider_handles_multi_model_filter_as_make_only_for_ddc() -> None:
     route = ProviderRoute(
         platform_id="dealer_dot_com",
@@ -667,11 +696,38 @@ def test_resolve_inventory_url_for_provider_handles_multi_model_filter_as_make_o
         vehicle_condition="all",
     )
     parsed = urlsplit(url)
-    assert parsed.path.endswith("/searchall.aspx")
+    assert parsed.path.endswith("/searchnew.aspx")
     query = parse_qs(parsed.query)
     assert query.get("Make") == ["Ford"]
     assert "Model" not in query
     assert "ModelAndTrim" not in query
+
+
+def test_resolve_inventory_url_for_provider_canonicalizes_buy_host_for_dealer_on() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_on",
+        confidence=1.0,
+        extraction_mode="rendered_dom",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("searchnew.aspx", "searchused.aspx"),
+        inventory_url_hint="https://buy.serrachevrolet.com/inventory/",
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html></html>",
+        "https://buy.serrachevrolet.com/inventory/",
+        route,
+        fallback_url="https://buy.serrachevrolet.com/inventory/",
+        make="Chevrolet",
+        model="",
+        vehicle_condition="all",
+    )
+    parsed = urlsplit(url)
+    assert parsed.netloc == "www.serrachevrolet.com"
+    assert parsed.path == "/searchnew.aspx"
+    query = parse_qs(parsed.query)
+    assert query.get("Make") == ["Chevrolet"]
 
 
 def test_resolve_inventory_url_for_provider_prefers_d2c_search_pages() -> None:
