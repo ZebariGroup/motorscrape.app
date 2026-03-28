@@ -249,6 +249,46 @@ def test_try_extract_grand_pointe_inv_card() -> None:
     assert v.listing_url == "https://dealer.example/boat/bayliner-element-m17-123/"
 
 
+def test_try_extract_grand_pointe_inv_card_prefers_lazyload_image_over_placeholder() -> None:
+    html = """
+    <html><body>
+      <article class="inv-card">
+        <a href="https://dealer.example/boat/lund-1650-angler-ss-123/">
+          <div class="inv-thumb">
+            <img
+              class="lazyload"
+              src="data:image/png;base64,placeholder"
+              data-src="https://images.example.com/lund.jpg"
+              data-srcset="https://images.example.com/lund.jpg 1024w, https://images.example.com/lund-small.jpg 300w"
+            />
+          </div>
+          <div class="inv-content">
+            <div class="inv-content-top">
+              <span class="inv-stock">STOCK #: lund16</span>
+              <h3>2022 Lund 1650 Angler SS</h3>
+            </div>
+            <div class="inv-content-bottom">
+              <span class="inv-price">$24,500</span>
+              <div class="inv-location">Lansing, MI</div>
+            </div>
+          </div>
+        </a>
+      </article>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/boats/",
+        html=html,
+        make_filter="Lund",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.image_url == "https://images.example.com/lund.jpg"
+
+
 def test_try_extract_inventory_model_single_boat_card() -> None:
     html = """
     <html><body>

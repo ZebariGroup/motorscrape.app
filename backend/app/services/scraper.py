@@ -126,6 +126,9 @@ _INVENTORY_HINTS = (
     "inventory_list",
     "inventory-listing",
     "srpvehicle",
+    "v7list-results__item",
+    "v7list-vehicle",
+    "vehicle-heading__link",
 )
 _BLOCK_MARKERS = (
     "cf-browser-verification",
@@ -251,6 +254,9 @@ async def _playwright_pass(
             "vehicle-card",
             "vehicle-card--mod",
             "si-vehicle-box",
+            "v7list-results__item",
+            "v7list-vehicle",
+            "vehicle-heading__link",
             "data-component=\"result-tile\"",
             "data-component='result-tile'",
         )
@@ -595,7 +601,9 @@ def _looks_like_empty_inventory_shell(html: str) -> bool:
     hits = soup.select_one("#hits")
     if hits is None:
         return False
-    if hits.select_one("[data-vehicle], .result-wrap.new-vehicle, .carbox, .vehicle-card, .si-vehicle-box"):
+    if hits.select_one(
+        "[data-vehicle], .result-wrap.new-vehicle, .carbox, .vehicle-card, .si-vehicle-box, .v7list-results__item, .v7list-vehicle, .vehicle-heading__link"
+    ):
         return False
     return True
 
@@ -683,12 +691,25 @@ def _browser_headers() -> dict[str, str]:
         ),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+    }
+
+
+def _fallback_browser_headers() -> dict[str, str]:
+    return {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
     }
 
 
 async def _direct_get(url: str, timeout: httpx.Timeout) -> str:
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=False) as client:
         r = await client.get(url, headers=_browser_headers())
+        if r.status_code == 403:
+            retry = await client.get(url, headers=_fallback_browser_headers())
+            retry.raise_for_status()
+            return retry.text
         r.raise_for_status()
         return r.text
 

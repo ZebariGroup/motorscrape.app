@@ -288,6 +288,84 @@ async def test_stream_search_done_includes_fetch_metrics() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stream_search_boats_does_not_skip_only_because_homepage_lacks_make() -> None:
+    from app.schemas import ExtractionResult, VehicleListing
+
+    dealers = [
+        DealershipFound(
+            name="Test Marina",
+            place_id="p1",
+            address="1 Lake Dr",
+            website="https://example-marine.test",
+        )
+    ]
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        if url == "https://example-marine.test" and page_kind == "homepage":
+            return "<html><body><h1>Welcome to the marina</h1><a href='/boats-for-sale/'>Inventory</a></body></html>", "direct"
+        if url == "https://example-marine.test/boats-for-sale/" and page_kind == "inventory":
+            return "<html><body><h1>Sylvan boats for sale</h1><div class='inv-card'>Inventory</div></body></html>", "direct"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    with (
+        patch(
+            "app.services.orchestrator.find_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.set_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            return_value=ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        vehicle_category="boat",
+                        year=2024,
+                        make="Sylvan",
+                        model="Mirage",
+                        price=39999,
+                        listing_url="https://example-marine.test/boats-for-sale/sylvan-mirage",
+                    )
+                ],
+                next_page_url=None,
+            ),
+        ),
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+        ) as mock_llm,
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "Detroit, MI",
+            "Sylvan",
+            "",
+            vehicle_category="boat",
+            max_dealerships=1,
+            max_pages_per_dealer=1,
+        ):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert mock_llm.await_count == 0
+    assert "boats-for-sale/sylvan-mirage" in tail
+    assert '"listings_found": 1' in tail
+    assert 'dealer homepage; skipped' not in tail
+
+
+@pytest.mark.asyncio
 async def test_stream_search_auto_expands_pagination_from_site_counts() -> None:
     from app.schemas import ExtractionResult, PaginationInfo, VehicleListing
 

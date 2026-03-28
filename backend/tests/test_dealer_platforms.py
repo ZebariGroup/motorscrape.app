@@ -80,6 +80,21 @@ def test_playwright_inventory_instructions_include_dealer_inspire_network_wait()
     assert any(step.get("wait_for_selector") == "[data-vehicle],.result-wrap.new-vehicle" for step in steps)
 
 
+def test_playwright_inventory_instructions_include_team_velocity_selectors() -> None:
+    instructions = playwright_inventory_instructions_for_url(
+        "https://dealer.example/inventory/new",
+        platform_id="team_velocity",
+    )
+    assert instructions is not None
+    steps = json.loads(instructions)
+    assert any(
+        step.get("wait_for_selector")
+        == ".v7list-results__item,.v7list-vehicle,.vehicle-heading__link,.vehicle-price--current"
+        for step in steps
+    )
+    assert any(step.get("scroll") == "bottom" for step in steps)
+
+
 def test_detect_platform_profile_matches_d2c_media_homepage_markers() -> None:
     html = """
     <html><body>

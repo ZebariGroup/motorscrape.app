@@ -103,6 +103,27 @@ async def test_fetch_page_html_express_403_www_retry(clear_scraper_keys: None) -
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_direct_403_retries_with_fallback_headers(clear_scraper_keys: None) -> None:
+    url = "https://www.bassproboatingcenters.example/brands/tracker-boats.html"
+    seen_user_agents: list[str] = []
+
+    def route(request: httpx.Request) -> Response:
+        seen_user_agents.append(request.headers.get("User-Agent", ""))
+        if request.headers.get("User-Agent") == "Mozilla/5.0":
+            return Response(200, text=_inventory_html())
+        return Response(403, text="denied")
+
+    respx.get(url).mock(side_effect=route)
+
+    html, method = await fetch_page_html(url, page_kind="homepage")
+    assert method == "direct"
+    assert "vehicle-card" in html
+    assert seen_user_agents[0] != "Mozilla/5.0"
+    assert seen_user_agents[-1] == "Mozilla/5.0"
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_inventory_strips_dfr_query_on_direct_retry(clear_scraper_keys: None) -> None:
     noisy = (
         "https://dealer.example/new-vehicles/"

@@ -815,38 +815,6 @@ async def stream_search(
             route = None
             inv_url = seed_inventory_url or base_url
 
-            # For multi-brand categories (boat/motorcycle) with a make filter,
-            # validate the homepage mentions the make before investing further.
-            # Car dealers are brand-anchored so this check is less useful there.
-            if (
-                make.strip()
-                and homepage_html is not None
-                and (vehicle_category or "car").strip().lower() in {"boat", "motorcycle", "other"}
-                and not html_mentions_make(homepage_html, make)
-            ):
-                logger.info(
-                    "%sskipping %s — homepage does not mention make %r",
-                    cid_log,
-                    d.name,
-                    make.strip(),
-                )
-                chunks.append(
-                    sse_pack(
-                        "dealership",
-                        {
-                            "index": index,
-                            "total": len(dealers),
-                            "name": d.name,
-                            "website": website,
-                            "status": "done",
-                            "listings_found": 0,
-                            "fetch_methods": fetch_methods_used,
-                            "info": f'No "{make.strip()}" found on dealer homepage; skipped.',
-                        },
-                    )
-                )
-                return chunks
-
             if homepage_html is not None and seed_inventory_url is None:
                 route = detect_or_lookup_provider(domain=domain, website=base_url, homepage_html=homepage_html)
                 if route:

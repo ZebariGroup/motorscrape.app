@@ -1281,37 +1281,68 @@ def _text_or_none(node: Any) -> str | None:
     return text or None
 
 
+def _first_srcset_candidate(value: str | None) -> str | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    first = raw.split(",", 1)[0].strip()
+    if not first:
+        return None
+    return first.split()[0].strip() or None
+
+
+def _normalize_dom_image_candidate(raw: str | None) -> str | None:
+    src = (raw or "").strip().strip("'\"")
+    if not src:
+        return None
+    lower = src.lower()
+    if lower.startswith("data:image/"):
+        return None
+    if lower.endswith(".svg") or "copy.svg" in lower or "icon" in lower:
+        return None
+    return src
+
+
 def _pick_dom_vehicle_image(card: Any, page_url: str) -> str | None:
     preferred_selectors = (
         ".hero-carousel__background-image--grid",
         ".hero-carousel__background-image--list",
         ".boat-image-container",
         ".vehicle__image[data-src]",
+        "img[data-src]",
+        "img[data-lazy-src]",
         ".vehicle-image img",
-        "img[src]",
+        "img",
+        "noscript img",
     )
     for selector in preferred_selectors:
         for img in card.select(selector):
-            src = (img.get("src") or "").strip()
-            if not src:
-                raw_data_src = (img.get("data-src") or "").strip()
-                if raw_data_src:
-                    src = raw_data_src.split("|", 1)[0].strip()
-            if not src:
-                raw_bg = (img.get("data-dsp-small-image") or "").strip()
-                if raw_bg.startswith("url(") and raw_bg.endswith(")"):
-                    src = raw_bg[4:-1].strip().strip("'\"")
-            if not src:
-                style = (img.get("style") or "").strip()
-                bg_match = re.search(r"""background-image\s*:\s*url\((['"]?)(.*?)\1\)""", style, re.I)
-                if bg_match:
-                    src = bg_match.group(2).strip()
-            if not src:
-                continue
-            lower = src.lower()
-            if lower.endswith(".svg") or "copy.svg" in lower or "icon" in lower:
-                continue
-            return urljoin(page_url, src)
+            candidates: list[str | None] = [
+                img.get("data-src"),
+                img.get("data-lazy-src"),
+                _first_srcset_candidate(img.get("data-srcset")),
+                _first_srcset_candidate(img.get("srcset")),
+                img.get("data-original"),
+                img.get("data-lazy"),
+                img.get("src"),
+            ]
+            raw_bg = (img.get("data-dsp-small-image") or "").strip()
+            if raw_bg.startswith("url(") and raw_bg.endswith(")"):
+                candidates.append(raw_bg[4:-1].strip().strip("'\""))
+            style = (img.get("style") or "").strip()
+            bg_match = re.search(r"""background-image\s*:\s*url\((['"]?)(.*?)\1\)""", style, re.I)
+            if bg_match:
+                candidates.append(bg_match.group(2).strip())
+
+            for candidate in candidates:
+                src = _normalize_dom_image_candidate(candidate)
+                if not src:
+                    continue
+                if "|" in src:
+                    src = src.split("|", 1)[0].strip()
+                src = _normalize_dom_image_candidate(src)
+                if src:
+                    return urljoin(page_url, src)
     return None
 
 

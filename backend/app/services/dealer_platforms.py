@@ -58,6 +58,9 @@ _PLAYWRIGHT_INVENTORY_READY_SELECTOR = ",".join(
         ".vehicle-card",
         ".vehicle-card--mod",
         ".si-vehicle-box",
+        ".v7list-results__item",
+        ".v7list-vehicle",
+        ".vehicle-heading__link",
         "li[data-component='result-tile']",
         "[data-component='result-tile']",
     )
@@ -134,6 +137,22 @@ def _dealer_inspire_playwright_instructions(scroll_rounds: int = 3) -> str:
     return _compact_instruction_payload(steps)
 
 
+def _team_velocity_playwright_instructions(scroll_rounds: int = 3) -> str:
+    tv_selector = ".v7list-results__item,.v7list-vehicle,.vehicle-heading__link,.vehicle-price--current"
+    steps: list[dict[str, Any]] = [
+        {"wait_for_selector": tv_selector, "timeout_ms": 7000},
+    ]
+    for _ in range(max(1, scroll_rounds)):
+        steps.extend(
+            [
+                {"scroll": "bottom"},
+                {"wait": 1000},
+                {"wait_for_selector": tv_selector, "timeout_ms": 3000},
+            ]
+        )
+    return _compact_instruction_payload(steps)
+
+
 def _oneaudi_falcon_playwright_instructions(rounds: int = 8) -> str:
     steps = json.loads(_oneaudi_falcon_inventory_js_instructions(rounds=rounds))
     if not isinstance(steps, list):
@@ -147,6 +166,7 @@ _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS = _oneaudi_falcon_inventory_js_instruc
 _ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS = _oneaudi_falcon_playwright_instructions()
 _DEALER_ON_PLAYWRIGHT_INSTRUCTIONS = _dealer_on_playwright_instructions()
 _DEALER_INSPIRE_PLAYWRIGHT_INSTRUCTIONS = _dealer_inspire_playwright_instructions()
+_TEAM_VELOCITY_PLAYWRIGHT_INSTRUCTIONS = _team_velocity_playwright_instructions()
 _RENDER_REQUIRED_PLAYWRIGHT_INSTRUCTIONS = _inventory_ready_playwright_instructions()
 
 _ONEAUDI_FALCON_INVENTORY_HOST_FRAGMENTS: frozenset[str] = frozenset(
@@ -206,6 +226,8 @@ def playwright_inventory_instructions_for_url(url: str, platform_id: str | None 
         return _DEALER_ON_PLAYWRIGHT_INSTRUCTIONS.strip()
     if platform_id == "dealer_inspire":
         return _DEALER_INSPIRE_PLAYWRIGHT_INSTRUCTIONS.strip()
+    if platform_id == "team_velocity":
+        return _TEAM_VELOCITY_PLAYWRIGHT_INSTRUCTIONS.strip()
     if url and _looks_like_oneaudi_falcon_inventory_url(url):
         return _ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS.strip()
     definition = _platform_definition_for_id(platform_id)
@@ -299,6 +321,7 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
             "pre-owned",
         ),
         extraction_mode="hybrid",
+        requires_render=True,
     ),
     PlatformDefinition(
         platform_id="dealer_spike",
