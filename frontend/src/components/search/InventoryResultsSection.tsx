@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { downloadCsv, listingsToCsv } from "@/lib/csvExport";
 import {
   formatMoney,
@@ -49,8 +49,35 @@ export function InventoryResultsSection({
   vehicleCategory,
   allowCsvExport = true,
 }: Props) {
-  const [selectedListing, setSelectedListing] = useState<AggregatedListing | null>(null);
+  const [selectedListingIndex, setSelectedListingIndex] = useState<number | null>(null);
   const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
+  const effectiveSelectedListingIndex =
+    selectedListingIndex == null || filteredListings.length === 0
+      ? null
+      : Math.min(selectedListingIndex, filteredListings.length - 1);
+  const selectedListing =
+    effectiveSelectedListingIndex != null ? (filteredListings[effectiveSelectedListingIndex] ?? null) : null;
+  const canViewPrevious = effectiveSelectedListingIndex != null && effectiveSelectedListingIndex > 0;
+  const canViewNext =
+    effectiveSelectedListingIndex != null && effectiveSelectedListingIndex < filteredListings.length - 1;
+
+  useEffect(() => {
+    if (effectiveSelectedListingIndex == null) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowLeft" && canViewPrevious) {
+        event.preventDefault();
+        setSelectedListingIndex((current) => (current == null ? current : current - 1));
+      }
+      if (event.key === "ArrowRight" && canViewNext) {
+        event.preventDefault();
+        setSelectedListingIndex((current) => (current == null ? current : current + 1));
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [canViewNext, canViewPrevious, effectiveSelectedListingIndex]);
 
   return (
     <section className="lg:col-span-2">
@@ -141,7 +168,7 @@ export function InventoryResultsSection({
             <article
               key={`inventory-${listingIdentityKey(v, `${idx}`)}`}
               className="flex flex-row sm:flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 cursor-pointer hover:border-emerald-300 hover:ring-1 hover:ring-emerald-500/20 transition-all"
-              onClick={() => setSelectedListing(v)}
+              onClick={() => setSelectedListingIndex(idx)}
             >
               <div className="relative w-2/5 shrink-0 sm:w-full sm:aspect-[16/10] min-h-[128px] bg-zinc-100 dark:bg-zinc-900">
                 {v.image_url ? (
@@ -267,8 +294,30 @@ export function InventoryResultsSection({
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
           <div 
             className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" 
-            onClick={() => setSelectedListing(null)} 
+            onClick={() => setSelectedListingIndex(null)} 
           />
+          <button
+            type="button"
+            onClick={() => setSelectedListingIndex((current) => (current == null ? current : current - 1))}
+            disabled={!canViewPrevious}
+            className="absolute left-2 top-1/2 z-[101] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:left-4"
+            aria-label="View previous listing"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedListingIndex((current) => (current == null ? current : current + 1))}
+            disabled={!canViewNext}
+            className="absolute right-2 top-1/2 z-[101] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:right-4"
+            aria-label="View next listing"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </button>
           <div className="relative flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-zinc-950 ring-1 ring-zinc-200 dark:ring-zinc-800">
             <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 truncate pr-4">
@@ -276,7 +325,7 @@ export function InventoryResultsSection({
                   ([selectedListing.year, selectedListing.make, selectedListing.model, selectedListing.trim].filter(Boolean).join(" ") || "Vehicle Details")}
               </h2>
               <button
-                onClick={() => setSelectedListing(null)}
+                onClick={() => setSelectedListingIndex(null)}
                 className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 transition-colors"
                 aria-label="Close details"
               >

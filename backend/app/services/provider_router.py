@@ -22,34 +22,69 @@ _KNOWN_BRAND_TOKENS: frozenset[str] = frozenset(
     {
         "acura",
         "alfaromeo",
+        "axis",
         "audi",
+        "barletta",
+        "bayliner",
+        "bennington",
         "bmw",
+        "bostonwhaler",
         "buick",
         "cadillac",
+        "canam",
+        "chaparral",
         "chevrolet",
         "chevy",
+        "chriscraft",
+        "cobalt",
+        "crestliner",
         "chrysler",
         "dodge",
         "fiat",
+        "fairline",
         "ford",
+        "fourwinns",
         "gmc",
+        "godfrey",
         "honda",
+        "hurricane",
         "hyundai",
+        "indianmotorcycle",
         "infiniti",
         "jeep",
         "kia",
+        "keywestboats",
         "lexus",
         "lincoln",
+        "lund",
+        "malibu",
+        "manitou",
+        "mastercraft",
         "mazda",
         "mini",
         "mitsubishi",
+        "monterey",
+        "moomba",
+        "maritimo",
+        "nautique",
+        "navan",
+        "prestige",
         "nissan",
+        "premier",
         "ram",
+        "rangerboats",
+        "regal",
+        "robalo",
+        "searay",
+        "starcraft",
         "subaru",
+        "sylvan",
+        "tracker",
         "toyota",
         "volkswagen",
         "volvo",
         "vw",
+        "yamahaboats",
     }
 )
 
@@ -68,6 +103,20 @@ class ProviderRoute:
 
 def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
+def _mentioned_brand_tokens(text: str) -> set[str]:
+    text_norm = _norm(text)
+    if not text_norm:
+        return set()
+    return {token for token in _KNOWN_BRAND_TOKENS if token in text_norm}
+
+
+def _looks_like_inventory_detail_url(url: str) -> bool:
+    path = urlsplit(url).path.lower()
+    if "detail" in path:
+        return True
+    return bool(re.search(r"/(?:19|20)\d{2}[-/]", path))
 
 
 def _with_query_params(url: str, updates: dict[str, str]) -> str:
@@ -616,8 +665,15 @@ def resolve_inventory_url_for_provider(
         for hint in hints:
             score += _hint_score(hint, href_lower, condition)
 
+        mentioned_brand_tokens = _mentioned_brand_tokens(f"{text} {href_lower}")
         if make_norm and make_norm in combined_norm:
             score += 30
+        if make_norm and make_norm in mentioned_brand_tokens:
+            score += 40
+        elif make_norm and mentioned_brand_tokens:
+            score -= 140
+        if make_norm and not model_norm and _looks_like_inventory_detail_url(href):
+            score -= 120
         if (
             route
             and route.platform_id == "dealer_dot_com"
@@ -897,6 +953,14 @@ def resolve_inventory_url_for_provider(
             path = urlsplit(generic_base).path.lower().rstrip("/")
             if path in {"", "/", "/inventory/v1"}:
                 best_url = _canonical_team_velocity_inventory_url(generic_base, condition)
+
+    if not route and make_norm and not model_norm:
+        fallback_norm = _normalize_inventory_candidate_url(fallback_url)
+        best_norm = _normalize_inventory_candidate_url(best_url)
+        if best_norm and best_norm.rstrip("/") != fallback_norm.rstrip("/"):
+            best_combined_norm = _norm(best_norm)
+            if make_norm not in best_combined_norm:
+                best_url = fallback_norm
 
     if model_norm and route:
         generic_base = _normalize_inventory_candidate_url(

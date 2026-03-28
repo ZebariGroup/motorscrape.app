@@ -249,6 +249,102 @@ def test_try_extract_grand_pointe_inv_card() -> None:
     assert v.listing_url == "https://dealer.example/boat/bayliner-element-m17-123/"
 
 
+def test_try_extract_inventory_model_single_boat_card() -> None:
+    html = """
+    <html><body>
+      <div class="inventory-model-single"
+           data-boat-hin="SERP12345678"
+           data-boat-id="10040001"
+           data-boat-make="Sea Ray"
+           data-boat-model="SLX 280"
+           data-boat-stock-number=""
+           data-boat-year="2022">
+        <a href="https://dealer.example/boats-for-sale/2022-sea-ray-slx-280/">
+          <div class="boat-make">
+            <h5>Sea Ray <span>SLX 280</span></h5>
+          </div>
+          <div class="boat-image">
+            <div class="boat-image-container" style="background-image:url('https://images.example.com/searay.jpg');"></div>
+            <div class="listing-title">Available now</div>
+          </div>
+        </a>
+        <div class="boat-details">
+          <div class="top-boat">
+            <div class="boat-location col-xs-12">St. Clair Shores, Michigan</div>
+          </div>
+          <div class="bottom-boat">
+            <div class="col-xs-3 boat-year"><span>Year</span>2022</div>
+            <div class="col-xs-5 boat-price no-js">
+              <div class="main-boat-price no-js">$189,900</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/boats-for-sale/",
+        html=html,
+        make_filter="Sea Ray",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.year == 2022
+    assert v.make == "Sea Ray"
+    assert v.model == "SLX 280"
+    assert v.price == 189900
+    assert v.vehicle_identifier == "SERP12345678"
+    assert v.inventory_location == "St. Clair Shores, Michigan"
+    assert v.image_url == "https://images.example.com/searay.jpg"
+    assert v.availability_status is not None
+
+
+def test_try_extract_colony_hit_boat_card() -> None:
+    html = """
+    <html><body>
+      <div class="hit">
+        <div class="relative w-full lg:w-72">
+          <img src="https://images.example.com/colony-searay.jpg" />
+          <a class="absolute inset-0 z-10" href="https://dealer.example/new-boats-for-sale/sea-ray/2026-sea-ray-slx-310-outboard-1"></a>
+        </div>
+        <div class="flex-1 min-w-0">
+          <a href="https://dealer.example/new-boats-for-sale/sea-ray/2026-sea-ray-slx-310-outboard-1">
+            <h2>2026 Sea Ray SLX 310 Outboard</h2>
+          </a>
+          <div class="hit-content">
+            <div class="flex divide-x mt-2 overflow-auto">
+              <div><span class="block uppercase">Status</span><span class="block text-sm font-medium">Available</span></div>
+              <div><span class="block uppercase">Location</span><span class="block text-sm font-medium">St. Clair Shores, MI</span></div>
+              <div><span class="block uppercase">Manufacturer</span><span class="block text-sm font-medium">Sea Ray</span></div>
+              <div><span class="block uppercase">Stock #</span><span class="block text-sm font-medium">14430</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/michigan-new-sea-ray-boats-for-sale/",
+        html=html,
+        make_filter="Sea Ray",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.year == 2026
+    assert v.make == "Sea Ray"
+    assert v.model == "SLX"
+    assert v.trim == "310 Outboard"
+    assert v.vehicle_identifier == "14430"
+    assert v.inventory_location == "St. Clair Shores, MI"
+    assert v.image_url == "https://images.example.com/colony-searay.jpg"
+
+
 def test_try_extract_boat_usage_and_identifier() -> None:
     html = """
     <html><body>
@@ -340,6 +436,50 @@ def test_try_extract_boat_axis_make_from_title_card() -> None:
     v = result.vehicles[0]
     assert v.make == "Axis"
     assert v.model == "A225"
+
+
+def test_try_extract_boat_sea_pro_multiword_make_from_title_card() -> None:
+    html = """
+    <html><body>
+      <a class="c-widget--vehicle" href="/inventory/sea-pro-1">
+        2025 Sea Pro 245FLX
+      </a>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/boats",
+        html=html,
+        make_filter="Sea Pro",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.make == "Sea Pro"
+    assert v.model == "245FLX"
+
+
+def test_try_extract_boat_key_west_without_boats_suffix() -> None:
+    html = """
+    <html><body>
+      <a class="c-widget--vehicle" href="/inventory/key-west-2">
+        2024 Key West 203FS
+      </a>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/boats",
+        html=html,
+        make_filter="Key West",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.make == "Key West"
+    assert v.model == "203FS"
 
 
 def test_try_extract_applies_page_make_scope_for_make_filtered_inventory_pages() -> None:

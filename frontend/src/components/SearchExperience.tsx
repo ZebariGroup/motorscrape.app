@@ -11,12 +11,60 @@ import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
 import { resolveApiUrl } from "@/lib/apiBase";
+import { vehicleCategoryLabel } from "@/lib/vehicleCatalog";
+import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import {
   PREMIUM_BULLETS_SHORT,
   QUOTA_MODAL_BODY_DEFAULT,
   QUOTA_MODAL_BODY_STANDARD_USER,
   STANDARD_BULLETS_SHORT,
 } from "@/lib/tierMarketingCopy";
+
+const CATEGORY_BUTTONS: {
+  value: VehicleCategory;
+  label: string;
+  icon: React.JSX.Element;
+}[] = [
+  {
+    value: "car",
+    label: "Cars",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5 5.4 8.8A2.5 2.5 0 0 1 7.64 7.5h8.72a2.5 2.5 0 0 1 2.24 1.3L21 13.5" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 13.5h16a1 1 0 0 1 1 1V17a1 1 0 0 1-1 1h-1.5" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 13.5a1 1 0 0 0-1 1V17a1 1 0 0 0 1 1h1.5" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 18H16.5" />
+        <circle cx="7.5" cy="18" r="1.5" />
+        <circle cx="16.5" cy="18" r="1.5" />
+      </svg>
+    ),
+  },
+  {
+    value: "motorcycle",
+    label: "Motorcycles",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+        <circle cx="6" cy="17" r="3" />
+        <circle cx="18" cy="17" r="3" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 17h3.5l2.5-5h-4l-2 2" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M14 7h2l2 3" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10 9h4" />
+      </svg>
+    ),
+  },
+  {
+    value: "boat",
+    label: "Boats",
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 14h16l-2.5 3.5a2 2 0 0 1-1.63.85H8.13a2 2 0 0 1-1.63-.85L4 14Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v9" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="m12 6 4 2.5-4 2.5" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 20c1.2 0 1.2-.8 2.4-.8s1.2.8 2.4.8 1.2-.8 2.4-.8 1.2.8 2.4.8 1.2-.8 2.4-.8 1.2.8 2.4.8 1.2-.8 2.4-.8" />
+      </svg>
+    ),
+  },
+];
 
 export function SearchExperience() {
   const { access, refresh } = useAccessSummary();
@@ -132,15 +180,46 @@ export function SearchExperience() {
     [scopePremium, form.inventoryScope, form.setInventoryScope],
   );
 
+  const handleVehicleCategoryChange = (category: VehicleCategory) => {
+    if (category === form.vehicleCategory) return;
+    form.setVehicleCategory(category);
+    form.setMake("");
+    form.setModel("");
+  };
+
   return (
     <>
       <SiteHeader access={access} />
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-4 py-10 pb-24 sm:px-6 sm:pb-10">
-        <header className="space-y-2">
+        <header className="space-y-3">
           <p className="text-sm font-medium tracking-wide text-emerald-700 uppercase">Motorscrape</p>
-          <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl dark:text-zinc-50">
-            Local motor vehicle inventory, one place
-          </h1>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl dark:text-zinc-50">
+              Local motor vehicle inventory, one place
+            </h1>
+            <div className="flex items-center gap-2 self-start rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+              {CATEGORY_BUTTONS.map((category) => {
+                const selected = form.vehicleCategory === category.value;
+                return (
+                  <button
+                    key={category.value}
+                    type="button"
+                    onClick={() => handleVehicleCategoryChange(category.value)}
+                    className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${
+                      selected
+                        ? "bg-emerald-600 text-white shadow-sm"
+                        : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+                    }`}
+                    aria-pressed={selected}
+                    title={vehicleCategoryLabel(category.value)}
+                  >
+                    {category.icon}
+                    <span>{category.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </header>
 
             <SearchFormSection
@@ -149,7 +228,6 @@ export function SearchExperience() {
               location={form.location}
           setLocation={form.setLocation}
           vehicleCategory={form.vehicleCategory}
-          setVehicleCategory={form.setVehicleCategory}
           make={form.make}
           setMake={form.setMake}
           model={form.model}

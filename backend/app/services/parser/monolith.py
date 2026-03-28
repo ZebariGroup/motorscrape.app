@@ -138,13 +138,19 @@ _KNOWN_MAKE_PREFIXES = tuple(
             "Crestliner",
             "Four Winns",
             "Godfrey",
+            "Harris Pontoon",
             "Key West Boats",
+            "Key West",
             "MasterCraft",
             "Robalo",
             "Ranger Boats",
+            "Sea Nymph",
+            "Sea Pro",
             "Yamaha Boats",
             "Sea Ray",
+            "South Bay",
             "Starcraft",
+            "Sun Tracker",
         },
         key=len,
         reverse=True,
@@ -1243,6 +1249,7 @@ def _pick_dom_vehicle_image(card: Any, page_url: str) -> str | None:
     preferred_selectors = (
         ".hero-carousel__background-image--grid",
         ".hero-carousel__background-image--list",
+        ".boat-image-container",
         ".vehicle__image[data-src]",
         ".vehicle-image img",
         "img[src]",
@@ -1258,6 +1265,11 @@ def _pick_dom_vehicle_image(card: Any, page_url: str) -> str | None:
                 raw_bg = (img.get("data-dsp-small-image") or "").strip()
                 if raw_bg.startswith("url(") and raw_bg.endswith(")"):
                     src = raw_bg[4:-1].strip().strip("'\"")
+            if not src:
+                style = (img.get("style") or "").strip()
+                bg_match = re.search(r"""background-image\s*:\s*url\((['"]?)(.*?)\1\)""", style, re.I)
+                if bg_match:
+                    src = bg_match.group(2).strip()
             if not src:
                 continue
             lower = src.lower()
@@ -1388,6 +1400,8 @@ def extract_dom_vehicle_cards(
         ".result-wrap.new-vehicle",
         ".new-vehicle[data-vehicle]",
         ".brandInventoryCard",
+        ".hit",
+        ".inventory-model-single",
         ".unit-row",
         ".inv-card",
         ".v7list-results__item",
@@ -1427,6 +1441,21 @@ def extract_dom_vehicle_cards(
         tv_current_price = _text_or_none(card.select_one(".vehicle-price--current .vehicle-price__price"))
         tv_old_price = _text_or_none(card.select_one(".vehicle-price--old .vehicle-price__price"))
         tv_savings = _text_or_none(card.select_one(".vehicle-price--savings .vehicle-price__price"))
+        temptation_make = _text_or_none(card.select_one(".boat-make h5"))
+        temptation_model = _text_or_none(card.select_one(".boat-make h5 span"))
+        temptation_price = _text_or_none(card.select_one(".main-boat-price"))
+        temptation_location = _text_or_none(card.select_one(".boat-location"))
+        temptation_status = _text_or_none(card.select_one(".listing-title"))
+        colony_title = _text_or_none(card.select_one("h2"))
+        colony_details: dict[str, str] = {}
+        for detail in card.select(".hit-content .flex.divide-x > div"):
+            spans = detail.select("span")
+            if len(spans) < 2:
+                continue
+            label = _text_or_none(spans[0])
+            value = _text_or_none(spans[-1])
+            if label and value:
+                colony_details[label.strip().lower().rstrip(":")] = value.strip()
         wilson_title = _text_or_none(card.select_one(".unit-name-vlp"))
         wilson_status = _text_or_none(card.select_one(".unit-status"))
         wilson_price = _text_or_none(card.select_one(".unit-sale"))
@@ -1443,6 +1472,7 @@ def extract_dom_vehicle_cards(
             card.get("data-vin")
             or card.get("data-vehicle-vin")
             or card.get("data-dotagging-item-id")
+            or card.get("data-boat-hin")
             or payload.get("vin")
             or tv_vin
             or _extract_vin_from_text(card_text)
@@ -1452,14 +1482,23 @@ def extract_dom_vehicle_cards(
             or card.get("data-vehicle-make")
             or card.get("data-dotagging-item-make")
             or card.get("data-unit-make")
+            or card.get("data-boat-make")
+            or colony_details.get("manufacturer")
             or payload.get("make")
         )
-        model = card.get("data-model") or card.get("data-vehicle-model-name") or card.get("data-dotagging-item-model") or payload.get("model")
+        model = (
+            card.get("data-model")
+            or card.get("data-vehicle-model-name")
+            or card.get("data-dotagging-item-model")
+            or card.get("data-boat-model")
+            or payload.get("model")
+        )
         year = _coerce_int(
             card.get("data-year")
             or card.get("data-vehicle-model-year")
             or card.get("data-dotagging-item-year")
             or card.get("data-unit-year")
+            or card.get("data-boat-year")
             or payload.get("year")
         )
         trim = card.get("data-trim") or card.get("data-vehicle-trim") or card.get("data-dotagging-item-variant") or payload.get("trim")
@@ -1490,6 +1529,7 @@ def extract_dom_vehicle_cards(
             or payload.get("internetPrice")
             or payload.get("salePrice")
             or tv_current_price
+            or temptation_price
             or wilson_price
             or gp_price
         )
@@ -1529,6 +1569,7 @@ def extract_dom_vehicle_cards(
         inventory_location = card.get("data-dotagging-item-location")
         card_status_text = (
             _text_or_none(card.select_one(".promotionBannerText"))
+            or temptation_status
             or wilson_status
             or _text_or_none(card.select_one(".fearuredCardLocation span:last-child"))
         )
@@ -1555,6 +1596,15 @@ def extract_dom_vehicle_cards(
             or _text_or_none(card.select_one(".inventoryList-bike-details-title > a"))
             or _text_or_none(card.select_one(".vehicle-heading__link"))
             or _text_or_none(card.select_one(".featuredCardHeading"))
+            or colony_title
+            or (
+                " ".join(
+                    part
+                    for part in [card.get("data-boat-year"), card.get("data-boat-make"), card.get("data-boat-model")]
+                    if part
+                )
+                or None
+            )
             or wilson_title
             or gp_title
             or tv_title
@@ -1590,6 +1640,10 @@ def extract_dom_vehicle_cards(
             make = title_fields.get("make")
         if not model:
             model = title_fields.get("model")
+        if not make and temptation_make:
+            make = temptation_make
+        if not model and temptation_model:
+            model = temptation_model
         if year is None:
             year = _coerce_int(title_fields.get("year"))
         if not trim:
@@ -1620,7 +1674,9 @@ def extract_dom_vehicle_cards(
                 "vin": vin,
                 "hin": payload.get("hin"),
                 "hullIdentificationNumber": payload.get("hullIdentificationNumber"),
-                "stock": card.get("data-stock") or payload.get("stock") or tv_stock or wilson_specs.get("stock number") or gp_stock,
+                "boatHin": card.get("data-boat-hin"),
+                "stock_number": card.get("data-boat-stock-number"),
+                "stock": card.get("data-stock") or payload.get("stock") or tv_stock or wilson_specs.get("stock number") or gp_stock or colony_details.get("stock #"),
                 "stockNo": card.get("data-stock-no") or payload.get("stockNo"),
             },
             vehicle_category=vehicle_category,
@@ -1652,8 +1708,10 @@ def extract_dom_vehicle_cards(
                 image_url=image_url,
                 listing_url=listing_url,
                 raw_title=str(raw_title).strip() if raw_title else None,
-                inventory_location=str(inventory_location or tv_location or wilson_specs.get("location") or gp_location).strip()
-                if (inventory_location or tv_location or wilson_specs.get("location") or gp_location)
+                inventory_location=str(
+                    inventory_location or tv_location or temptation_location or wilson_specs.get("location") or gp_location or colony_details.get("location")
+                ).strip()
+                if (inventory_location or tv_location or temptation_location or wilson_specs.get("location") or gp_location or colony_details.get("location"))
                 else None,
                 availability_status=availability_status,
                 is_offsite=False,

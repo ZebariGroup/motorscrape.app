@@ -61,6 +61,36 @@ _CATEGORY_CONTEXT_KEYWORDS: dict[str, tuple[str, ...]] = {
     ),
     "other": ("powersports", "motorsports", "marine", "boat", "motorcycle"),
 }
+_CATEGORY_NEGATIVE_CONTEXT_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "boat": (
+        "marine supply",
+        "marine gear",
+        "boat supply",
+        "hardware",
+        "marine service",
+        "boat service",
+        "boat repair",
+        "marine repair",
+        "parts",
+        "accessories",
+        "west marine",
+        "bass pro",
+        "cabela",
+    ),
+}
+_CATEGORY_POSITIVE_DEALER_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "boat": (
+        "dealer",
+        "dealership",
+        "inventory",
+        "boats for sale",
+        "boat sales",
+        "yacht sales",
+        "sales",
+        "showroom",
+        "marina",
+    ),
+}
 _CATEGORY_SEARCH_CONFIG: dict[str, dict[str, Any]] = {
     "car": {
         "included_type": "car_dealer",
@@ -129,6 +159,25 @@ def _dealer_matches_category_context(
     if not hay:
         return False
     return any(keyword in hay for keyword in _CATEGORY_CONTEXT_KEYWORDS.get(category, ()))
+
+
+def _looks_like_false_positive_category_match(
+    dealer_name: str,
+    website: str,
+    *,
+    vehicle_category: str,
+) -> bool:
+    category = _normalize_vehicle_category(vehicle_category)
+    hay = " ".join(filter(None, [dealer_name, website])).strip().lower()
+    if not hay:
+        return False
+    negative_keywords = _CATEGORY_NEGATIVE_CONTEXT_KEYWORDS.get(category, ())
+    if not negative_keywords:
+        return False
+    if not any(keyword in hay for keyword in negative_keywords):
+        return False
+    positive_keywords = _CATEGORY_POSITIVE_DEALER_KEYWORDS.get(category, ())
+    return not any(keyword in hay for keyword in positive_keywords)
 
 
 async def _search_places_text(
@@ -425,6 +474,13 @@ async def find_dealerships(
 
             if not website:
                 logger.debug("Skipping %s — no website in Places data", name)
+                continue
+            if _looks_like_false_positive_category_match(
+                name,
+                str(website or ""),
+                vehicle_category=category,
+            ):
+                logger.debug("Skipping %s — looks like non-inventory %s retailer", name, category)
                 continue
 
             results.append(

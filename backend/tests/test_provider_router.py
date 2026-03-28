@@ -87,6 +87,62 @@ def test_resolve_inventory_url_for_provider_promotes_team_velocity_inventory_v1_
     assert url == "https://www.examplepowersports.com/--inventory"
 
 
+def test_resolve_inventory_url_for_provider_avoids_wrong_brand_generic_collection() -> None:
+    html = """
+    <html><body>
+      <a href="/michigan-all-boat-inventory/">All Boat Inventory</a>
+      <a href="/michigan-all-prestige-yachts-inventory-for-sale/">Prestige Yachts for Sale</a>
+      <a href="/used-boats-for-sale/bayliner/2024-bayliner-vr6-bowrider-ob-123/">2024 Bayliner VR6 Bowrider OB</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.examplemarine.com/",
+        None,
+        fallback_url="https://www.examplemarine.com/michigan-all-boat-inventory/",
+        make="Bayliner",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.examplemarine.com/michigan-all-boat-inventory/"
+
+
+def test_resolve_inventory_url_for_provider_prefers_requested_brand_collection() -> None:
+    html = """
+    <html><body>
+      <a href="/michigan-all-boat-inventory/">All Boat Inventory</a>
+      <a href="/michigan-all-bayliner-boat-inventory/">Bayliner Boats for Sale</a>
+      <a href="/michigan-all-prestige-yachts-inventory-for-sale/">Prestige Yachts for Sale</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.examplemarine.com/",
+        None,
+        fallback_url="https://www.examplemarine.com/michigan-all-boat-inventory/",
+        make="Bayliner",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.examplemarine.com/michigan-all-bayliner-boat-inventory/"
+
+
+def test_resolve_inventory_url_for_provider_generic_make_search_keeps_fallback_when_best_url_has_other_brand() -> None:
+    html = """
+    <html><body>
+      <a href="/michigan-all-boat-inventory/">All Boat Inventory</a>
+      <a href="/michigan-new-crest-pontoon-boats-for-sale/">Crest Pontoon Boats for Sale</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.examplemarine.com/",
+        None,
+        fallback_url="https://www.examplemarine.com/michigan-all-boat-inventory/",
+        make="Bayliner",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.examplemarine.com/michigan-all-boat-inventory/"
+
+
 def test_resolve_inventory_url_for_provider_fixes_express_urls():
     route = ProviderRoute(
         platform_id="dealer_dot_com",

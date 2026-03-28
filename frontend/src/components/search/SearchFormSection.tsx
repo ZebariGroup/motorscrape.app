@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import {
-  ENABLED_VEHICLE_CATEGORY_OPTIONS,
   getMakesForCategory,
   vehicleCategoryLabel,
 } from "@/lib/vehicleCatalog";
@@ -26,7 +25,6 @@ type Props = {
   location: string;
   setLocation: (v: string) => void;
   vehicleCategory: VehicleCategory;
-  setVehicleCategory: (v: VehicleCategory) => void;
   make: string;
   setMake: (v: string) => void;
   model: string;
@@ -65,7 +63,6 @@ export function SearchFormSection({
   location,
   setLocation,
   vehicleCategory,
-  setVehicleCategory,
   make,
   setMake,
   model,
@@ -207,26 +204,6 @@ export function SearchFormSection({
               </div>
             </label>
             <div className="col-span-full sm:col-span-1 lg:col-span-2 grid grid-cols-2 gap-4">
-              <label className="col-span-2 flex flex-col gap-1 text-sm">
-                <span className="font-medium text-zinc-800 dark:text-zinc-200">Vehicle category</span>
-                <select
-                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                  value={vehicleCategory}
-                  onChange={(e) => {
-                    const nextCategory = e.target.value as VehicleCategory;
-                    setVehicleCategory(nextCategory);
-                    setMake("");
-                    setModel("");
-                  }}
-                  disabled={running}
-                >
-                  {ENABLED_VEHICLE_CATEGORY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-zinc-800 dark:text-zinc-200">Make</span>
               {usesCatalog ? (
