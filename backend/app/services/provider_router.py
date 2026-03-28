@@ -202,9 +202,13 @@ def _mentioned_brand_tokens(text: str) -> set[str]:
 
 def _looks_like_inventory_detail_url(url: str) -> bool:
     path = urlsplit(url).path.lower()
+    # Featured inventory tiles on homepage often use /inventory/<id>/<slug>.
+    # Treat these as VDP/detail pages, not SRP listing entry points.
+    if re.search(r"/inventory/\d+(?:/|$)", path):
+        return True
     if "detail" in path:
         return True
-    return bool(re.search(r"/(?:19|20)\d{2}[-/]", path))
+    return bool(re.search(r"(?:^|[-_/])(?:19|20)\d{2}(?:[-_/]|$)", path))
 
 
 def _with_query_params(url: str, updates: dict[str, str]) -> str:
@@ -932,6 +936,14 @@ def resolve_inventory_url_for_provider(
         text = a.get_text(strip=True).lower()
         combined_norm = _norm(f"{text} {href_lower}")
         score = 0
+
+        if _looks_like_inventory_detail_url(href):
+            # A single VDP can include "inventory" and even matching make/model tokens.
+            # Keep SRP selection biased toward list pages unless the caller requested a model
+            # and no SRP candidate exists.
+            score -= 160
+            if not model_norm:
+                score -= 120
 
         for hint in hints:
             score += _hint_score(hint, href_lower, condition)

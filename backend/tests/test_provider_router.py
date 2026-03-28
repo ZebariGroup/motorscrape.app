@@ -117,6 +117,36 @@ def test_resolve_inventory_url_for_provider_rewrites_dealer_spike_inventory_v1_t
     assert url == "https://www.riverraisinpowersports.com/default.asp?page=xallinventory&make=can-am"
 
 
+def test_resolve_inventory_url_for_provider_avoids_harley_featured_detail_links() -> None:
+    route = ProviderRoute(
+        platform_id="shift_digital",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="hit",
+        inventory_path_hints=("inventory",),
+        inventory_url_hint="https://motorcityharley.com/inventory/951738/2021-harley-davidson-road-king-special-flhrxs",
+    )
+    html = """
+    <html><body>
+      <a href="/inventory/951738/2021-harley-davidson-road-king-special-flhrxs">Find out more</a>
+      <a href="/new-inventory">New Harleys</a>
+      <a href="/used-inventory">Used Harleys</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://motorcityharley.com/",
+        route,
+        fallback_url="https://motorcityharley.com/new-inventory",
+        make="Harley-Davidson",
+        model="",
+        vehicle_condition="all",
+    )
+    assert url == "https://motorcityharley.com/new-inventory"
+
+
 def test_resolve_inventory_url_for_provider_avoids_scoped_team_velocity_used_links_when_filters_empty() -> None:
     route = ProviderRoute(
         platform_id="team_velocity",

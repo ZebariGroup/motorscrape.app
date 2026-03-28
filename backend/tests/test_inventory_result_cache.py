@@ -31,6 +31,28 @@ def test_inventory_listings_cache_key_stable() -> None:
     assert k1 == k2
 
 
+def test_inventory_listings_cache_key_bumps_harley_namespace() -> None:
+    generic = inventory_cache.inventory_listings_cache_key(
+        website="https://dealer.example/inventory",
+        domain="dealer.example",
+        make="Honda",
+        model="",
+        vehicle_condition="all",
+        inventory_scope="all",
+        max_pages=3,
+    )
+    harley = inventory_cache.inventory_listings_cache_key(
+        website="https://dealer.example/inventory",
+        domain="dealer.example",
+        make="Harley-Davidson",
+        model="",
+        vehicle_condition="all",
+        inventory_scope="all",
+        max_pages=3,
+    )
+    assert generic != harley
+
+
 def test_inventory_cache_roundtrip(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

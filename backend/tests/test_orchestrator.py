@@ -82,8 +82,8 @@ def test_bounded_phase_timeout_returns_none_when_budget_exhausted() -> None:
 def test_effective_dealer_timeout_scales_for_deep_searches(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.services.orchestrator.settings.dealership_timeout", 150.0)
     assert _effective_dealer_timeout(3) == 150.0
-    assert _effective_dealer_timeout(5) == 180.0
-    assert _effective_dealer_timeout(10) == 210.0
+    assert _effective_dealer_timeout(5) == 195.0
+    assert _effective_dealer_timeout(10) == 240.0
 
 
 def test_effective_max_pages_for_route_caps_render_heavy_dealer_platforms() -> None:
@@ -276,6 +276,19 @@ def test_find_inventory_url_allows_onewater_external_inventory_link() -> None:
     """
     assert _find_inventory_url(html, "https://www.onewatermarine.com/") == (
         "https://www.onewaterinventory.com/search/"
+    )
+
+
+def test_find_inventory_url_skips_featured_detail_links_for_harley_homepages() -> None:
+    html = """
+    <html><body>
+      <a href="/inventory/951738/2021-harley-davidson-road-king-special-flhrxs">Find out more</a>
+      <a href="/new-inventory">New Harleys</a>
+      <a href="/used-inventory">Used Harleys</a>
+    </body></html>
+    """
+    assert _find_inventory_url(html, "https://motorcityharley.com/", vehicle_condition="all") == (
+        "https://motorcityharley.com/new-inventory"
     )
 
 

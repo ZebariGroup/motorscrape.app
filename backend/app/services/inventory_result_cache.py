@@ -29,11 +29,16 @@ def inventory_listings_cache_key(
     inventory_scope: str,
     max_pages: int,
 ) -> str:
+    make_norm = (make or "").strip().lower()
+    # Harley dealer routing changed to avoid featured-VPD entry points; bump just this make-family
+    # namespace so stale nine-row cache entries are naturally skipped without flushing everything.
+    namespace = "harley_v2" if "harley" in make_norm else "v1"
     payload = json.dumps(
         {
+            "namespace": namespace,
             "website": (website or "").strip().rstrip("/").lower(),
             "domain": (domain or "").strip().lower(),
-            "make": (make or "").strip().lower(),
+            "make": make_norm,
             "model": (model or "").strip().lower(),
             "vehicle_condition": (vehicle_condition or "all").strip().lower(),
             "inventory_scope": (inventory_scope or "all").strip().lower(),

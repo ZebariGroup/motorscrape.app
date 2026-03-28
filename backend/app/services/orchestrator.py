@@ -163,8 +163,13 @@ def _dealer_on_multi_model_inventory_urls(
         seen.add(scoped)
         urls.append(scoped)
     return urls
-
-
+def _looks_like_inventory_detail_href(href: str) -> bool:
+    path = urlsplit(href).path.lower()
+    if re.search(r"/inventory/\d+(?:/|$)", path):
+        return True
+    if "detail" in path:
+        return True
+    return bool(re.search(r"(?:^|[-_/])(?:19|20)\d{2}(?:[-_/]|$)", path))
 
 
 def _find_inventory_url(
@@ -187,6 +192,9 @@ def _find_inventory_url(
             href_parts = urlsplit(href_raw)
             href_fragment = href_parts.fragment.lower()
             score = 0
+
+            if _looks_like_inventory_detail_href(href_raw):
+                continue
 
             if "inventory" in href or "inventory" in text:
                 score += 20
@@ -424,9 +432,9 @@ def _needs_vdp_attribute_enrichment(vehicles: list[VehicleListing]) -> bool:
 def _effective_dealer_timeout(requested_pages: int) -> float:
     base_timeout = max(30.0, settings.dealership_timeout)
     if requested_pages >= 8:
-        return max(base_timeout, 210.0)
+        return max(base_timeout, 240.0)
     if requested_pages >= 5:
-        return max(base_timeout, 180.0)
+        return max(base_timeout, 195.0)
     return base_timeout
 
 
@@ -1766,11 +1774,25 @@ async def stream_search(
                         )
                     )
                 ):
+                    seconds_remaining = dealer_timeout - (time.perf_counter() - dealer_started_at)
                     enrich_limit = min(10, len(filtered))
-                    enriched_prefix = await asyncio.gather(
-                        *[_enrich_vehicle_from_vdp(v) for v in filtered[:enrich_limit]]
-                    )
-                    filtered = list(enriched_prefix) + filtered[enrich_limit:]
+                    if seconds_remaining < 45.0:
+                        enrich_limit = 0
+                    elif seconds_remaining < 70.0:
+                        enrich_limit = min(enrich_limit, 5)
+                    elif seconds_remaining < 95.0:
+                        enrich_limit = min(enrich_limit, 8)
+                    if enrich_limit == 0:
+                        logger.info(
+                            "Skipping DealerOn VDP enrichment for %s due to low remaining budget (%.1fs)",
+                            d.name,
+                            seconds_remaining,
+                        )
+                    else:
+                        enriched_prefix = await asyncio.gather(
+                            *[_enrich_vehicle_from_vdp(v) for v in filtered[:enrich_limit]]
+                        )
+                        filtered = list(enriched_prefix) + filtered[enrich_limit:]
                 page_progress_payload = _pagination_progress_payload(
                     latest_pagination,
                     pages_scraped=pages_scraped + 1,
@@ -1994,7 +2016,7 @@ async def stream_search(
         try:
             return await asyncio.wait_for(
                 process_one(index, d),
-                timeout=dealer_timeout + 8.0,
+                timeout=dealer_timeout + 15.0,
             )
         except asyncio.TimeoutError:
             website = d.website or ""
