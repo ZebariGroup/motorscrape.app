@@ -9,6 +9,7 @@ from app.config import settings
 from app.db.account_store import get_account_store
 from app.schemas import DealershipFound
 from app.services.orchestrator import (
+    _dealer_on_multi_model_inventory_urls,
     _dealer_inspire_model_inventory_urls,
     _find_inventory_url,
     _team_velocity_inventory_url_from_model_hub,
@@ -131,6 +132,26 @@ def test_team_velocity_inventory_url_from_model_hub_preserves_model_path() -> No
         vehicle_condition="new",
     )
     assert rerouted == "https://www.example.com/inventory/new/chevrolet-blazer"
+
+
+def test_dealer_on_multi_model_inventory_urls_builds_model_and_trim_filters() -> None:
+    urls = _dealer_on_multi_model_inventory_urls(
+        "https://www.serrachevrolet.com/searchnew.aspx?Make=Chevrolet&page=3",
+        make="Chevrolet",
+        model="Blazer,Blazer EV",
+    )
+    assert urls == [
+        "https://www.serrachevrolet.com/searchnew.aspx?Make=Chevrolet&Model=Blazer&ModelAndTrim=Blazer",
+        "https://www.serrachevrolet.com/searchnew.aspx?Make=Chevrolet&Model=Blazer+EV&ModelAndTrim=Blazer+EV",
+    ]
+
+
+def test_dealer_on_multi_model_inventory_urls_skips_single_model_inputs() -> None:
+    assert _dealer_on_multi_model_inventory_urls(
+        "https://www.serrachevrolet.com/searchnew.aspx?Make=Chevrolet",
+        make="Chevrolet",
+        model="Blazer EV",
+    ) == []
 
 
 def test_effective_search_concurrency_uses_config_without_managed_keys(monkeypatch: pytest.MonkeyPatch) -> None:

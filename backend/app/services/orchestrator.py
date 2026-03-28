@@ -116,6 +116,55 @@ def _inventory_url_uses_scoped_filters(url: str | None, *, make: str, model: str
     return False
 
 
+def _requested_model_values(raw: str) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+    for part in (raw or "").split(","):
+        value = part.strip()
+        if not value:
+            continue
+        key = re.sub(r"[^a-z0-9]", "", value.lower())
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        values.append(value)
+    return values
+
+
+def _dealer_on_multi_model_inventory_urls(
+    base_url: str,
+    *,
+    make: str,
+    model: str,
+) -> list[str]:
+    models = _requested_model_values(model)
+    if len(models) < 2:
+        return []
+    cleaned = _drop_query_keys(
+        base_url,
+        {"make", "model", "modelandtrim", "search", "q", "page"},
+    )
+    parts = urlsplit(cleaned)
+    path = parts.path.lower()
+    if not (path.endswith("/searchnew.aspx") or path.endswith("/searchused.aspx")):
+        return []
+
+    urls: list[str] = []
+    seen: set[str] = set()
+    for model_value in models:
+        params = dict(parse_qsl(parts.query, keep_blank_values=True))
+        if make.strip():
+            params["Make"] = make.strip()
+        params["Model"] = model_value
+        params["ModelAndTrim"] = model_value
+        scoped = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(params), ""))
+        if scoped in seen:
+            continue
+        seen.add(scoped)
+        urls.append(scoped)
+    return urls
+
+
 
 
 def _find_inventory_url(
@@ -1327,6 +1376,21 @@ async def stream_search(
             dealer_dot_com_make_retry_attempted = False
             queued_urls: set[str] = {current_url} if current_url else set()
             pending_urls: list[str] = []
+            if route and route.platform_id == "dealer_on" and current_url:
+                dealer_on_model_urls = _dealer_on_multi_model_inventory_urls(
+                    current_url,
+                    make=make,
+                    model=model,
+                )
+                if dealer_on_model_urls:
+                    current_url = dealer_on_model_urls[0]
+                    queued_urls = {current_url}
+                    pending_urls = [u for u in dealer_on_model_urls[1:] if u not in queued_urls]
+                    if inv_url and inv_url not in queued_urls and inv_url not in pending_urls:
+                        pending_urls.append(inv_url)
+                    scoped_inventory_url = True
+                    async with metrics_lock:
+                        fetch_metrics["inventory_url_scoped"] += 1
             emitted_listing_keys: set[str] = set()
             dealer_inspire_fallback_urls = (
                 _dealer_inspire_model_inventory_urls(
