@@ -170,6 +170,13 @@ _KNOWN_BRAND_TOKENS: frozenset[str] = frozenset(
 )
 
 
+def _effective_requires_render(platform_id: str, requires_render: bool) -> bool:
+    # DealerOn SRPs are commonly server-rendered and should stay on the cheap direct path first.
+    if platform_id == "dealer_on":
+        return False
+    return requires_render
+
+
 @dataclass(slots=True)
 class ProviderRoute:
     platform_id: str
@@ -689,7 +696,7 @@ def _route_from_profile(
         platform_id=profile.platform_id,
         confidence=profile.confidence,
         extraction_mode=profile.extraction_mode,
-        requires_render=profile.requires_render,
+        requires_render=_effective_requires_render(profile.platform_id, profile.requires_render),
         detection_source=profile.detection_source,
         cache_status=cache_status,
         inventory_path_hints=profile.inventory_path_hints,
@@ -702,7 +709,7 @@ def _route_from_cache(entry: PlatformCacheEntry, *, cache_status: str) -> Provid
         platform_id=entry.platform_id,
         confidence=entry.confidence,
         extraction_mode=entry.extraction_mode,
-        requires_render=entry.requires_render,
+        requires_render=_effective_requires_render(entry.platform_id, entry.requires_render),
         detection_source=entry.detection_source,
         cache_status=cache_status,
         inventory_path_hints=inventory_hints_for_platform(entry.platform_id),
@@ -755,7 +762,7 @@ def remember_provider_success(
         platform_id=route.platform_id,
         confidence=route.confidence,
         extraction_mode=route.extraction_mode,
-        requires_render=requires_render,
+        requires_render=_effective_requires_render(route.platform_id, requires_render),
         detection_source=route.detection_source,
         inventory_url_hint=inventory_url_hint,
         metadata={"cache_status": route.cache_status},

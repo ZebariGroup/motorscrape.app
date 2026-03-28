@@ -69,6 +69,20 @@ def test_playwright_inventory_instructions_include_dealer_on_network_wait() -> N
     assert any(step.get("wait_for_selector") == ".vehicle-card--mod,.vehicle-card" for step in steps)
 
 
+def test_detect_platform_profile_matches_dealer_on_without_requiring_render() -> None:
+    html = """
+    <html><body>
+      <script src="https://cdn.dealeron.com/js/dealeron.js"></script>
+      <div class="vehicle-card--mod">Inventory</div>
+      <div>vhcliaa</div>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://dealer.example/searchnew.aspx")
+    assert profile is not None
+    assert profile.platform_id == "dealer_on"
+    assert profile.requires_render is False
+
+
 def test_playwright_inventory_instructions_include_dealer_inspire_network_wait() -> None:
     instructions = playwright_inventory_instructions_for_url(
         "https://dealer.example/new-vehicles/",
@@ -108,6 +122,20 @@ def test_detect_platform_profile_matches_d2c_media_homepage_markers() -> None:
     assert profile is not None
     assert profile.platform_id == "d2c_media"
     assert profile.extraction_mode == "structured_html"
+
+
+def test_detect_platform_profile_breaks_dealer_inspire_ties_toward_team_velocity() -> None:
+    html = """
+    <html><body>
+      <script src="https://cdn.example.com/dealerinspire/runtime.js"></script>
+      <script id="__NEXT_DATA__" type="application/json">{}</script>
+      <footer>Website by Team Velocity - https://www.teamvelocitymarketing.com/</footer>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.jeffreyacura.com/")
+    assert profile is not None
+    assert profile.platform_id == "team_velocity"
+    assert profile.requires_render is True
 
 
 def test_team_velocity_inventory_hints_cover_inventory_new_paths() -> None:

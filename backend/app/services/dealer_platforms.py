@@ -13,6 +13,18 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
+_TEAM_VELOCITY_STRONG_MARKERS: tuple[str, ...] = (
+    "teamvelocitymarketing.com",
+    "teamvelocity",
+    "team velocity",
+)
+_DEALER_INSPIRE_STRONG_MARKERS: tuple[str, ...] = (
+    "dealerinspire.com",
+    "dealer-inspire",
+    "dealerinspire",
+    "wp-content/themes/dealerinspire",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class PlatformProfile:
@@ -320,7 +332,6 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         ),
         inventory_path_hints=("searchnew.aspx", "searchused.aspx", "searchnewinventory", "searchusedinventory"),
         extraction_mode="rendered_dom",
-        requires_render=True,
     ),
     PlatformDefinition(
         platform_id="dealer_inspire",
@@ -581,19 +592,30 @@ def _family_stack_allowed_for_url(platform_id: str, page_url: str) -> bool:
     return True
 
 
+def _platform_tie_break_priority(definition: PlatformDefinition, target: str) -> int:
+    if definition.platform_id == "team_velocity":
+        return 30 if any(marker in target for marker in _TEAM_VELOCITY_STRONG_MARKERS) else 0
+    if definition.platform_id == "dealer_inspire":
+        if any(marker in target for marker in _DEALER_INSPIRE_STRONG_MARKERS):
+            return 20
+        return 5 if "__next_data__" in target else 0
+    return 0
+
+
 def _best_platform_definition(html: str, page_url: str = "") -> PlatformDefinition | None:
     lower = html.lower()
     target = lower + " " + page_url.lower()
-    best: tuple[int, PlatformDefinition] | None = None
+    best: tuple[int, int, PlatformDefinition] | None = None
     for definition in _PLATFORM_REGISTRY:
         if not _family_stack_allowed_for_url(definition.platform_id, page_url):
             continue
         score = sum(1 for marker in definition.markers if marker in target)
         if score <= 0:
             continue
-        if not best or score > best[0]:
-            best = (score, definition)
-    return best[1] if best else None
+        priority = _platform_tie_break_priority(definition, target)
+        if not best or score > best[0] or (score == best[0] and priority > best[1]):
+            best = (score, priority, definition)
+    return best[2] if best else None
 
 
 def detect_platform_profile(html: str, page_url: str = "") -> PlatformProfile | None:

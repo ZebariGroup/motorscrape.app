@@ -222,6 +222,137 @@ async def test_stream_search_recovers_from_homepage_failure_with_guessed_invento
 
 
 @pytest.mark.asyncio
+async def test_stream_search_reroutes_team_velocity_model_hub_to_inventory_srp() -> None:
+    from app.schemas import ExtractionResult, VehicleListing
+    from app.services.dealer_platforms import PlatformProfile
+
+    dealers = [
+        DealershipFound(
+            name="Jeffrey Acura",
+            place_id="p1",
+            address="30800 Gratiot Ave",
+            website="https://www.jeffreyacura.com/",
+        )
+    ]
+    homepage_html = """
+    <html><body>
+      <a href="/inventory/new">New Inventory</a>
+      <footer>Website by Team Velocity</footer>
+    </body></html>
+    """
+    model_hub_html = """
+    <html><body>
+      <div>Results: 56 Vehicles</div>
+      <footer>Website by Team Velocity - https://www.teamvelocitymarketing.com/</footer>
+    </body></html>
+    """
+    inventory_html = "<html><body><li class='v7list-results__item'>Inventory</li></body></html>"
+    fetch_calls: list[tuple[str, str]] = []
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        fetch_calls.append((url, page_kind))
+        if url == "https://www.jeffreyacura.com/" and page_kind == "homepage":
+            return homepage_html, "direct"
+        if url == "https://www.jeffreyacura.com/new-vehicles/" and page_kind == "inventory":
+            return model_hub_html, "playwright"
+        if url == "https://www.jeffreyacura.com/inventory/new" and page_kind == "inventory":
+            return inventory_html, "playwright"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    detected_route = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=0.85,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles", "inventory/new"),
+        inventory_url_hint="https://www.jeffreyacura.com/new-vehicles/",
+    )
+
+    def fake_inventory_profile(_html: str, page_url: str = ""):
+        if page_url.rstrip("/").endswith("/new-vehicles"):
+            return PlatformProfile(
+                platform_id="team_velocity",
+                confidence=0.95,
+                extraction_mode="hybrid",
+                requires_render=True,
+                inventory_path_hints=("inventory/new", "inventory/used"),
+                detection_source="html_fingerprint",
+            )
+        return None
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.set_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch(
+            "app.services.orchestrator.detect_or_lookup_provider",
+            return_value=detected_route,
+        ),
+        patch(
+            "app.services.orchestrator.resolve_inventory_url_for_provider",
+            return_value="https://www.jeffreyacura.com/new-vehicles/",
+        ),
+        patch(
+            "app.services.orchestrator.detect_platform_profile",
+            side_effect=fake_inventory_profile,
+        ),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            return_value=ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2026,
+                        make="Acura",
+                        model="MDX",
+                        price=59995,
+                        listing_url="https://www.jeffreyacura.com/viewdetails/new/5J8YE1H39TL005887",
+                    )
+                ],
+                next_page_url=None,
+            ),
+        ) as mock_extract,
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+        ) as mock_llm,
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "Roseville, MI",
+            "Acura",
+            "",
+            vehicle_condition="new",
+            max_dealerships=1,
+            max_pages_per_dealer=1,
+        ):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert ("https://www.jeffreyacura.com/inventory/new", "inventory") in fetch_calls
+    assert mock_extract.call_args is not None
+    assert mock_extract.call_args.kwargs["page_url"] == "https://www.jeffreyacura.com/inventory/new"
+    assert mock_llm.await_count == 0
+    assert '"listings_found": 1' in tail
+
+
+@pytest.mark.asyncio
 async def test_stream_search_done_includes_fetch_metrics() -> None:
     dealers = [
         DealershipFound(

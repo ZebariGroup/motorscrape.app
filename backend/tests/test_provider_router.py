@@ -1,6 +1,13 @@
+from datetime import UTC, datetime
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
-from app.services.provider_router import ProviderRoute, resolve_inventory_url_for_provider
+from app.services.platform_store import PlatformCacheEntry
+from app.services.provider_router import (
+    ProviderRoute,
+    detect_or_lookup_provider,
+    resolve_inventory_url_for_provider,
+)
 
 
 def test_resolve_inventory_url_for_provider_prefers_team_velocity_all_inventory_for_unfiltered_search() -> None:
@@ -728,6 +735,31 @@ def test_resolve_inventory_url_for_provider_canonicalizes_buy_host_for_dealer_on
     assert parsed.path == "/searchnew.aspx"
     query = parse_qs(parsed.query)
     assert query.get("Make") == ["Chevrolet"]
+
+
+def test_detect_or_lookup_provider_normalizes_cached_dealer_on_render_flag() -> None:
+    cached = PlatformCacheEntry(
+        domain="mikesavoie.com",
+        platform_id="dealer_on",
+        confidence=0.98,
+        extraction_mode="rendered_dom",
+        requires_render=True,
+        inventory_url_hint="https://www.mikesavoie.com/searchnew.aspx?Make=Chevrolet",
+        detection_source="html_fingerprint",
+        last_verified_at=datetime.now(UTC),
+        failure_count=0,
+        metadata={},
+    )
+    with patch("app.services.provider_router.platform_store.get", return_value=cached):
+        route = detect_or_lookup_provider(
+            domain="mikesavoie.com",
+            website="https://www.mikesavoie.com/",
+            homepage_html="<html></html>",
+        )
+    assert route is not None
+    assert route.platform_id == "dealer_on"
+    assert route.cache_status == "hit"
+    assert route.requires_render is False
 
 
 def test_resolve_inventory_url_for_provider_prefers_d2c_search_pages() -> None:

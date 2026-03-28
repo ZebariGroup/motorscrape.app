@@ -66,6 +66,23 @@ _INVENTORY_FAMILY_PLATFORM_IDS = frozenset(
 )
 
 
+def _team_velocity_inventory_url_from_model_hub(
+    url: str | None,
+    *,
+    vehicle_condition: str,
+) -> str | None:
+    if not url:
+        return None
+    condition = (vehicle_condition or "").strip().lower()
+    if condition not in {"new", "used"}:
+        return None
+    parts = urlsplit(url)
+    path = parts.path.rstrip("/").lower()
+    if path not in {"/new-vehicles", "/used-vehicles"}:
+        return None
+    return urlunsplit((parts.scheme, parts.netloc, f"/inventory/{condition}", "", ""))
+
+
 
 
 def _find_inventory_url(
@@ -1214,6 +1231,33 @@ async def stream_search(
                     inventory_path_hints=inventory_profile.inventory_path_hints,
                     inventory_url_hint=inv_url or base_url,
                 )
+            if route and route.platform_id == "team_velocity":
+                rerouted_inv_url = _team_velocity_inventory_url_from_model_hub(
+                    inv_url,
+                    vehicle_condition=vehicle_condition,
+                )
+                if rerouted_inv_url and rerouted_inv_url.rstrip("/") != (inv_url or "").rstrip("/"):
+                    try:
+                        reroute_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                        if reroute_timeout is None:
+                            raise RuntimeError("dealer_time_budget_exhausted")
+                        current_html, current_method = await asyncio.wait_for(
+                            _fetch(
+                                rerouted_inv_url,
+                                "inventory",
+                                prefer_render=route.requires_render,
+                                platform_id=route.platform_id,
+                            ),
+                            timeout=reroute_timeout,
+                        )
+                        inv_url = rerouted_inv_url
+                        route.inventory_url_hint = rerouted_inv_url
+                    except Exception as e:
+                        logger.debug(
+                            "Team Velocity SRP reroute skipped for %s: %s",
+                            rerouted_inv_url,
+                            e,
+                        )
 
             # 2. Pagination loop
             current_url = inv_url

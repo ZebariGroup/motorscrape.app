@@ -2694,7 +2694,11 @@ def try_extract_vehicles_without_llm(
     if not next_u:
         next_u = _infer_next_page_url_from_showing_range(html, page_url)
     if not vehicles:
-        if next_u or pagination is not None:
+        # If we could not extract any raw listings (JS shells, failed inventory API POST, etc.)
+        # but pagination heuristics still fire, returning an empty ExtractionResult would block
+        # the orchestrator's LLM fallback. Only preserve empty+pagination when we actually
+        # parsed vehicles and the user's filters removed every row (see parser tests).
+        if (next_u or pagination is not None) and all_vehicles:
             return ExtractionResult(vehicles=[], next_page_url=next_u, pagination=pagination)
         return None
 
