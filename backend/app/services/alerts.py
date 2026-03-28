@@ -11,6 +11,7 @@ from app.schemas import SearchRequest
 from app.services.alert_schedule import next_run_at_utc
 from app.services.csv_export import listings_to_csv
 from app.services.email_delivery import EmailAttachment, send_email
+from app.services.scrape_logging import build_correlation_id, create_scrape_run_recorder
 from app.services.search_runner import SearchRunResult, run_search_once
 from app.tiers import limits_for_tier
 
@@ -70,6 +71,8 @@ def alert_run_summary(result: SearchRunResult) -> dict[str, Any]:
         "status_messages": result.status_messages[-5:],
         "top_results": top_results,
         "outcome": result.outcome,
+        "correlation_id": result.correlation_id,
+        "scrape_run_id": result.scrape_run_id,
     }
 
 
@@ -127,6 +130,23 @@ async def execute_alert_subscription(
     trigger_source: str,
 ) -> dict[str, Any]:
     started_at = time.time()
+    raw_request = SearchRequest.model_validate(subscription.criteria)
+    correlation_id = build_correlation_id(prefix="alert")
+    recorder = create_scrape_run_recorder(
+        store=store,
+        correlation_id=correlation_id,
+        trigger_source=f"alert_{trigger_source}",
+        location=raw_request.location,
+        make=raw_request.make,
+        model=raw_request.model,
+        vehicle_category=raw_request.vehicle_category,
+        vehicle_condition=raw_request.vehicle_condition,
+        inventory_scope=raw_request.inventory_scope,
+        radius_miles=raw_request.radius_miles,
+        requested_max_dealerships=raw_request.max_dealerships,
+        requested_max_pages_per_dealer=raw_request.max_pages_per_dealer,
+        user_id=user.id,
+    )
     ctx = AccessContext(
         tier=user.tier,
         limits=limits_for_tier(user.tier),
@@ -138,6 +158,27 @@ async def execute_alert_subscription(
     next_run_at = next_subscription_run(subscription, now_ts=started_at)
 
     if not quota.allowed:
+        recorder.event(
+            event_type="quota_blocked",
+            phase="quota",
+            level="warning",
+            message=quota.message,
+            payload={"trigger_source": trigger_source, "subscription_id": subscription.id},
+        )
+        recorder.finalize(
+            ok=False,
+            status="quota_blocked",
+            summary={
+                "ok": False,
+                "status": "quota_blocked",
+                "correlation_id": correlation_id,
+                "subscription_id": subscription.id,
+                "trigger_source": trigger_source,
+                "error_message": quota.message,
+            },
+            economics={},
+            error_message=quota.message,
+        )
         store.update_alert_subscription(
             user.id,
             subscription.id,
@@ -162,7 +203,6 @@ async def execute_alert_subscription(
         )
         return {"run": run, "quota_blocked": True}
 
-    request = effective_search_request(subscription.criteria, tier=user.tier)
     result_count = 0
     emailed = False
     error_message: str | None = None
@@ -170,7 +210,8 @@ async def execute_alert_subscription(
     status = "success"
 
     try:
-        result = await run_search_once(request, correlation_id=f"alert:{subscription.id}")
+        request = effective_search_request(subscription.criteria, tier=user.tier)
+        result = await run_search_once(request, correlation_id=correlation_id, recorder=recorder)
         record_search_completed(ctx, result.outcome, counts_as_overage=quota.counts_as_overage, store=store)
         result_count = len(result.listings)
         result_summary = alert_run_summary(result)
@@ -197,6 +238,28 @@ async def execute_alert_subscription(
         status = "error"
         error_message = str(exc)
         result_summary = {"result_count": result_count, "errors": [error_message], "top_results": []}
+        if not recorder.finalized:
+            recorder.event(
+                event_type="alert_error",
+                phase="alert",
+                level="error",
+                message=error_message,
+                payload={"subscription_id": subscription.id, "trigger_source": trigger_source},
+            )
+            recorder.finalize(
+                ok=False,
+                status="failed",
+                summary={
+                    "ok": False,
+                    "status": "failed",
+                    "correlation_id": correlation_id,
+                    "subscription_id": subscription.id,
+                    "trigger_source": trigger_source,
+                    "error_message": error_message,
+                },
+                economics={},
+                error_message=error_message,
+            )
 
     completed_at = time.time()
     store.update_alert_subscription(

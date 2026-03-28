@@ -1,0 +1,216 @@
+from __future__ import annotations
+
+import logging
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+MAX_SCRAPE_EVENTS = 200
+
+
+def build_correlation_id(*, prefix: str = "srch") -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
+def derive_run_status(*, ok: bool, dealerships_failed: int, error_count: int, warning_count: int) -> str:
+    if not ok:
+        return "failed"
+    if dealerships_failed > 0 or error_count > 0:
+        return "partial_failure"
+    return "success"
+
+
+def _log_level_name(level: str) -> int:
+    if level == "error":
+        return logging.ERROR
+    if level == "warning":
+        return logging.WARNING
+    return logging.INFO
+
+
+@dataclass(slots=True)
+class ScrapeRunRecorder:
+    store: Any
+    run_id: str
+    correlation_id: str
+    trigger_source: str
+    started_at: float
+    max_events: int = MAX_SCRAPE_EVENTS
+    sequence_no: int = 0
+    error_count: int = 0
+    warning_count: int = 0
+    dealerships_attempted: int = 0
+    dealerships_succeeded: int = 0
+    dealerships_failed: int = 0
+    result_count: int = 0
+    latest_error_message: str | None = None
+    finalized: bool = False
+    _overflow_logged: bool = False
+    _seen_dealers: set[str] = field(default_factory=set)
+
+    def event(
+        self,
+        *,
+        event_type: str,
+        message: str,
+        phase: str | None = None,
+        level: str = "info",
+        dealership_name: str | None = None,
+        dealership_website: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        event_payload = dict(payload or {})
+        created_at = time.time()
+        self.sequence_no += 1
+        if level == "error":
+            self.error_count += 1
+            self.latest_error_message = message
+        elif level == "warning":
+            self.warning_count += 1
+            self.latest_error_message = self.latest_error_message or message
+        event_record = {
+            "correlation_id": self.correlation_id,
+            "event_type": event_type,
+            "phase": phase,
+            "level": level,
+            "message": message,
+            "dealership_name": dealership_name,
+            "dealership_website": dealership_website,
+            "payload": event_payload,
+            "sequence_no": self.sequence_no,
+        }
+        logger.log(
+            _log_level_name(level),
+            "scrape_event type=%s phase=%s cid=%s %s",
+            event_type,
+            phase or "-",
+            self.correlation_id,
+            message,
+            extra={"scrape_event": event_record},
+        )
+        if self.sequence_no <= self.max_events:
+            self.store.add_scrape_event(
+                scrape_run_id=self.run_id,
+                correlation_id=self.correlation_id,
+                sequence_no=self.sequence_no,
+                event_type=event_type,
+                phase=phase,
+                level=level,
+                message=message,
+                dealership_name=dealership_name,
+                dealership_website=dealership_website,
+                payload=event_payload,
+                created_at=created_at,
+            )
+            return
+        if not self._overflow_logged:
+            self._overflow_logged = True
+            self.store.add_scrape_event(
+                scrape_run_id=self.run_id,
+                correlation_id=self.correlation_id,
+                sequence_no=self.max_events,
+                event_type="event_overflow",
+                phase="logging",
+                level="warning",
+                message="Additional scrape events were dropped after reaching the cap.",
+                dealership_name=None,
+                dealership_website=None,
+                payload={"max_events": self.max_events},
+                created_at=created_at,
+            )
+
+    def note_dealer_started(self, *, dealership_name: str, dealership_website: str | None = None) -> None:
+        dealer_key = dealership_website or dealership_name
+        if dealer_key not in self._seen_dealers:
+            self._seen_dealers.add(dealer_key)
+            self.dealerships_attempted += 1
+
+    def note_dealer_done(self, *, listings_found: int) -> None:
+        self.dealerships_succeeded += 1
+        self.result_count += max(0, int(listings_found))
+
+    def note_dealer_failed(self) -> None:
+        self.dealerships_failed += 1
+
+    def finalize(
+        self,
+        *,
+        ok: bool,
+        summary: dict[str, Any],
+        economics: dict[str, Any],
+        error_message: str | None = None,
+        status: str | None = None,
+    ) -> None:
+        if self.finalized:
+            return
+        self.finalized = True
+        final_status = status or derive_run_status(
+            ok=ok,
+            dealerships_failed=self.dealerships_failed,
+            error_count=self.error_count,
+            warning_count=self.warning_count,
+        )
+        self.latest_error_message = error_message or self.latest_error_message
+        self.store.finalize_scrape_run(
+            self.run_id,
+            status=final_status,
+            result_count=self.result_count,
+            dealer_discovery_count=summary.get("dealer_discovery_count"),
+            dealer_deduped_count=summary.get("dealer_deduped_count"),
+            dealerships_attempted=self.dealerships_attempted,
+            dealerships_succeeded=self.dealerships_succeeded,
+            dealerships_failed=self.dealerships_failed,
+            error_count=self.error_count,
+            warning_count=self.warning_count,
+            error_message=self.latest_error_message,
+            summary=summary,
+            economics=economics,
+            completed_at=time.time(),
+        )
+
+
+def create_scrape_run_recorder(
+    *,
+    store: Any,
+    correlation_id: str,
+    trigger_source: str,
+    location: str,
+    make: str,
+    model: str,
+    vehicle_category: str,
+    vehicle_condition: str,
+    inventory_scope: str,
+    radius_miles: int,
+    requested_max_dealerships: int | None,
+    requested_max_pages_per_dealer: int | None,
+    user_id: str | None = None,
+    anon_key: str | None = None,
+) -> ScrapeRunRecorder:
+    started_at = time.time()
+    run = store.create_scrape_run(
+        correlation_id=correlation_id,
+        user_id=user_id,
+        anon_key=anon_key,
+        trigger_source=trigger_source,
+        status="running",
+        location=location,
+        make=make,
+        model=model,
+        vehicle_category=vehicle_category,
+        vehicle_condition=vehicle_condition,
+        inventory_scope=inventory_scope,
+        radius_miles=radius_miles,
+        requested_max_dealerships=requested_max_dealerships,
+        requested_max_pages_per_dealer=requested_max_pages_per_dealer,
+        started_at=started_at,
+    )
+    return ScrapeRunRecorder(
+        store=store,
+        run_id=run.id,
+        correlation_id=correlation_id,
+        trigger_source=trigger_source,
+        started_at=started_at,
+    )

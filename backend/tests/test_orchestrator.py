@@ -5,6 +5,8 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from app.config import settings
+from app.db.account_store import get_account_store
 from app.schemas import DealershipFound
 from app.services.orchestrator import (
     _find_inventory_url,
@@ -19,6 +21,7 @@ from app.services.orchestrator_utils import (
     prefer_https_website_url,
 )
 from app.services.provider_router import ProviderRoute
+from app.services.scrape_logging import create_scrape_run_recorder
 
 
 def test_prefer_https_website_url() -> None:
@@ -142,6 +145,71 @@ async def test_stream_search_places_error_surfaces_search_error() -> None:
     assert "search_error" in text
     assert "Places missing" in text
     assert '"ok": false' in text
+
+
+@pytest.mark.asyncio
+async def test_stream_search_persists_partial_failure_run() -> None:
+    dealers = [
+        DealershipFound(
+            name="Timeout Motors",
+            place_id="p1",
+            address="1 Main St",
+            website="https://timeout-motors.example",
+        )
+    ]
+    store = get_account_store(settings.accounts_db_path)
+    correlation_id = "test-partial-run"
+    recorder = create_scrape_run_recorder(
+        store=store,
+        correlation_id=correlation_id,
+        trigger_source="test",
+        location="Detroit",
+        make="Ford",
+        model="",
+        vehicle_category="car",
+        vehicle_condition="all",
+        inventory_scope="all",
+        radius_miles=25,
+        requested_max_dealerships=1,
+        requested_max_pages_per_dealer=1,
+        anon_key="test-anon-key",
+    )
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("homepage blocked"),
+        ),
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "Detroit",
+            "Ford",
+            "",
+            max_dealerships=1,
+            max_pages_per_dealer=1,
+            correlation_id=correlation_id,
+            recorder=recorder,
+        ):
+            chunks.append(c)
+
+    text = "".join(chunks)
+    assert '"status": "error"' in text
+    run = store.get_scrape_run(correlation_id, anon_key="test-anon-key")
+    assert run is not None
+    assert run.status == "partial_failure"
+    assert run.dealerships_failed == 1
+    assert run.dealerships_attempted == 1
 
 
 @pytest.mark.asyncio

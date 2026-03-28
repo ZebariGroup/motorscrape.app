@@ -10,7 +10,13 @@ from typing import Any
 from supabase import Client, create_client
 
 from app.config import settings
-from app.db.account_store import AlertRunRecord, AlertSubscriptionRecord, UserRecord
+from app.db.account_store import (
+    AlertRunRecord,
+    AlertSubscriptionRecord,
+    ScrapeEventRecord,
+    ScrapeRunRecord,
+    UserRecord,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +331,167 @@ class SupabaseAccountStore:
         )
         return [_row_to_alert_run(row) for row in (res.data or [])]
 
+    def create_scrape_run(
+        self,
+        *,
+        correlation_id: str,
+        user_id: str | None,
+        anon_key: str | None,
+        trigger_source: str,
+        status: str,
+        location: str,
+        make: str,
+        model: str,
+        vehicle_category: str,
+        vehicle_condition: str,
+        inventory_scope: str,
+        radius_miles: int,
+        requested_max_dealerships: int | None,
+        requested_max_pages_per_dealer: int | None,
+        started_at: float,
+    ) -> ScrapeRunRecord:
+        payload = {
+            "correlation_id": correlation_id,
+            "user_id": user_id,
+            "anon_key": anon_key,
+            "trigger_source": trigger_source,
+            "status": status,
+            "location": location,
+            "make": make,
+            "model": model,
+            "vehicle_category": vehicle_category,
+            "vehicle_condition": vehicle_condition,
+            "inventory_scope": inventory_scope,
+            "radius_miles": radius_miles,
+            "requested_max_dealerships": requested_max_dealerships,
+            "requested_max_pages_per_dealer": requested_max_pages_per_dealer,
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started_at)),
+        }
+        res = self.client.table("scrape_runs").insert(payload).execute()
+        return _row_to_scrape_run(res.data[0])
+
+    def finalize_scrape_run(
+        self,
+        scrape_run_id: str,
+        *,
+        status: str,
+        result_count: int,
+        dealer_discovery_count: int | None,
+        dealer_deduped_count: int | None,
+        dealerships_attempted: int,
+        dealerships_succeeded: int,
+        dealerships_failed: int,
+        error_count: int,
+        warning_count: int,
+        error_message: str | None,
+        summary: dict[str, Any],
+        economics: dict[str, Any],
+        completed_at: float,
+    ) -> ScrapeRunRecord:
+        updates = {
+            "status": status,
+            "result_count": result_count,
+            "dealer_discovery_count": dealer_discovery_count,
+            "dealer_deduped_count": dealer_deduped_count,
+            "dealerships_attempted": dealerships_attempted,
+            "dealerships_succeeded": dealerships_succeeded,
+            "dealerships_failed": dealerships_failed,
+            "error_count": error_count,
+            "warning_count": warning_count,
+            "error_message": error_message,
+            "summary_json": summary,
+            "economics_json": economics,
+            "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(completed_at)),
+        }
+        self.client.table("scrape_runs").update(updates).eq("id", scrape_run_id).execute()
+        res = self.client.table("scrape_runs").select("*").eq("id", scrape_run_id).limit(1).execute()
+        return _row_to_scrape_run(res.data[0])
+
+    def add_scrape_event(
+        self,
+        *,
+        scrape_run_id: str,
+        correlation_id: str,
+        sequence_no: int,
+        event_type: str,
+        phase: str | None,
+        level: str,
+        message: str,
+        dealership_name: str | None,
+        dealership_website: str | None,
+        payload: dict[str, Any],
+        created_at: float,
+    ) -> ScrapeEventRecord:
+        res = self.client.table("scrape_events").insert(
+            {
+                "scrape_run_id": scrape_run_id,
+                "correlation_id": correlation_id,
+                "sequence_no": sequence_no,
+                "event_type": event_type,
+                "phase": phase,
+                "level": level,
+                "message": message,
+                "dealership_name": dealership_name,
+                "dealership_website": dealership_website,
+                "payload_json": payload,
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(created_at)),
+            }
+        ).execute()
+        return _row_to_scrape_event(res.data[0])
+
+    def list_scrape_runs(
+        self,
+        *,
+        user_id: str | None = None,
+        anon_key: str | None = None,
+        limit: int = 20,
+    ) -> list[ScrapeRunRecord]:
+        if user_id is None and not anon_key:
+            return []
+        query = self.client.table("scrape_runs").select("*").order("started_at", desc=True).limit(limit)
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
+        else:
+            query = query.eq("anon_key", anon_key)
+        res = query.execute()
+        return [_row_to_scrape_run(row) for row in (res.data or [])]
+
+    def get_scrape_run(
+        self,
+        correlation_id: str,
+        *,
+        user_id: str | None = None,
+        anon_key: str | None = None,
+    ) -> ScrapeRunRecord | None:
+        if user_id is None and not anon_key:
+            return None
+        query = (
+            self.client.table("scrape_runs")
+            .select("*")
+            .eq("correlation_id", correlation_id)
+            .order("started_at", desc=True)
+            .limit(1)
+        )
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
+        else:
+            query = query.eq("anon_key", anon_key)
+        res = query.execute()
+        if not res.data:
+            return None
+        return _row_to_scrape_run(res.data[0])
+
+    def list_scrape_events(self, scrape_run_id: str, *, limit: int = 200) -> list[ScrapeEventRecord]:
+        res = (
+            self.client.table("scrape_events")
+            .select("*")
+            .eq("scrape_run_id", scrape_run_id)
+            .order("sequence_no")
+            .limit(limit)
+            .execute()
+        )
+        return [_row_to_scrape_event(row) for row in (res.data or [])]
+
 
 def _row_to_user(row: dict[str, Any]) -> UserRecord:
     ent = row.get("entitlements_json") or {}
@@ -375,6 +542,66 @@ def _row_to_alert_run(row: dict[str, Any]) -> AlertRunRecord:
         summary=dict(row.get("summary_json") or {}),
         started_at=_ts(row.get("started_at")),
         completed_at=_ts(row.get("completed_at")) if row.get("completed_at") is not None else None,
+    )
+
+
+def _row_to_scrape_run(row: dict[str, Any]) -> ScrapeRunRecord:
+    return ScrapeRunRecord(
+        id=str(row["id"]),
+        correlation_id=str(row["correlation_id"]),
+        user_id=str(row["user_id"]) if row.get("user_id") is not None else None,
+        anon_key=str(row["anon_key"]) if row.get("anon_key") is not None else None,
+        trigger_source=str(row["trigger_source"]),
+        status=str(row["status"]),
+        location=str(row["location"]),
+        make=str(row["make"]),
+        model=str(row["model"]),
+        vehicle_category=str(row["vehicle_category"]),
+        vehicle_condition=str(row["vehicle_condition"]),
+        inventory_scope=str(row["inventory_scope"]),
+        radius_miles=int(row.get("radius_miles") or 0),
+        requested_max_dealerships=(
+            int(row["requested_max_dealerships"]) if row.get("requested_max_dealerships") is not None else None
+        ),
+        requested_max_pages_per_dealer=(
+            int(row["requested_max_pages_per_dealer"])
+            if row.get("requested_max_pages_per_dealer") is not None
+            else None
+        ),
+        result_count=int(row.get("result_count") or 0),
+        dealer_discovery_count=(
+            int(row["dealer_discovery_count"]) if row.get("dealer_discovery_count") is not None else None
+        ),
+        dealer_deduped_count=(
+            int(row["dealer_deduped_count"]) if row.get("dealer_deduped_count") is not None else None
+        ),
+        dealerships_attempted=int(row.get("dealerships_attempted") or 0),
+        dealerships_succeeded=int(row.get("dealerships_succeeded") or 0),
+        dealerships_failed=int(row.get("dealerships_failed") or 0),
+        error_count=int(row.get("error_count") or 0),
+        warning_count=int(row.get("warning_count") or 0),
+        error_message=str(row["error_message"]) if row.get("error_message") is not None else None,
+        summary=dict(row.get("summary_json") or {}),
+        economics=dict(row.get("economics_json") or {}),
+        started_at=_ts(row.get("started_at")),
+        completed_at=_ts(row.get("completed_at")) if row.get("completed_at") is not None else None,
+    )
+
+
+def _row_to_scrape_event(row: dict[str, Any]) -> ScrapeEventRecord:
+    return ScrapeEventRecord(
+        id=str(row["id"]),
+        scrape_run_id=str(row["scrape_run_id"]),
+        correlation_id=str(row["correlation_id"]),
+        sequence_no=int(row.get("sequence_no") or 0),
+        event_type=str(row["event_type"]),
+        phase=str(row["phase"]) if row.get("phase") is not None else None,
+        level=str(row["level"]),
+        message=str(row["message"]),
+        dealership_name=str(row["dealership_name"]) if row.get("dealership_name") is not None else None,
+        dealership_website=str(row["dealership_website"]) if row.get("dealership_website") is not None else None,
+        payload=dict(row.get("payload_json") or {}),
+        created_at=_ts(row.get("created_at")),
     )
 
 

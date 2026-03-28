@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.api.deps import AccessContext, get_access_context
+from app.config import settings
+from app.db.account_store import ScrapeEventRecord, ScrapeRunRecord, get_account_store
+
+router = APIRouter(prefix="/search/logs", tags=["search-logs"])
+
+
+def _iso(ts: float | None) -> str | None:
+    if ts is None:
+        return None
+    return datetime.fromtimestamp(ts, UTC).isoformat().replace("+00:00", "Z")
+
+
+def _serialize_run(record: ScrapeRunRecord) -> dict[str, Any]:
+    return {
+        "id": record.id,
+        "correlation_id": record.correlation_id,
+        "status": record.status,
+        "trigger_source": record.trigger_source,
+        "location": record.location,
+        "make": record.make,
+        "model": record.model,
+        "vehicle_category": record.vehicle_category,
+        "vehicle_condition": record.vehicle_condition,
+        "inventory_scope": record.inventory_scope,
+        "radius_miles": record.radius_miles,
+        "requested_max_dealerships": record.requested_max_dealerships,
+        "requested_max_pages_per_dealer": record.requested_max_pages_per_dealer,
+        "result_count": record.result_count,
+        "dealer_discovery_count": record.dealer_discovery_count,
+        "dealer_deduped_count": record.dealer_deduped_count,
+        "dealerships_attempted": record.dealerships_attempted,
+        "dealerships_succeeded": record.dealerships_succeeded,
+        "dealerships_failed": record.dealerships_failed,
+        "error_count": record.error_count,
+        "warning_count": record.warning_count,
+        "error_message": record.error_message,
+        "summary": record.summary,
+        "economics": record.economics,
+        "started_at": _iso(record.started_at),
+        "completed_at": _iso(record.completed_at),
+    }
+
+
+def _serialize_event(record: ScrapeEventRecord) -> dict[str, Any]:
+    return {
+        "id": record.id,
+        "scrape_run_id": record.scrape_run_id,
+        "correlation_id": record.correlation_id,
+        "sequence_no": record.sequence_no,
+        "event_type": record.event_type,
+        "phase": record.phase,
+        "level": record.level,
+        "message": record.message,
+        "dealership_name": record.dealership_name,
+        "dealership_website": record.dealership_website,
+        "payload": record.payload,
+        "created_at": _iso(record.created_at),
+    }
+
+
+def _actor_filter(ctx: AccessContext) -> dict[str, str | None]:
+    return {"user_id": ctx.user_id, "anon_key": ctx.anon_key}
+
+
+@router.get("")
+def list_search_logs(
+    ctx: Annotated[AccessContext, Depends(get_access_context)],
+    limit: int = Query(default=20, ge=1, le=50),
+) -> dict[str, Any]:
+    store = get_account_store(settings.accounts_db_path)
+    runs = store.list_scrape_runs(limit=limit, **_actor_filter(ctx))
+    return {"runs": [_serialize_run(record) for record in runs]}
+
+
+@router.get("/{correlation_id}")
+def get_search_log(
+    correlation_id: str,
+    ctx: Annotated[AccessContext, Depends(get_access_context)],
+) -> dict[str, Any]:
+    store = get_account_store(settings.accounts_db_path)
+    run = store.get_scrape_run(correlation_id, **_actor_filter(ctx))
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Search log not found.")
+    events = store.list_scrape_events(run.id)
+    return {
+        "run": _serialize_run(run),
+        "events": [_serialize_event(record) for record in events],
+    }

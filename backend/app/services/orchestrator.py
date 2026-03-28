@@ -50,6 +50,7 @@ from app.services.provider_router import (
     resolve_inventory_url_for_provider,
 )
 from app.services.providers import extract_with_provider
+from app.services.scrape_logging import ScrapeRunRecorder
 from app.services.scraper import PageKind, _looks_like_block_page, fetch_page_html
 from app.sse import sse_pack
 
@@ -484,6 +485,7 @@ async def stream_search(
     max_pages_per_dealer: int | None = None,
     outcome_holder: dict[str, Any] | None = None,
     correlation_id: str | None = None,
+    recorder: ScrapeRunRecorder | None = None,
 ) -> AsyncIterator[str]:
     """
     Yield SSE-formatted strings: status, dealership, vehicles, error, done.
@@ -492,6 +494,22 @@ async def stream_search(
     logger.info(
         f"{cid_log}Starting search: location={location}, category={vehicle_category}, make={make}, model={model}"
     )
+    if recorder is not None:
+        recorder.event(
+            event_type="search_started",
+            phase="search",
+            level="info",
+            message="Search started.",
+            payload={
+                "location": location,
+                "make": make,
+                "model": model,
+                "vehicle_category": vehicle_category,
+                "vehicle_condition": vehicle_condition,
+                "inventory_scope": inventory_scope,
+                "radius_miles": radius_miles,
+            },
+        )
     yield sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
     requested_dealerships = max(1, min(max_dealerships or settings.max_dealerships, 30))
     requested_pages = max(
@@ -523,12 +541,26 @@ async def stream_search(
             inventory_scope=invs,
             ok=ok,
         )
-        payload = {**base, "duration_ms": duration_ms, "economics": economics}
+        payload = {**base, "duration_ms": duration_ms, "economics": economics, "correlation_id": correlation_id}
         if outcome_holder is not None:
             outcome_holder.clear()
             outcome_holder.update(payload)
         log_economics_line(logger, economics, user_hint=cid_log.strip())
         logger.info(f"{cid_log}Search finished: ok={ok}, duration={duration_ms}ms")
+        if recorder is not None:
+            recorder.event(
+                event_type="search_finished",
+                phase="search",
+                level="info",
+                message=f"Search finished with ok={ok}.",
+                payload=payload,
+            )
+            recorder.finalize(
+                ok=ok,
+                summary=payload,
+                economics=economics,
+                error_message=str(base.get("error_message")) if base.get("error_message") else None,
+            )
         return payload
 
     try:
@@ -551,8 +583,16 @@ async def stream_search(
             )
     except Exception as e:
         logger.exception(f"{cid_log}Places search failed")
+        if recorder is not None:
+            recorder.event(
+                event_type="places_failed",
+                phase="places",
+                level="error",
+                message=str(e),
+                payload={"error": str(e)},
+            )
         yield sse_pack("search_error", {"message": str(e), "phase": "places"})
-        yield sse_pack("done", finalize_done({"ok": False}, ok=False))
+        yield sse_pack("done", finalize_done({"ok": False, "error_message": str(e)}, ok=False))
         return
 
     raw_dealer_count = len(dealers)
@@ -560,6 +600,14 @@ async def stream_search(
     deduped_dealer_count = len(dealers)
     dealers = dealers[: requested_dealerships]
     if not dealers:
+        if recorder is not None:
+            recorder.event(
+                event_type="dealers_empty",
+                phase="places",
+                level="info",
+                message="No dealerships with websites found.",
+                payload={"dealer_discovery_count": raw_dealer_count, "dealer_deduped_count": deduped_dealer_count},
+            )
         yield sse_pack("status", {"message": "No dealerships with websites found.", "phase": "places"})
         yield sse_pack(
             "done",
@@ -605,6 +653,17 @@ async def stream_search(
         dealer_started_at = time.perf_counter()
         website = prefer_https_website_url((d.website or "").strip())
         logger.info(f"{cid_log}Processing dealer {index}: {d.name} ({website})")
+        if recorder is not None:
+            recorder.note_dealer_started(dealership_name=d.name, dealership_website=website)
+            recorder.event(
+                event_type="dealer_started",
+                phase="scrape",
+                level="info",
+                message=f"Started dealership scrape for {d.name}.",
+                dealership_name=d.name,
+                dealership_website=website,
+                payload={"index": index, "total": len(dealers)},
+            )
         domain = normalize_dealer_domain(website)
         fetch_methods_used: list[str] = []
         inv_cache_key = inventory_listings_cache_key(
@@ -659,6 +718,33 @@ async def stream_search(
                 min_timeout=min_timeout,
             )
 
+        def append_dealer_error(message: str, *, current_url: str | None = None, phase: str = "scrape") -> None:
+            if recorder is not None:
+                recorder.note_dealer_failed()
+                recorder.event(
+                    event_type="dealer_error",
+                    phase=phase,
+                    level="warning",
+                    message=message,
+                    dealership_name=d.name,
+                    dealership_website=website,
+                    payload={"index": index, "current_url": current_url},
+                )
+            chunks.append(
+                sse_pack(
+                    "dealership",
+                    {
+                        "index": index,
+                        "total": len(dealers),
+                        "name": d.name,
+                        "website": website,
+                        **({"current_url": current_url} if current_url else {}),
+                        "status": "error",
+                        "error": message,
+                    },
+                )
+            )
+
         chunks.append(
             sse_pack(
                 "dealership",
@@ -710,6 +796,22 @@ async def stream_search(
                         },
                     )
                 )
+                if recorder is not None:
+                    recorder.note_dealer_done(listings_found=total_cached)
+                    recorder.event(
+                        event_type="dealer_done",
+                        phase="scrape",
+                        level="info",
+                        message=f"Finished dealership scrape for {d.name}.",
+                        dealership_name=d.name,
+                        dealership_website=website,
+                        payload={
+                            "index": index,
+                            "listings_found": total_cached,
+                            "from_cache": True,
+                            "fetch_methods": fetch_methods_used,
+                        },
+                    )
                 return chunks
 
             # 1. Fetch homepage to find inventory link
@@ -720,18 +822,8 @@ async def stream_search(
             try:
                 homepage_timeout = _phase_timeout(fetch_timeout)
                 if homepage_timeout is None:
-                    chunks.append(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "status": "error",
-                                "error": "Timed out while processing this dealership. Skipping to keep search moving.",
-                            },
-                        )
+                    append_dealer_error(
+                        "Timed out while processing this dealership. Skipping to keep search moving."
                     )
                     return chunks
                 homepage_html, homepage_method = await asyncio.wait_for(
@@ -792,36 +884,12 @@ async def stream_search(
                         )
                         if domain:
                             record_provider_failure(domain)
-                        chunks.append(
-                            sse_pack(
-                                "dealership",
-                                {
-                                    "index": index,
-                                    "total": len(dealers),
-                                    "name": d.name,
-                                    "website": website,
-                                    "status": "error",
-                                    "error": homepage_timed_out_msg,
-                                },
-                            )
-                        )
+                        append_dealer_error(homepage_timed_out_msg)
                         return chunks
                 else:
                     if domain:
                         record_provider_failure(domain)
-                    chunks.append(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "status": "error",
-                                "error": homepage_timed_out_msg,
-                            },
-                        )
-                    )
+                    append_dealer_error(homepage_timed_out_msg)
                     return chunks
             except Exception as e:
                 logger.warning(f"{cid_log}Scrape failed for %s: %s", website, e)
@@ -863,36 +931,12 @@ async def stream_search(
                         )
                         if domain:
                             record_provider_failure(domain)
-                        chunks.append(
-                            sse_pack(
-                                "dealership",
-                                {
-                                    "index": index,
-                                    "total": len(dealers),
-                                    "name": d.name,
-                                    "website": website,
-                                    "status": "error",
-                                    "error": str(e),
-                                },
-                            )
-                        )
+                        append_dealer_error(str(e))
                         return chunks
                 else:
                     if domain:
                         record_provider_failure(domain)
-                    chunks.append(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "status": "error",
-                                "error": str(e),
-                            },
-                        )
-                    )
+                    append_dealer_error(str(e))
                     return chunks
 
             route = None
@@ -954,19 +998,9 @@ async def stream_search(
                 try:
                     inv_timeout = _phase_timeout(fetch_timeout)
                     if inv_timeout is None:
-                        chunks.append(
-                            sse_pack(
-                                "dealership",
-                                {
-                                    "index": index,
-                                    "total": len(dealers),
-                                    "name": d.name,
-                                    "website": website,
-                                    "current_url": inv_url,
-                                    "status": "error",
-                                    "error": "Timed out while processing this dealership. Skipping to keep search moving.",
-                                },
-                            )
+                        append_dealer_error(
+                            "Timed out while processing this dealership. Skipping to keep search moving.",
+                            current_url=inv_url,
                         )
                         return chunks
                     current_html, current_method = await asyncio.wait_for(
@@ -1018,59 +1052,22 @@ async def stream_search(
                                 inv_url,
                                 e,
                             )
-                            chunks.append(
-                                sse_pack(
-                                    "dealership",
-                                    {
-                                        "index": index,
-                                        "total": len(dealers),
-                                        "name": d.name,
-                                        "website": website,
-                                        "current_url": inv_url,
-                                        "status": "error",
-                                        "error": (
-                                            f"Timed out while fetching inventory page after ~{int(fetch_timeout)}s."
-                                        ),
-                                    },
-                                )
+                            append_dealer_error(
+                                f"Timed out while fetching inventory page after ~{int(fetch_timeout)}s.",
+                                current_url=inv_url,
                             )
                             return chunks
                     else:
-                        chunks.append(
-                            sse_pack(
-                                "dealership",
-                                {
-                                    "index": index,
-                                    "total": len(dealers),
-                                    "name": d.name,
-                                    "website": website,
-                                    "current_url": inv_url,
-                                    "status": "error",
-                                    "error": (
-                                        f"Timed out while fetching inventory page after ~{int(fetch_timeout)}s."
-                                    ),
-                                },
-                            )
+                        append_dealer_error(
+                            f"Timed out while fetching inventory page after ~{int(fetch_timeout)}s.",
+                            current_url=inv_url,
                         )
                         return chunks
                 except Exception as e:
                     logger.warning(f"{cid_log}Initial inventory scrape failed for %s: %s", inv_url, e)
                     if domain:
                         record_provider_failure(domain)
-                    chunks.append(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "current_url": inv_url,
-                                "status": "error",
-                                "error": str(e),
-                            },
-                        )
-                    )
+                    append_dealer_error(str(e), current_url=inv_url)
                     return chunks
             elif route and route.requires_render:
                 try:
@@ -1446,40 +1443,14 @@ async def stream_search(
                         async with metrics_lock:
                             extraction_metrics["pages_llm_failed"] += 1
                         if pages_scraped == 0:
-                            chunks.append(
-                                sse_pack(
-                                    "dealership",
-                                    {
-                                        "index": index,
-                                        "total": len(dealers),
-                                        "name": d.name,
-                                        "website": website,
-                                        "current_url": current_url,
-                                        "status": "error",
-                                        "error": msg,
-                                    },
-                                )
-                            )
+                            append_dealer_error(msg, current_url=current_url, phase="parse")
                         break
                     except Exception as e:
                         logger.warning("Parse failed for %s: %s", current_url, e)
                         async with metrics_lock:
                             extraction_metrics["pages_llm_failed"] += 1
                         if pages_scraped == 0:
-                            chunks.append(
-                                sse_pack(
-                                    "dealership",
-                                    {
-                                        "index": index,
-                                        "total": len(dealers),
-                                        "name": d.name,
-                                        "website": website,
-                                        "current_url": current_url,
-                                        "status": "error",
-                                        "error": str(e),
-                                    },
-                                )
-                            )
+                            append_dealer_error(str(e), current_url=current_url, phase="parse")
                         break
 
                 page_vehicle_condition = infer_vehicle_condition_from_page(current_url, current_html)
@@ -1716,6 +1687,17 @@ async def stream_search(
                     },
                 )
             chunks.append(sse_pack("dealership", done_payload))
+            if recorder is not None:
+                recorder.note_dealer_done(listings_found=total_vehicles)
+                recorder.event(
+                    event_type="dealer_done",
+                    phase="scrape",
+                    level="info",
+                    message=f"Finished dealership scrape for {d.name}.",
+                    dealership_name=d.name,
+                    dealership_website=website,
+                    payload=done_payload,
+                )
         return chunks
 
     async def process_one_with_timeout(index: int, d: DealershipFound) -> list[str]:
@@ -1727,6 +1709,17 @@ async def stream_search(
         except asyncio.TimeoutError:
             website = d.website or ""
             logger.warning(f"{cid_log}Dealership worker timed out for %s", website)
+            if recorder is not None:
+                recorder.note_dealer_failed()
+                recorder.event(
+                    event_type="dealer_timeout",
+                    phase="worker",
+                    level="warning",
+                    message="Timed out while processing this dealership. Skipping to keep search moving.",
+                    dealership_name=d.name,
+                    dealership_website=website,
+                    payload={"index": index},
+                )
             return [
                 sse_pack(
                     "dealership",
@@ -1756,6 +1749,14 @@ async def stream_search(
                 yield part
         except Exception as e:
             logger.exception(f"{cid_log}Worker failed")
+            if recorder is not None:
+                recorder.event(
+                    event_type="search_error",
+                    phase="worker",
+                    level="error",
+                    message=str(e),
+                    payload={"error": str(e)},
+                )
             yield sse_pack("search_error", {"message": str(e), "phase": "worker"})
 
     yield sse_pack(

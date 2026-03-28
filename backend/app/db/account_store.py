@@ -95,6 +95,66 @@ CREATE TABLE IF NOT EXISTS alert_runs (
 
 CREATE INDEX IF NOT EXISTS idx_alert_runs_user_id
 ON alert_runs (user_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS scrape_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    correlation_id TEXT NOT NULL,
+    user_id INTEGER,
+    anon_key TEXT,
+    trigger_source TEXT NOT NULL,
+    status TEXT NOT NULL,
+    location TEXT NOT NULL,
+    make TEXT NOT NULL,
+    model TEXT NOT NULL,
+    vehicle_category TEXT NOT NULL,
+    vehicle_condition TEXT NOT NULL,
+    inventory_scope TEXT NOT NULL,
+    radius_miles INTEGER NOT NULL,
+    requested_max_dealerships INTEGER,
+    requested_max_pages_per_dealer INTEGER,
+    result_count INTEGER NOT NULL DEFAULT 0,
+    dealer_discovery_count INTEGER,
+    dealer_deduped_count INTEGER,
+    dealerships_attempted INTEGER NOT NULL DEFAULT 0,
+    dealerships_succeeded INTEGER NOT NULL DEFAULT 0,
+    dealerships_failed INTEGER NOT NULL DEFAULT 0,
+    error_count INTEGER NOT NULL DEFAULT 0,
+    warning_count INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    economics_json TEXT NOT NULL DEFAULT '{}',
+    started_at REAL NOT NULL,
+    completed_at REAL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_scrape_runs_user_id
+ON scrape_runs (user_id, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_scrape_runs_anon_key
+ON scrape_runs (anon_key, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_scrape_runs_correlation_id
+ON scrape_runs (correlation_id);
+
+CREATE TABLE IF NOT EXISTS scrape_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scrape_run_id INTEGER NOT NULL,
+    correlation_id TEXT NOT NULL,
+    sequence_no INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    phase TEXT,
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    dealership_name TEXT,
+    dealership_website TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    FOREIGN KEY (scrape_run_id) REFERENCES scrape_runs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_scrape_events_run_id
+ON scrape_events (scrape_run_id, sequence_no ASC);
 """
 
 _lock = threading.Lock()
@@ -163,6 +223,54 @@ class AlertRunRecord:
     summary: dict[str, Any]
     started_at: float
     completed_at: float | None
+
+
+@dataclass(slots=True)
+class ScrapeRunRecord:
+    id: str
+    correlation_id: str
+    user_id: str | None
+    anon_key: str | None
+    trigger_source: str
+    status: str
+    location: str
+    make: str
+    model: str
+    vehicle_category: str
+    vehicle_condition: str
+    inventory_scope: str
+    radius_miles: int
+    requested_max_dealerships: int | None
+    requested_max_pages_per_dealer: int | None
+    result_count: int
+    dealer_discovery_count: int | None
+    dealer_deduped_count: int | None
+    dealerships_attempted: int
+    dealerships_succeeded: int
+    dealerships_failed: int
+    error_count: int
+    warning_count: int
+    error_message: str | None
+    summary: dict[str, Any]
+    economics: dict[str, Any]
+    started_at: float
+    completed_at: float | None
+
+
+@dataclass(slots=True)
+class ScrapeEventRecord:
+    id: str
+    scrape_run_id: str
+    correlation_id: str
+    sequence_no: int
+    event_type: str
+    phase: str | None
+    level: str
+    message: str
+    dealership_name: str | None
+    dealership_website: str | None
+    payload: dict[str, Any]
+    created_at: float
 
 
 class AccountStore:
@@ -604,6 +712,239 @@ class AccountStore:
             ).fetchall()
         return [_row_to_alert_run(row) for row in rows]
 
+    def create_scrape_run(
+        self,
+        *,
+        correlation_id: str,
+        user_id: int | str | None,
+        anon_key: str | None,
+        trigger_source: str,
+        status: str,
+        location: str,
+        make: str,
+        model: str,
+        vehicle_category: str,
+        vehicle_condition: str,
+        inventory_scope: str,
+        radius_miles: int,
+        requested_max_dealerships: int | None,
+        requested_max_pages_per_dealer: int | None,
+        started_at: float,
+    ) -> ScrapeRunRecord:
+        with self._conn() as c:
+            cur = c.execute(
+                """
+                INSERT INTO scrape_runs (
+                    correlation_id, user_id, anon_key, trigger_source, status,
+                    location, make, model, vehicle_category, vehicle_condition,
+                    inventory_scope, radius_miles, requested_max_dealerships,
+                    requested_max_pages_per_dealer, started_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    correlation_id,
+                    user_id,
+                    anon_key,
+                    trigger_source,
+                    status,
+                    location,
+                    make,
+                    model,
+                    vehicle_category,
+                    vehicle_condition,
+                    inventory_scope,
+                    radius_miles,
+                    requested_max_dealerships,
+                    requested_max_pages_per_dealer,
+                    started_at,
+                ),
+            )
+            run_id = int(cur.lastrowid)
+            c.commit()
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM scrape_runs WHERE id = ?", (run_id,)).fetchone()
+        assert row is not None
+        return _row_to_scrape_run(row)
+
+    def finalize_scrape_run(
+        self,
+        scrape_run_id: int | str,
+        *,
+        status: str,
+        result_count: int,
+        dealer_discovery_count: int | None,
+        dealer_deduped_count: int | None,
+        dealerships_attempted: int,
+        dealerships_succeeded: int,
+        dealerships_failed: int,
+        error_count: int,
+        warning_count: int,
+        error_message: str | None,
+        summary: dict[str, Any],
+        economics: dict[str, Any],
+        completed_at: float,
+    ) -> ScrapeRunRecord:
+        with self._conn() as c:
+            c.execute(
+                """
+                UPDATE scrape_runs
+                SET status = ?, result_count = ?, dealer_discovery_count = ?, dealer_deduped_count = ?,
+                    dealerships_attempted = ?, dealerships_succeeded = ?, dealerships_failed = ?,
+                    error_count = ?, warning_count = ?, error_message = ?, summary_json = ?,
+                    economics_json = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    result_count,
+                    dealer_discovery_count,
+                    dealer_deduped_count,
+                    dealerships_attempted,
+                    dealerships_succeeded,
+                    dealerships_failed,
+                    error_count,
+                    warning_count,
+                    error_message,
+                    json.dumps(summary, separators=(",", ":"), sort_keys=True),
+                    json.dumps(economics, separators=(",", ":"), sort_keys=True),
+                    completed_at,
+                    scrape_run_id,
+                ),
+            )
+            c.commit()
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM scrape_runs WHERE id = ?", (scrape_run_id,)).fetchone()
+        assert row is not None
+        return _row_to_scrape_run(row)
+
+    def add_scrape_event(
+        self,
+        *,
+        scrape_run_id: int | str,
+        correlation_id: str,
+        sequence_no: int,
+        event_type: str,
+        phase: str | None,
+        level: str,
+        message: str,
+        dealership_name: str | None,
+        dealership_website: str | None,
+        payload: dict[str, Any],
+        created_at: float,
+    ) -> ScrapeEventRecord:
+        with self._conn() as c:
+            cur = c.execute(
+                """
+                INSERT INTO scrape_events (
+                    scrape_run_id, correlation_id, sequence_no, event_type, phase, level,
+                    message, dealership_name, dealership_website, payload_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    scrape_run_id,
+                    correlation_id,
+                    sequence_no,
+                    event_type,
+                    phase,
+                    level,
+                    message,
+                    dealership_name,
+                    dealership_website,
+                    json.dumps(payload, separators=(",", ":"), sort_keys=True),
+                    created_at,
+                ),
+            )
+            event_id = int(cur.lastrowid)
+            c.commit()
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM scrape_events WHERE id = ?", (event_id,)).fetchone()
+        assert row is not None
+        return _row_to_scrape_event(row)
+
+    def list_scrape_runs(
+        self,
+        *,
+        user_id: int | str | None = None,
+        anon_key: str | None = None,
+        limit: int = 20,
+    ) -> list[ScrapeRunRecord]:
+        if user_id is None and not anon_key:
+            return []
+        with self._conn() as c:
+            if user_id is not None:
+                rows = c.execute(
+                    """
+                    SELECT *
+                    FROM scrape_runs
+                    WHERE user_id = ?
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                    """,
+                    (user_id, limit),
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    """
+                    SELECT *
+                    FROM scrape_runs
+                    WHERE anon_key = ?
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                    """,
+                    (anon_key, limit),
+                ).fetchall()
+        return [_row_to_scrape_run(row) for row in rows]
+
+    def get_scrape_run(
+        self,
+        correlation_id: str,
+        *,
+        user_id: int | str | None = None,
+        anon_key: str | None = None,
+    ) -> ScrapeRunRecord | None:
+        if user_id is None and not anon_key:
+            return None
+        with self._conn() as c:
+            if user_id is not None:
+                row = c.execute(
+                    """
+                    SELECT *
+                    FROM scrape_runs
+                    WHERE correlation_id = ? AND user_id = ?
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                    """,
+                    (correlation_id, user_id),
+                ).fetchone()
+            else:
+                row = c.execute(
+                    """
+                    SELECT *
+                    FROM scrape_runs
+                    WHERE correlation_id = ? AND anon_key = ?
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                    """,
+                    (correlation_id, anon_key),
+                ).fetchone()
+        return _row_to_scrape_run(row) if row is not None else None
+
+    def list_scrape_events(self, scrape_run_id: int | str, *, limit: int = 200) -> list[ScrapeEventRecord]:
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT *
+                FROM scrape_events
+                WHERE scrape_run_id = ?
+                ORDER BY sequence_no ASC
+                LIMIT ?
+                """,
+                (scrape_run_id, limit),
+            ).fetchall()
+        return [_row_to_scrape_event(row) for row in rows]
+
 
 def _row_to_user(row: sqlite3.Row | None) -> UserRecord | None:
     if row is None:
@@ -676,6 +1017,66 @@ def _row_to_alert_run(row: sqlite3.Row) -> AlertRunRecord:
         summary=_json_dict(row["summary_json"]),
         started_at=float(row["started_at"]),
         completed_at=float(row["completed_at"]) if row["completed_at"] is not None else None,
+    )
+
+
+def _row_to_scrape_run(row: sqlite3.Row) -> ScrapeRunRecord:
+    return ScrapeRunRecord(
+        id=str(row["id"]),
+        correlation_id=str(row["correlation_id"]),
+        user_id=str(row["user_id"]) if row["user_id"] is not None else None,
+        anon_key=str(row["anon_key"]) if row["anon_key"] is not None else None,
+        trigger_source=str(row["trigger_source"]),
+        status=str(row["status"]),
+        location=str(row["location"]),
+        make=str(row["make"]),
+        model=str(row["model"]),
+        vehicle_category=str(row["vehicle_category"]),
+        vehicle_condition=str(row["vehicle_condition"]),
+        inventory_scope=str(row["inventory_scope"]),
+        radius_miles=int(row["radius_miles"]),
+        requested_max_dealerships=(
+            int(row["requested_max_dealerships"]) if row["requested_max_dealerships"] is not None else None
+        ),
+        requested_max_pages_per_dealer=(
+            int(row["requested_max_pages_per_dealer"])
+            if row["requested_max_pages_per_dealer"] is not None
+            else None
+        ),
+        result_count=int(row["result_count"]),
+        dealer_discovery_count=(
+            int(row["dealer_discovery_count"]) if row["dealer_discovery_count"] is not None else None
+        ),
+        dealer_deduped_count=(
+            int(row["dealer_deduped_count"]) if row["dealer_deduped_count"] is not None else None
+        ),
+        dealerships_attempted=int(row["dealerships_attempted"]),
+        dealerships_succeeded=int(row["dealerships_succeeded"]),
+        dealerships_failed=int(row["dealerships_failed"]),
+        error_count=int(row["error_count"]),
+        warning_count=int(row["warning_count"]),
+        error_message=str(row["error_message"]) if row["error_message"] is not None else None,
+        summary=_json_dict(row["summary_json"]),
+        economics=_json_dict(row["economics_json"]),
+        started_at=float(row["started_at"]),
+        completed_at=float(row["completed_at"]) if row["completed_at"] is not None else None,
+    )
+
+
+def _row_to_scrape_event(row: sqlite3.Row) -> ScrapeEventRecord:
+    return ScrapeEventRecord(
+        id=str(row["id"]),
+        scrape_run_id=str(row["scrape_run_id"]),
+        correlation_id=str(row["correlation_id"]),
+        sequence_no=int(row["sequence_no"]),
+        event_type=str(row["event_type"]),
+        phase=str(row["phase"]) if row["phase"] is not None else None,
+        level=str(row["level"]),
+        message=str(row["message"]),
+        dealership_name=str(row["dealership_name"]) if row["dealership_name"] is not None else None,
+        dealership_website=str(row["dealership_website"]) if row["dealership_website"] is not None else None,
+        payload=_json_dict(row["payload_json"]),
+        created_at=float(row["created_at"]),
     )
 
 

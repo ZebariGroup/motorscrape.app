@@ -12,10 +12,12 @@ from app.api.deps import AccessContext, get_access_context
 from app.api.routes_alerts import router as alerts_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_billing import router as billing_router
+from app.api.routes_search_logs import router as search_logs_router
 from app.api.search_quota import evaluate_search_start, record_search_completed
 from app.config import settings, vehicle_category_enabled
 from app.db.account_store import get_account_store
 from app.services.orchestrator import stream_search
+from app.services.scrape_logging import build_correlation_id, create_scrape_run_recorder
 from app.sse import sse_pack
 
 logging.basicConfig(level=logging.INFO)
@@ -55,20 +57,6 @@ async def search_stream(
 ) -> StreamingResponse:
     if not vehicle_category_enabled(vehicle_category):
         raise HTTPException(status_code=400, detail=f"Vehicle category '{vehicle_category}' is not enabled.")
-    store = get_account_store(settings.accounts_db_path)
-    quota = evaluate_search_start(ctx, store)
-    if not quota.allowed:
-
-        async def denied() -> AsyncIterator[bytes]:
-            yield sse_pack("search_error", {"message": quota.message, "phase": "quota"}).encode("utf-8")
-            yield sse_pack("done", {"ok": False}).encode("utf-8")
-
-        return StreamingResponse(
-            denied(),
-            media_type="text/event-stream",
-            headers=_SSE_HEADERS,
-        )
-
     lim = ctx.limits
     eff_radius = min(radius_miles, lim.max_radius_miles)
     base_max_d = max_dealerships if max_dealerships is not None else lim.max_dealerships
@@ -80,9 +68,57 @@ async def search_stream(
         eff_inventory_scope = "all"
 
     outcome: dict = {}
+    store = get_account_store(settings.accounts_db_path)
+    correlation_id = build_correlation_id()
+    recorder = create_scrape_run_recorder(
+        store=store,
+        correlation_id=correlation_id,
+        trigger_source="interactive",
+        location=location,
+        make=make.strip(),
+        model=model.strip(),
+        vehicle_category=vehicle_category,
+        vehicle_condition=vehicle_condition,
+        inventory_scope=eff_inventory_scope,
+        radius_miles=eff_radius,
+        requested_max_dealerships=eff_max_d,
+        requested_max_pages_per_dealer=eff_pages,
+        user_id=ctx.user_id,
+        anon_key=ctx.anon_key,
+    )
+    quota = evaluate_search_start(ctx, store)
+    if not quota.allowed:
+        recorder.event(
+            event_type="quota_blocked",
+            phase="quota",
+            level="warning",
+            message=quota.message,
+            payload={},
+        )
+        recorder.finalize(
+            ok=False,
+            status="quota_blocked",
+            summary={
+                "ok": False,
+                "status": "quota_blocked",
+                "correlation_id": correlation_id,
+                "error_message": quota.message,
+            },
+            economics={},
+            error_message=quota.message,
+        )
 
-    import uuid
-    correlation_id = str(uuid.uuid4())[:8]
+        async def denied() -> AsyncIterator[bytes]:
+            yield sse_pack("search_error", {"message": quota.message, "phase": "quota", "correlation_id": correlation_id}).encode("utf-8")
+            yield sse_pack("done", {"ok": False, "status": "quota_blocked", "correlation_id": correlation_id}).encode(
+                "utf-8"
+            )
+
+        return StreamingResponse(
+            denied(),
+            media_type="text/event-stream",
+            headers=_SSE_HEADERS,
+        )
 
     async def body() -> AsyncIterator[bytes]:
         try:
@@ -98,9 +134,30 @@ async def search_stream(
                 max_pages_per_dealer=eff_pages,
                 outcome_holder=outcome,
                 correlation_id=correlation_id,
+                recorder=recorder,
             ):
                 yield chunk.encode("utf-8")
         finally:
+            if not recorder.finalized:
+                recorder.event(
+                    event_type="stream_closed",
+                    phase="http",
+                    level="warning",
+                    message="Search stream closed before scraper finalized.",
+                    payload={},
+                )
+                recorder.finalize(
+                    ok=False,
+                    status="failed",
+                    summary={
+                        "ok": False,
+                        "status": "failed",
+                        "correlation_id": correlation_id,
+                        "error_message": "Search stream closed before completion.",
+                    },
+                    economics={},
+                    error_message="Search stream closed before completion.",
+                )
             record_search_completed(
                 ctx,
                 outcome,
@@ -159,6 +216,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(billing_router)
 app.include_router(alerts_router)
+app.include_router(search_logs_router)
 
 # Mount twice so the same deployment works locally (/health) and on Vercel Services
 # whether the platform forwards the `/server` prefix or strips it to root paths.
@@ -167,3 +225,4 @@ app.include_router(router, prefix="/server")
 app.include_router(auth_router, prefix="/server")
 app.include_router(billing_router, prefix="/server")
 app.include_router(alerts_router, prefix="/server")
+app.include_router(search_logs_router, prefix="/server")

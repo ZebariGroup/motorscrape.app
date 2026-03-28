@@ -55,3 +55,28 @@ def test_search_stream_accepts_vehicle_category() -> None:
             assert r.status_code == 200
             _ = b"".join(r.iter_bytes())
     assert mocked_find.await_args.kwargs["vehicle_category"] == "boat"
+
+
+def test_search_logs_endpoint_returns_run_and_events() -> None:
+    with patch(
+        "app.services.orchestrator.find_car_dealerships",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        with client.stream("GET", "/search/stream", params={"location": "Detroit, MI"}) as r:
+            assert r.status_code == 200
+            _ = b"".join(r.iter_bytes())
+
+    runs_response = client.get("/search/logs")
+    assert runs_response.status_code == 200
+    runs = runs_response.json()["runs"]
+    assert len(runs) == 1
+    assert runs[0]["trigger_source"] == "interactive"
+    assert runs[0]["status"] == "success"
+
+    detail_response = client.get(f"/search/logs/{runs[0]['correlation_id']}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["run"]["correlation_id"] == runs[0]["correlation_id"]
+    assert any(event["event_type"] == "search_started" for event in detail["events"])
+    assert any(event["event_type"] == "search_finished" for event in detail["events"])

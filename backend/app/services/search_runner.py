@@ -6,6 +6,7 @@ from typing import Any
 
 from app.schemas import SearchRequest, VehicleListing
 from app.services.orchestrator import stream_search
+from app.services.scrape_logging import ScrapeRunRecorder
 
 
 @dataclass(slots=True)
@@ -14,6 +15,8 @@ class SearchRunResult:
     status_messages: list[str]
     errors: list[str]
     outcome: dict[str, Any]
+    correlation_id: str | None
+    scrape_run_id: str | None
 
 
 def _parse_sse_chunk(chunk: str) -> tuple[str | None, dict[str, Any] | None]:
@@ -31,7 +34,12 @@ def _parse_sse_chunk(chunk: str) -> tuple[str | None, dict[str, Any] | None]:
     return event_type, payload
 
 
-async def run_search_once(request: SearchRequest, *, correlation_id: str | None = None) -> SearchRunResult:
+async def run_search_once(
+    request: SearchRequest,
+    *,
+    correlation_id: str | None = None,
+    recorder: ScrapeRunRecorder | None = None,
+) -> SearchRunResult:
     listings: list[dict[str, Any]] = []
     status_messages: list[str] = []
     errors: list[str] = []
@@ -49,6 +57,7 @@ async def run_search_once(request: SearchRequest, *, correlation_id: str | None 
         max_pages_per_dealer=request.max_pages_per_dealer,
         outcome_holder=outcome,
         correlation_id=correlation_id,
+        recorder=recorder,
     ):
         event_type, payload = _parse_sse_chunk(chunk)
         if event_type == "status" and payload and payload.get("message"):
@@ -75,4 +84,6 @@ async def run_search_once(request: SearchRequest, *, correlation_id: str | None 
         status_messages=status_messages,
         errors=errors,
         outcome=dict(outcome),
+        correlation_id=correlation_id or outcome.get("correlation_id"),
+        scrape_run_id=recorder.run_id if recorder is not None else None,
     )

@@ -97,3 +97,8 @@ def test_internal_due_runner_executes_alert(monkeypatch) -> None:
     runs = listed.json()["runs"]
     assert len(runs) == 1
     assert runs[0]["emailed"] is True
+    scrape_runs = store.list_scrape_runs(user_id=user_id, limit=5)
+    assert len(scrape_runs) == 1
+    assert scrape_runs[0].trigger_source == "alert_schedule"
+    assert scrape_runs[0].status == "success"
+    assert runs[0]["summary"]["correlation_id"] == scrape_runs[0].correlation_id
