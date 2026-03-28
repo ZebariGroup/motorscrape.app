@@ -146,6 +146,34 @@ def test_resolve_inventory_url_for_provider_prefers_dealer_spike_search_inventor
     assert url == "https://www.examplepowersports.com/search/inventory/usage/New"
 
 
+def test_resolve_inventory_url_for_provider_avoids_dealer_spike_model_query_pages_for_make_only_search() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_spike",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("search/inventory",),
+        inventory_url_hint=None,
+    )
+    html = """
+    <html><body>
+      <a href="/search/inventory">Search Inventory</a>
+      <a href="/search/inventory/query/Pioneer%201000-5">Pioneer 1000-5</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.examplepowersports.com/",
+        route,
+        fallback_url="https://www.examplepowersports.com/search/inventory",
+        make="Honda",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.examplepowersports.com/search/inventory"
+
+
 def test_resolve_inventory_url_for_provider_avoids_harley_featured_detail_links() -> None:
     route = ProviderRoute(
         platform_id="shift_digital",
@@ -882,6 +910,39 @@ def test_detect_or_lookup_provider_normalizes_cached_dealer_on_render_flag() -> 
     assert route.platform_id == "dealer_on"
     assert route.cache_status == "hit"
     assert route.requires_render is False
+
+
+def test_detect_or_lookup_provider_bypasses_conflicting_cached_route_for_dealer_spike_markers() -> None:
+    cached = PlatformCacheEntry(
+        domain="southgatehondapowersports.com",
+        platform_id="dealer_dot_com",
+        confidence=0.65,
+        extraction_mode="structured_api",
+        requires_render=False,
+        inventory_url_hint=None,
+        detection_source="html_fingerprint",
+        last_verified_at=datetime.now(UTC),
+        failure_count=0,
+        metadata={},
+    )
+    html = """
+    <html><body>
+      <footer>Dealer Spike Powersports</footer>
+      <a href="/search/inventory">Search Inventory</a>
+    </body></html>
+    """
+    with patch("app.services.provider_router.platform_store.get", return_value=cached), patch(
+        "app.services.provider_router.platform_store.upsert"
+    ) as upsert_mock:
+        route = detect_or_lookup_provider(
+            domain="southgatehondapowersports.com",
+            website="https://www.southgatehondapowersports.com/",
+            homepage_html=html,
+        )
+    assert route is not None
+    assert route.platform_id == "dealer_spike"
+    assert route.cache_status == "refresh"
+    upsert_mock.assert_called_once()
 
 
 def test_resolve_inventory_url_for_provider_prefers_d2c_search_pages() -> None:

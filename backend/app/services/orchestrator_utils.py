@@ -52,13 +52,21 @@ def effective_search_concurrency(*, requested_pages: int | None = None) -> int:
 
 def dedupe_dealers_by_domain(dealers: list[DealershipFound]) -> list[DealershipFound]:
     seen: set[str] = set()
+    seen_identity_keys: set[str] = set()
     out: list[DealershipFound] = []
     for d in dealers:
         w = d.website or ""
         dom = normalize_dealer_domain(w)
+        name_key = " ".join((d.name or "").strip().lower().split())
+        address_key = " ".join((d.address or "").strip().lower().split())
+        identity_key = f"{name_key}|{address_key}" if name_key and address_key else ""
         if not dom or dom in seen:
             continue
+        if identity_key and identity_key in seen_identity_keys:
+            continue
         seen.add(dom)
+        if identity_key:
+            seen_identity_keys.add(identity_key)
         out.append(d)
     return out
 

@@ -24,6 +24,13 @@ _DEALER_INSPIRE_STRONG_MARKERS: tuple[str, ...] = (
     "dealerinspire",
     "wp-content/themes/dealerinspire",
 )
+_DEALER_SPIKE_STRONG_MARKERS: tuple[str, ...] = (
+    "dealer spike",
+    "dealerspike",
+    "endeavorsuite",
+    "/search/inventory",
+    "--xallinventory",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,6 +391,8 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         platform_id="dealer_spike",
         markers=(
             "dealer spike",
+            "dealerspike",
+            "endeavorsuite",
             "dsp.dealerid",
             "default.asp?page=xallinventory",
             "default.asp?page=xnewinventory",
@@ -391,6 +400,10 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
             "/inventory/all-inventory-in-stock",
             "/inventory/new-inventory-in-stock",
             "/inventory/used-inventory",
+            "/search/inventory",
+            "--xallinventory",
+            "--xnewinventory",
+            "--xpreownedinventory",
         ),
         inventory_path_hints=(
             "default.asp?page=xallinventory",
@@ -599,6 +612,10 @@ def _platform_tie_break_priority(definition: PlatformDefinition, target: str) ->
         if any(marker in target for marker in _DEALER_INSPIRE_STRONG_MARKERS):
             return 20
         return 5 if "__next_data__" in target else 0
+    if definition.platform_id == "dealer_spike":
+        return 35 if any(marker in target for marker in _DEALER_SPIKE_STRONG_MARKERS) else 0
+    if definition.platform_id == "dealer_dot_com":
+        return 15 if "inventoryapiurl" in target or "ddc.widgetdata" in target else 0
     return 0
 
 

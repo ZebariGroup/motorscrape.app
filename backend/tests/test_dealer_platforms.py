@@ -157,6 +157,19 @@ def test_detect_platform_profile_matches_dealer_spike_homepage_markers() -> None
     assert "default.asp?page=xallinventory" in inventory_hints_for_platform("dealer_spike")
 
 
+def test_detect_platform_profile_prefers_dealer_spike_over_generic_dealer_dot_com_marker() -> None:
+    html = """
+    <html><body>
+      <script>var vendor = "dealer.com";</script>
+      <footer>Dealer Spike Powersports</footer>
+      <a href="/search/inventory">Search Inventory</a>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.southgatehondapowersports.com/")
+    assert profile is not None
+    assert profile.platform_id == "dealer_spike"
+
+
 def test_detect_platform_profile_matches_marinemax_markers() -> None:
     html = """
     <html><body>

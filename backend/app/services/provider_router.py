@@ -655,6 +655,18 @@ def _dealer_spike_prefer_legacy_asp_inventory_url(
     return urlunsplit((scheme, host, "/default.asp", query, ""))
 
 
+def _canonical_dealer_spike_inventory_url(url: str, condition: str) -> str:
+    parts = urlsplit(url)
+    condition_norm = (condition or "all").strip().lower()
+    if condition_norm == "new":
+        path = "/search/inventory/usage/New"
+    elif condition_norm == "used":
+        path = "/search/inventory/usage/Used"
+    else:
+        path = "/search/inventory"
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
 def _d2c_media_inventory_path_score(url: str, condition: str) -> int:
     path = urlsplit(url).path.lower().rstrip("/")
     if condition == "new":
@@ -820,6 +832,29 @@ def _route_from_cache(entry: PlatformCacheEntry, *, cache_status: str) -> Provid
     )
 
 
+def _homepage_conflicts_with_cached_route(
+    entry: PlatformCacheEntry,
+    *,
+    homepage_html: str,
+    website: str,
+) -> bool:
+    target = f"{homepage_html} {website}".lower()
+    if not target.strip():
+        return False
+    dealer_spike_markers = (
+        "dealer spike",
+        "dealerspike",
+        "endeavorsuite",
+        "/search/inventory",
+        "--xallinventory",
+        "default.asp?page=xallinventory",
+        "new-inventory-in-stock",
+    )
+    if entry.platform_id != "dealer_spike" and any(marker in target for marker in dealer_spike_markers):
+        return True
+    return False
+
+
 def detect_or_lookup_provider(
     *,
     domain: str,
@@ -827,7 +862,11 @@ def detect_or_lookup_provider(
     homepage_html: str,
 ) -> ProviderRoute | None:
     cached = platform_store.get(domain)
-    if cached and cached.is_usable:
+    if cached and cached.is_usable and not _homepage_conflicts_with_cached_route(
+        cached,
+        homepage_html=homepage_html,
+        website=website,
+    ):
         return _route_from_cache(cached, cache_status="hit")
 
     profile = detect_platform_profile(homepage_html, page_url=website)
@@ -1272,6 +1311,26 @@ def resolve_inventory_url_for_provider(
             else:
                 generic_base = _canonical_dealer_inspire_inventory_url(generic_base, condition)
             best_url = generic_base
+
+    if route and not model_norm and route.platform_id == "dealer_spike":
+        generic_base = _normalize_inventory_candidate_url(
+            best_url if best_score > 0 else (route.inventory_url_hint if route else None) or fallback_url
+        )
+        if generic_base:
+            path = urlsplit(generic_base).path.lower().rstrip("/")
+            if (
+                path in {"", "/"}
+                or _looks_like_inventory_detail_url(generic_base)
+                or "/search/inventory/query/" in path
+                or "manufacturer-models" in path
+                or "model-list" in path
+                or "/all-inventory/index.htm" in path
+                or "/new-inventory/index.htm" in path
+                or "/used-inventory/index.htm" in path
+            ):
+                best_url = _canonical_dealer_spike_inventory_url(base_url, condition)
+            elif path.startswith("/search/inventory"):
+                best_url = _canonical_dealer_spike_inventory_url(generic_base, condition)
 
     if route and not model_norm and not make_norm and route.platform_id == "team_velocity":
         generic_base = _normalize_inventory_candidate_url(
