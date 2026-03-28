@@ -26,7 +26,7 @@ def domain_fetch_limiter(host_key: str) -> asyncio.Semaphore:
     return sem
 
 
-def effective_search_concurrency() -> int:
+def effective_search_concurrency(*, requested_pages: int | None = None) -> int:
     configured = max(1, settings.search_concurrency)
     if not (settings.zenrows_api_key or settings.scrapingbee_api_key):
         return configured
@@ -42,6 +42,10 @@ def effective_search_concurrency() -> int:
         managed_slots = min(managed_slots, sum(provider_slots))
 
     workers_per_slot = max(1, settings.search_workers_per_managed_slot)
+    if requested_pages is not None and requested_pages >= 5:
+        # Deep live searches are much more likely to exhaust dealer budgets on
+        # managed/rendered platforms, so keep fan-out aligned to external capacity.
+        workers_per_slot = 1
     adaptive_cap = managed_slots * workers_per_slot
     return max(1, min(configured, adaptive_cap))
 

@@ -103,6 +103,16 @@ def test_effective_search_concurrency_caps_to_managed_capacity(monkeypatch: pyte
     assert effective_search_concurrency() == 4
 
 
+def test_effective_search_concurrency_reduces_fanout_for_deep_searches(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.search_concurrency", 12)
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.zenrows_api_key", "zr")
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.scrapingbee_api_key", "")
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.zenrows_max_concurrency", 3)
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.managed_scraper_max_concurrency", 3)
+    monkeypatch.setattr("app.services.orchestrator_utils.settings.search_workers_per_managed_slot", 2)
+    assert effective_search_concurrency(requested_pages=10) == 3
+
+
 def test_html_mentions_make_accepts_brand_aliases() -> None:
     assert html_mentions_make("<html><body>BMW motorcycles in stock</body></html>", "BMW Motorrad")
     assert html_mentions_make("<html><body>Indian bikes</body></html>", "Indian Motorcycle")

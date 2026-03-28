@@ -632,7 +632,7 @@ async def stream_search(
         )
         return
 
-    effective_concurrency = effective_search_concurrency()
+    effective_concurrency = effective_search_concurrency(requested_pages=requested_pages)
     yield sse_pack(
         "status",
         {
