@@ -50,8 +50,6 @@ type Props = {
   targetDealerCount: number;
   doneDealerCount: number;
   listingsCount: number;
-  activeDealerCount: number;
-  dealersWithVisibleResultsCount: number;
   /** When set, caps advanced options for the current account tier. */
   maxDealersCap?: number;
   maxRadiusMilesCap?: number;
@@ -90,8 +88,6 @@ export function SearchFormSection({
   targetDealerCount,
   doneDealerCount,
   listingsCount,
-  activeDealerCount,
-  dealersWithVisibleResultsCount,
   maxDealersCap = 30,
   maxRadiusMilesCap = 250,
   inventoryScopePremium = true,
@@ -378,7 +374,7 @@ export function SearchFormSection({
                   <span className="relative z-10 flex flex-col items-center gap-0.5 pb-1.5">
                     <span>{reconnecting ? "Reconnecting…" : "Scraping…"}</span>
                     <span className="max-w-full truncate px-1 text-center text-[11px] font-normal text-white/90">
-                      {`${dealerListLength}/${targetDealerCount} found · ${doneDealerCount}/${targetDealerCount} done · ${listingsCount} vehicles${activeDealerCount > 0 ? ` · ${activeDealerCount} active` : ""}`}
+                      {`${dealerListLength}/${targetDealerCount} found · ${doneDealerCount}/${targetDealerCount} done · ${listingsCount} vehicles`}
                     </span>
                   </span>
                 </>
@@ -407,13 +403,6 @@ export function SearchFormSection({
               />
             ) : null}
             <span>{status}</span>
-            {running && listingsCount > 0 ? (
-              <span className="text-zinc-500 dark:text-zinc-400">
-                {`Showing ${listingsCount.toLocaleString()} so far from ${dealersWithVisibleResultsCount.toLocaleString()} dealer${dealersWithVisibleResultsCount === 1 ? "" : "s"}${
-                  activeDealerCount > 0 ? ` · ${activeDealerCount} still processing` : ""
-                }`}
-              </span>
-            ) : null}
           </p>
         </div>
       ) : null}

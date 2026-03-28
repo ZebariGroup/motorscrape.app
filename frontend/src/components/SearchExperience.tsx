@@ -11,7 +11,6 @@ import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
 import { resolveApiUrl } from "@/lib/apiBase";
-import { dealerSiteKey } from "@/lib/inventoryFormat";
 import { vehicleCategoryLabel } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import {
@@ -122,14 +121,6 @@ export function SearchExperience() {
   const maxRadiusCap = lim?.max_radius_miles ?? 250;
   const scopePremium = lim?.inventory_scope_premium ?? true;
   const csvOk = lim?.csv_export ?? true;
-  const activeDealerCount = dealers.dealerList.filter(
-    (dealer) => dealer.status === "scraping" || dealer.status === "parsing",
-  ).length;
-  const dealersWithVisibleResultsCount = dealers.dealerList.filter((dealer) => {
-    const dealerKey = dealerSiteKey(dealer.website ?? "");
-    const streamedCount = dealerKey ? dealers.listingCountsByDealerKey[dealerKey] ?? 0 : 0;
-    return Math.max(dealer.listings_found ?? 0, streamedCount) > 0;
-  }).length;
   const canSearch =
     form.location.trim().length >= 2 &&
     (access?.tier === "premium" ||
@@ -262,8 +253,6 @@ export function SearchExperience() {
           targetDealerCount={dealers.targetDealerCount}
           doneDealerCount={dealers.doneDealerCount}
           listingsCount={listings.listings.length}
-          activeDealerCount={activeDealerCount}
-          dealersWithVisibleResultsCount={dealersWithVisibleResultsCount}
           maxDealersCap={maxDealersCap}
           maxRadiusMilesCap={maxRadiusCap}
           inventoryScopePremium={scopePremium}
@@ -309,8 +298,6 @@ export function SearchExperience() {
             filteredListings={listings.filteredListings}
             running={search.running}
             loadingInventoryCards={listings.loadingInventoryCards}
-            activeDealerCount={activeDealerCount}
-            dealersWithVisibleResultsCount={dealersWithVisibleResultsCount}
             sortOrder={listings.sortOrder}
             onSortOrderChange={listings.setSortOrder}
             vehicleCategory={form.vehicleCategory}
