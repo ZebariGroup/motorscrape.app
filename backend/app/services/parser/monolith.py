@@ -108,6 +108,13 @@ _SPACE_VEHICLES_JSON_RE = re.compile(
     r"space_vehicles_json\s*=\s*JSON\.parse\(\s*\"(?P<body>(?:\\.|[^\"])*)\"\s*\)",
     re.S,
 )
+# GA4 / ASC datalayer used by Sonic / LaFontaine / similar DMS: var ga4ASCDataLayerVehicle = '[{...}]';
+_GA4_ASC_DATALAYER_RE = re.compile(
+    r"var\s+ga4ASCDataLayerVehicle\s*=\s*'(?P<body>\[.*?\])'\s*;",
+    re.S,
+)
+# Generic JS array var patterns: var resultCount = '42'; sonicDataLayerVehicleImpressions = '...'
+_SONIC_RESULT_COUNT_RE = re.compile(r"var\s+resultCount\s*=\s*'(\d+)'", re.S)
 _DISPLAY_RANGE_TOTAL_RES = (
     re.compile(
         r"\bshowing\s+(?P<start>\d{1,5})\s*(?:-|to|–|—)\s*(?P<end>\d{1,5})\s+of\s+(?P<total>\d{1,7})\b",
@@ -179,6 +186,33 @@ def _extract_json_inventory(html: str, soup: BeautifulSoup) -> list[dict]:
         is_data_script = sid == "__next_data__" or stype in (
             "application/json", "application/ld+json",
         )
+
+        # Extract GA4 / Sonic / ASC datalayer inventory from inline JS scripts
+        # regardless of script type: var ga4ASCDataLayerVehicle = '[{...}]';
+        m_ga4 = _GA4_ASC_DATALAYER_RE.search(raw)
+        if m_ga4:
+            try:
+                vehicles = json.loads(m_ga4.group("body"), strict=False)
+                if isinstance(vehicles, list):
+                    for v in vehicles:
+                        if isinstance(v, dict) and (v.get("item_make") or v.get("item_id")):
+                            normalized = {
+                                "make": v.get("item_make"),
+                                "model": v.get("item_model"),
+                                "year": v.get("item_year") or None,
+                                "vin": v.get("item_id"),
+                                "price": v.get("item_price"),
+                                "condition": v.get("item_condition"),
+                                "colorExterior": v.get("item_color"),
+                                "stock": v.get("item_number"),
+                                "bodyStyle": v.get("item_type"),
+                            }
+                            json_records.append({k: v for k, v in normalized.items() if v not in (None, "", 0)})
+                    if json_records:
+                        logger.info("GA4 ASC datalayer: extracted %d vehicle records from inline JS", len(json_records))
+            except (json.JSONDecodeError, ValueError, AttributeError):
+                pass
+
         if not is_data_script:
             continue
 
