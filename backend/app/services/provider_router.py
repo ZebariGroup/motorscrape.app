@@ -309,6 +309,35 @@ def _canonical_dealer_inspire_inventory_url(url: str, condition: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
+def _canonical_dealer_inspire_filtered_inventory_url(
+    base_url: str,
+    *,
+    condition: str,
+    make: str,
+    model: str,
+) -> str:
+    cond = (condition or "all").strip().lower()
+    if cond == "all":
+        base = _normalize_inventory_candidate_url(base_url)
+        parts = urlsplit(base)
+        path = parts.path or "/new-vehicles/"
+        if not path.endswith("/"):
+            path += "/"
+        base = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+    else:
+        base = _canonical_dealer_inspire_inventory_url(base_url, cond)
+    updates: dict[str, str] = {}
+    if cond == "new":
+        updates["_dFR[type][0]"] = "New"
+    elif cond == "used":
+        updates["_dFR[type][0]"] = "Used"
+    if make.strip():
+        updates["_dFR[make][0]"] = make.strip()
+    if model.strip():
+        updates["_dFR[model][0]"] = model.strip()
+    return _with_query_params(base, updates)
+
+
 def _canonical_family_inventory_url(url: str, condition: str) -> str:
     parts = urlsplit(url)
     if condition == "used":
@@ -626,6 +655,22 @@ def _canonical_team_velocity_inventory_url(base_url: str, condition: str) -> str
     return urlunsplit((parts.scheme, parts.netloc, "/--inventory", query, ""))
 
 
+def _canonical_team_velocity_filtered_inventory_url(
+    base_url: str,
+    *,
+    condition: str,
+    make: str,
+    model: str,
+) -> str:
+    base = _canonical_team_velocity_inventory_url(base_url, condition)
+    updates: dict[str, str] = {}
+    if make.strip():
+        updates["make"] = make.strip()
+    if model.strip():
+        updates["model"] = model.strip()
+    return _with_query_params(base, updates)
+
+
 def _hyundai_inventory_path_score(url: str, condition: str) -> int:
     parts = urlsplit(url)
     path = parts.path.lower().rstrip("/")
@@ -684,6 +729,35 @@ def _model_href_match_score(href: str, text: str, model_norm: str) -> int:
         score += 20
 
     return score
+
+
+def _find_model_scoped_inventory_link(
+    soup: BeautifulSoup,
+    base_url: str,
+    *,
+    model_norm: str,
+    path_prefixes: tuple[str, ...],
+) -> str | None:
+    prefixes = tuple(prefix.rstrip("/").lower() for prefix in path_prefixes if prefix)
+    best_url: str | None = None
+    best_score = 0
+    for a in soup.find_all("a", href=True):
+        href = _normalize_inventory_candidate_url(urljoin(base_url, str(a["href"])))
+        path = urlsplit(href).path.lower().rstrip("/")
+        if prefixes and not any(path == prefix or path.startswith(prefix + "/") for prefix in prefixes):
+            continue
+        if _looks_like_inventory_detail_url(href):
+            continue
+        text = a.get_text(strip=True).lower()
+        score = _model_href_match_score(href.lower(), text, model_norm)
+        if score <= 0:
+            continue
+        if any(token in href.lower() for token in ("service", "parts", "finance", "contact", "specials")):
+            continue
+        if score > best_score:
+            best_score = score
+            best_url = href
+    return best_url
 
 
 def _route_from_profile(
@@ -1217,6 +1291,40 @@ def resolve_inventory_url_for_provider(
             if _looks_like_dealer_on_srp(generic_base):
                 updates["ModelAndTrim"] = model
             best_url = _with_query_params(generic_base, updates)
+        elif route.platform_id == "dealer_inspire" and generic_base:
+            condition_prefix = "/used-vehicles" if condition == "used" else "/new-vehicles"
+            scoped_link = _find_model_scoped_inventory_link(
+                soup,
+                base_url,
+                model_norm=model_norm,
+                path_prefixes=(condition_prefix,),
+            )
+            if scoped_link:
+                best_url = scoped_link
+            else:
+                best_url = _canonical_dealer_inspire_filtered_inventory_url(
+                    generic_base,
+                    condition=condition,
+                    make=make,
+                    model=model,
+                )
+        elif route.platform_id == "team_velocity" and generic_base:
+            condition_path = "/inventory/used" if condition == "used" else "/inventory/new"
+            scoped_link = _find_model_scoped_inventory_link(
+                soup,
+                base_url,
+                model_norm=model_norm,
+                path_prefixes=(condition_path, "/--inventory"),
+            )
+            if scoped_link:
+                best_url = scoped_link
+            else:
+                best_url = _canonical_team_velocity_filtered_inventory_url(
+                    generic_base,
+                    condition=condition,
+                    make=make,
+                    model=model,
+                )
 
     if route and route.platform_id == "dealer_spike":
         best_url = _dealer_spike_prefer_legacy_asp_inventory_url(

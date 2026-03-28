@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections import defaultdict
 from collections.abc import AsyncIterator
@@ -75,13 +76,44 @@ def _team_velocity_inventory_url_from_model_hub(
     if not url:
         return None
     condition = (vehicle_condition or "").strip().lower()
-    if condition not in {"new", "used"}:
-        return None
     parts = urlsplit(url)
     path = parts.path.rstrip("/").lower()
-    if path not in {"/new-vehicles", "/used-vehicles"}:
+    if path == "/new-vehicles" or path.startswith("/new-vehicles/"):
+        suffix = path.removeprefix("/new-vehicles")
+        return urlunsplit((parts.scheme, parts.netloc, f"/inventory/new{suffix}", "", ""))
+    if path == "/used-vehicles" or path.startswith("/used-vehicles/"):
+        suffix = path.removeprefix("/used-vehicles")
+        return urlunsplit((parts.scheme, parts.netloc, f"/inventory/used{suffix}", "", ""))
+    if condition not in {"new", "used"}:
         return None
-    return urlunsplit((parts.scheme, parts.netloc, f"/inventory/{condition}", "", ""))
+    return None
+
+
+def _scope_filter_tokens(raw: str) -> set[str]:
+    tokens: set[str] = set()
+    for part in (raw or "").split(","):
+        value = part.strip().lower()
+        if not value:
+            continue
+        tokens.add(re.sub(r"[^a-z0-9]", "", value))
+    return {token for token in tokens if token}
+
+
+def _inventory_url_uses_scoped_filters(url: str | None, *, make: str, model: str) -> bool:
+    if not url:
+        return False
+    parts = urlsplit(url)
+    query = {k.lower(): v.lower() for k, v in parse_qsl(parts.query, keep_blank_values=True)}
+    if any(
+        key in query
+        for key in ("make", "model", "modelandtrim", "_dfr[make][0]", "_dfr[model][0]")
+    ):
+        return True
+    haystack = re.sub(r"[^a-z0-9]", "", f"{parts.path} {parts.query}".lower())
+    for token in _scope_filter_tokens(make).union(_scope_filter_tokens(model)):
+        if token and token in haystack:
+            return True
+    return False
 
 
 
@@ -216,9 +248,11 @@ def _dealer_inspire_model_inventory_urls(
     base_url: str,
     *,
     vehicle_condition: str,
+    model: str = "",
 ) -> list[str]:
-    if (vehicle_condition or "").strip().lower() != "new":
-        return []
+    condition = (vehicle_condition or "").strip().lower()
+    root = "/used-vehicles" if condition == "used" else "/new-vehicles"
+    model_tokens = _scope_filter_tokens(model)
     try:
         soup = BeautifulSoup(html, "lxml")
     except Exception:
@@ -229,12 +263,16 @@ def _dealer_inspire_model_inventory_urls(
     for a in soup.find_all("a", href=True):
         abs_url = urljoin(base_url, str(a["href"]))
         path = urlsplit(abs_url).path.rstrip("/").lower()
-        if not path.startswith("/new-vehicles/"):
+        if not path.startswith(root + "/"):
             continue
-        if path in {"/new-vehicles", "/new-vehicles/new-vehicle-specials"}:
+        if path in {root, f"{root}/new-vehicle-specials"}:
             continue
-        if path.count("/") != 2:
+        if not model_tokens and path.count("/") != 2:
             continue
+        if model_tokens:
+            combined = re.sub(r"[^a-z0-9]", "", f"{path} {a.get_text(strip=True).lower()}")
+            if not any(token in combined for token in model_tokens):
+                continue
         if abs_url in seen:
             continue
         seen.add(abs_url)
@@ -247,11 +285,13 @@ def _team_velocity_model_inventory_urls(
     base_url: str,
     *,
     vehicle_condition: str,
+    model: str = "",
 ) -> list[str]:
     condition = (vehicle_condition or "").strip().lower()
     if condition not in {"new", "used"}:
         return []
     target_root = f"/inventory/{condition}"
+    model_tokens = _scope_filter_tokens(model)
     try:
         soup = BeautifulSoup(html, "lxml")
     except Exception:
@@ -262,8 +302,14 @@ def _team_velocity_model_inventory_urls(
     for a in soup.find_all("a", href=True):
         abs_url = urljoin(base_url, str(a["href"]))
         path = urlsplit(abs_url).path.rstrip("/").lower()
-        if not path.startswith(target_root + "/"):
+        query = {k.lower(): v.lower() for k, v in parse_qsl(urlsplit(abs_url).query, keep_blank_values=True)}
+        if not (path.startswith(target_root + "/") or (path == "/--inventory" and model_tokens)):
             continue
+        if model_tokens:
+            combined = re.sub(r"[^a-z0-9]", "", f"{path} {a.get_text(strip=True).lower()} {urlsplit(abs_url).query.lower()}")
+            query_match = any(key in query for key in ("make", "model"))
+            if not query_match and not any(token in combined for token in model_tokens):
+                continue
         if abs_url in seen:
             continue
         seen.add(abs_url)
@@ -1261,6 +1307,11 @@ async def stream_search(
                             e,
                         )
 
+            scoped_inventory_url = _inventory_url_uses_scoped_filters(inv_url, make=make, model=model)
+            if scoped_inventory_url:
+                async with metrics_lock:
+                    fetch_metrics["inventory_url_scoped"] += 1
+
             # 2. Pagination loop
             current_url = inv_url
             pages_scraped = 0
@@ -1281,13 +1332,13 @@ async def stream_search(
                     current_html,
                     current_url or base_url,
                     vehicle_condition=vehicle_condition,
+                    model=model,
                 )
                 if route
                 and route.platform_id == "dealer_inspire"
-                and not model.strip()
-                and vehicle_condition == "new"
+                and vehicle_condition in {"new", "used"}
                 and current_url
-                and urlsplit(current_url).path.rstrip("/").lower() == "/new-vehicles"
+                and urlsplit(current_url).path.rstrip("/").lower() in {"/new-vehicles", "/used-vehicles"}
                 else []
             )
             team_velocity_fallback_urls = (
@@ -1295,10 +1346,10 @@ async def stream_search(
                     current_html,
                     current_url or base_url,
                     vehicle_condition=vehicle_condition,
+                    model=model,
                 )
                 if route
                 and route.platform_id in {"team_velocity", "nissan_infiniti_inventory"}
-                and not model.strip()
                 and vehicle_condition in {"new", "used"}
                 and current_url
                 and urlsplit(current_url).path.rstrip("/").lower()
@@ -1672,6 +1723,7 @@ async def stream_search(
                 "website": website,
                 "status": "done",
                 "listings_found": total_vehicles,
+                "scoped_inventory_url": scoped_inventory_url,
                 "fetch_methods": fetch_methods_used,
                 "platform_id": route.platform_id if 'route' in locals() and route else None,
                 "platform_source": route.cache_status if 'route' in locals() and route else None,

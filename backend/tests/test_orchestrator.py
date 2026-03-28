@@ -9,7 +9,10 @@ from app.config import settings
 from app.db.account_store import get_account_store
 from app.schemas import DealershipFound
 from app.services.orchestrator import (
+    _dealer_inspire_model_inventory_urls,
     _find_inventory_url,
+    _team_velocity_inventory_url_from_model_hub,
+    _team_velocity_model_inventory_urls,
     _bounded_phase_timeout,
     _effective_max_pages_for_route,
     stream_search,
@@ -84,6 +87,50 @@ def test_effective_max_pages_for_route_caps_render_heavy_dealer_platforms() -> N
         inventory_path_hints=("inventory",),
     )
     assert _effective_max_pages_for_route(10, route) == 3
+
+
+def test_dealer_inspire_model_inventory_urls_filters_to_requested_model() -> None:
+    html = """
+    <html><body>
+      <a href="/new-vehicles/chevrolet-blazer/">Chevrolet Blazer</a>
+      <a href="/new-vehicles/chevrolet-equinox/">Chevrolet Equinox</a>
+      <a href="/new-vehicles/">All New Vehicles</a>
+    </body></html>
+    """
+    urls = _dealer_inspire_model_inventory_urls(
+        html,
+        "https://www.serrachevrolet.com/new-vehicles/",
+        vehicle_condition="new",
+        model="Blazer",
+    )
+    assert urls == ["https://www.serrachevrolet.com/new-vehicles/chevrolet-blazer/"]
+
+
+def test_team_velocity_model_inventory_urls_filter_to_requested_model() -> None:
+    html = """
+    <html><body>
+      <a href="/inventory/new/chevrolet-blazer">Chevrolet Blazer</a>
+      <a href="/inventory/new/chevrolet-equinox">Chevrolet Equinox</a>
+      <a href="/--inventory?condition=new&make=Chevrolet&model=Blazer">Filtered Blazer</a>
+    </body></html>
+    """
+    urls = _team_velocity_model_inventory_urls(
+        html,
+        "https://www.example.com/inventory/new",
+        vehicle_condition="new",
+        model="Blazer",
+    )
+    assert "https://www.example.com/inventory/new/chevrolet-blazer" in urls
+    assert "https://www.example.com/--inventory?condition=new&make=Chevrolet&model=Blazer" in urls
+    assert all("equinox" not in url for url in urls)
+
+
+def test_team_velocity_inventory_url_from_model_hub_preserves_model_path() -> None:
+    rerouted = _team_velocity_inventory_url_from_model_hub(
+        "https://www.example.com/new-vehicles/chevrolet-blazer",
+        vehicle_condition="new",
+    )
+    assert rerouted == "https://www.example.com/inventory/new/chevrolet-blazer"
 
 
 def test_effective_search_concurrency_uses_config_without_managed_keys(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -655,6 +655,64 @@ def test_resolve_inventory_url_for_provider_uses_family_inventory_for_team_veloc
     assert url == "https://www.jeffreyacura.com/inventory/new"
 
 
+def test_resolve_inventory_url_for_provider_prefers_model_scoped_dealer_inspire_link() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=1.0,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles", "used-vehicles"),
+        inventory_url_hint="https://www.serrachevrolet.com/new-vehicles/",
+    )
+    html = """
+    <html><body>
+      <a href="/new-vehicles/">All New Vehicles</a>
+      <a href="/new-vehicles/chevrolet-blazer/">Chevrolet Blazer</a>
+      <a href="/new-vehicles/chevrolet-equinox/">Chevrolet Equinox</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.serrachevrolet.com/",
+        route,
+        fallback_url=route.inventory_url_hint,
+        make="Chevrolet",
+        model="Blazer",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.serrachevrolet.com/new-vehicles/chevrolet-blazer/"
+
+
+def test_resolve_inventory_url_for_provider_builds_filtered_team_velocity_model_query() -> None:
+    route = ProviderRoute(
+        platform_id="team_velocity",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory",),
+        inventory_url_hint="https://www.mikesavoie.com/--inventory?condition=new",
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html><body><a href='/--inventory?condition=new'>New Inventory</a></body></html>",
+        "https://www.mikesavoie.com/",
+        route,
+        fallback_url=route.inventory_url_hint,
+        make="Chevrolet",
+        model="Blazer",
+        vehicle_condition="new",
+    )
+    parsed = urlsplit(url)
+    assert parsed.path == "/--inventory"
+    query = parse_qs(parsed.query)
+    assert query.get("condition") == ["new"]
+    assert query.get("make") == ["Chevrolet"]
+    assert query.get("model") == ["Blazer"]
+
+
 def test_resolve_inventory_url_for_provider_handles_multi_model_filter_as_make_only_for_ddc() -> None:
     route = ProviderRoute(
         platform_id="dealer_dot_com",
