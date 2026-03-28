@@ -30,6 +30,7 @@ _managed_scraper_sem_lock = asyncio.Lock()
 _zenrows_cooldown_until_monotonic: float = 0.0
 
 _ZENROWS_TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504, 520, 522, 524})
+_DIRECT_FIRST_RENDER_PREFERRED_PLATFORMS = frozenset({"dealer_on"})
 
 # Long-lived clients reuse TLS sessions and connection pools (per-request timeout still applies).
 _scraper_client_lock = asyncio.Lock()
@@ -412,8 +413,13 @@ async def fetch_page_html(
     zenrows_js_instructions = inventory_render_plan.zenrows_js_instructions if inventory_render_plan else None
     attempted_playwright_early = False
 
-    if prefer_render and page_kind == "inventory":
-        # OneAudi Falcon (and similar): try local browser before paid JS render APIs.
+    if (
+        prefer_render
+        and page_kind == "inventory"
+        and platform_id not in _DIRECT_FIRST_RENDER_PREFERRED_PLATFORMS
+    ):
+        # Some platforms truly need a browser pass first, but DealerOn inventory pages are often
+        # fully SSR and should stay on the cheap direct path before trying Playwright.
         attempted_playwright_early = True
         pw_early = await _playwright_pass(
             url,

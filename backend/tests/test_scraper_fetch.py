@@ -405,6 +405,42 @@ async def test_fetch_page_html_prefer_render_still_uses_direct_when_inventory_is
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_dealer_on_prefers_direct_before_playwright_when_inventory_is_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ZENROWS_API_KEY", "zr-test-key")
+    monkeypatch.setenv("PLAYWRIGHT_ENABLED", "true")
+    _fresh_settings(monkeypatch)
+    calls: list[str] = []
+
+    async def fake_pw(url: str, js_instructions: str | None = None) -> str:
+        calls.append(url)
+        return _inventory_html()
+
+    monkeypatch.setattr(
+        "app.services.playwright_fetch.fetch_html_via_playwright",
+        fake_pw,
+    )
+
+    respx.get("https://dealer.example/searchnew.aspx?Make=Chevrolet").mock(
+        return_value=Response(200, text=_inventory_html())
+    )
+    respx.get("https://api.zenrows.com/v1/").mock(return_value=Response(500, text="unused"))
+
+    html, method = await fetch_page_html(
+        "https://dealer.example/searchnew.aspx?Make=Chevrolet",
+        page_kind="inventory",
+        prefer_render=True,
+        platform_id="dealer_on",
+    )
+
+    assert method == "direct"
+    assert "vehicle-card" in html
+    assert calls == []
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_passes_platform_playwright_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ZENROWS_API_KEY", "zr-test-key")
     monkeypatch.setenv("PLAYWRIGHT_ENABLED", "true")
