@@ -39,6 +39,14 @@ _POWERSPORTS_MAKE_PLACES_NORMS: frozenset[str] = frozenset(
 )
 
 
+def _generic_category_fallback_cap(category: str) -> int:
+    return {
+        "motorcycle": 3,
+        "boat": 4,
+        "other": 4,
+    }.get(category, 4)
+
+
 def _effective_places_search_category(vehicle_category: str, make: str) -> str:
     category = _normalize_vehicle_category(vehicle_category)
     if category != "car":
@@ -727,17 +735,17 @@ async def find_dealerships(
             return category_matches if category_matches else results
 
         if category != "car":
-            category_brand_matches = [
-                d
-                for d in results
-                if _name_matches_make(" ".join(filter(None, [d.name, d.website or ""])), make_q)
-                and _dealer_matches_category_context(d.name, d.website or "", vehicle_category=category)
-            ]
-            if category_brand_matches:
-                return category_brand_matches
             category_matches = [
                 d for d in results if _dealer_matches_category_context(d.name, d.website or "", vehicle_category=category)
             ]
+            category_brand_matches = [
+                d
+                for d in category_matches
+                if _name_matches_make(" ".join(filter(None, [d.name, d.website or ""])), make_q)
+            ]
+            if category_brand_matches:
+                extras = [d for d in category_matches if d not in category_brand_matches]
+                return category_brand_matches + extras[: _generic_category_fallback_cap(category)]
             # For multi-brand categories (boat, motorcycle) with a specific make that
             # has no brand-name matches in the dealer list, limit how many generic
             # marinas we return.  Google Places already ran brand-specific queries
@@ -745,12 +753,7 @@ async def find_dealerships(
             # most likely candidates. Returning all 20+ generic marinas wastes time
             # on dealers that almost certainly don't carry the brand.
             if category_matches:
-                generic_cap = {
-                    "motorcycle": 3,
-                    "boat": 4,
-                    "other": 4,
-                }.get(category, 4)
-                max_generic = min(len(category_matches), generic_cap)
+                max_generic = min(len(category_matches), _generic_category_fallback_cap(category))
                 return category_matches[:max_generic]
 
         # Include website in the haystack: OEM often appears in the domain/path (e.g. …/shop-brp/can-am)

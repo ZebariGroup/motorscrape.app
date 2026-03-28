@@ -1360,16 +1360,17 @@ def dict_to_vehicle_listing(
     if vdp:
         listing_url = urljoin(base_url, str(vdp).replace("\\/", "/"))
 
+    images_value = d.get("images")
+    first_gallery_image = images_value[0] if isinstance(images_value, list) and images_value else None
     img = (
         d.get("image_url")
         or d.get("imageUrl")
         or d.get("image")
+        or first_gallery_image
         or d.get("itemThumbNailUrl")
         or d.get("primaryImageUrl")
         or d.get("sharePhoto")
     )
-    if not img and isinstance(d.get("images"), list) and d["images"]:
-        img = d["images"][0]
     if isinstance(img, list) and img:
         img = img[0]
     if isinstance(img, dict):

@@ -344,6 +344,64 @@ async def test_find_dealerships_motorcycles_prefers_category_context(places_api_
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_find_dealerships_motorcycles_keeps_multibrand_fallbacks_when_brand_match_exists(places_api_key: str) -> None:
+    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
+    search_response = {
+        "places": [
+            {
+                "id": "ChIJhonda",
+                "name": "places/ChIJhonda",
+                "displayName": {"text": "Honda Powersports of Testville"},
+                "formattedAddress": "123 Main",
+                "websiteUri": "https://hondapowersports.example/",
+            },
+            {
+                "id": "ChIJmulti1",
+                "name": "places/ChIJmulti1",
+                "displayName": {"text": "River Raisin Powersports"},
+                "formattedAddress": "456 Main",
+                "websiteUri": "https://riverraisinpowersports.example/shop/honda",
+            },
+            {
+                "id": "ChIJmulti2",
+                "name": "places/ChIJmulti2",
+                "displayName": {"text": "Generic Powersports"},
+                "formattedAddress": "789 Main",
+                "websiteUri": "https://genericpowersports.example/",
+            },
+        ]
+    }
+
+    def _route(request: object) -> Response:
+        try:
+            raw = request.content.decode() if getattr(request, "content", None) else "{}"  # type: ignore[union-attr]
+            body = json.loads(raw) if raw else {}
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return Response(200, json={"places": []})
+        if body.get("textQuery") == "Detroit MI":
+            return Response(200, json=loc_response)
+        return Response(200, json=search_response)
+
+    respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
+
+    out = await places.find_dealerships(
+        "Detroit MI",
+        vehicle_category="motorcycle",
+        make="Honda",
+        limit=10,
+        radius_miles=25,
+    )
+    assert [d.name for d in out] == [
+        "Honda Powersports of Testville",
+        "River Raisin Powersports",
+        "Generic Powersports",
+    ]
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_find_dealerships_boats_skips_false_positive_retailers(places_api_key: str) -> None:
     loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
     search_response = {

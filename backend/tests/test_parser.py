@@ -477,6 +477,31 @@ def test_try_extract_dealer_spike_endeavor_item_payload() -> None:
     assert v.listing_url == "https://dealer.example/inventory/2025-honda-rebel-500-detroit-mi-48195-123i"
 
 
+def test_try_extract_dealer_spike_endeavor_item_prefers_gallery_image_over_catalog_thumb() -> None:
+    html = """
+    <html><body>
+      <div>
+        {"item":"2026 Pioneer 520 Base - Honda","name":"2026 Pioneer 520 Base",
+         "itemUrl":"//dealer.example/inventory/2026-honda-pioneer-520-123i","itemYear":2026,
+         "itemMake":"Honda","itemModel":"Pioneer 520 Base","itemPrice":10999.0,
+         "itemThumbNailUrl":"//images.example.com/catalog-thumb.jpg",
+         "images":["//images.example.com/unit-photo.jpg"]}
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/inventory/new-inventory-in-stock",
+        html=html,
+        make_filter="Honda",
+        model_filter="Pioneer 520",
+        vehicle_category="motorcycle",
+        platform_id="dealer_spike",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    assert result.vehicles[0].image_url == "https://images.example.com/unit-photo.jpg"
+
+
 def test_try_extract_skips_dealer_spike_homepage_featured_tiles_for_model_filter() -> None:
     html = """
     <html><body>
