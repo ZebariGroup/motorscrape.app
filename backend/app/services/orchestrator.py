@@ -518,6 +518,85 @@ def _drop_query_keys(url: str, keys: set[str]) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
 
+def _with_query_params(url: str, updates: dict[str, str]) -> str:
+    parts = urlsplit(url)
+    params = dict(parse_qsl(parts.query, keep_blank_values=True))
+    for key, value in updates.items():
+        value_s = str(value or "").strip()
+        if value_s:
+            params[key] = value_s
+    query = urlencode(params)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+
+def _inventory_url_recovery_candidates(
+    *,
+    inv_url: str,
+    base_url: str,
+    route: ProviderRoute | None,
+    make: str,
+    model: str,
+    vehicle_condition: str,
+) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = {inv_url.rstrip("/")}
+
+    def add(url: str | None) -> None:
+        if not url:
+            return
+        norm = url.rstrip("/")
+        if not norm or norm in seen:
+            return
+        seen.add(norm)
+        candidates.append(url)
+
+    condition = (vehicle_condition or "all").strip().lower()
+    parsed_base = urlsplit(inv_url or base_url)
+    if not parsed_base.scheme or not parsed_base.netloc:
+        parsed_base = urlsplit(base_url)
+    model_values = _requested_model_values(model)
+
+    if route and route.platform_id == "dealer_on":
+        path = "/searchused.aspx" if condition == "used" else "/searchnew.aspx"
+        canonical = urlunsplit((parsed_base.scheme, parsed_base.netloc, path, "", ""))
+        if model_values:
+            for m in model_values[:2]:
+                add(_with_query_params(canonical, {"Make": make, "Model": m, "ModelAndTrim": m}))
+        add(_with_query_params(canonical, {"Make": make}))
+    elif route and route.platform_id == "dealer_inspire":
+        path = "/used-vehicles/" if condition == "used" else "/new-vehicles/"
+        canonical = urlunsplit((parsed_base.scheme, parsed_base.netloc, path, "", ""))
+        base_updates: dict[str, str] = {}
+        if condition == "new":
+            base_updates["_dFR[type][0]"] = "New"
+        elif condition == "used":
+            base_updates["_dFR[type][0]"] = "Used"
+        if make.strip():
+            base_updates["_dFR[make][0]"] = make.strip()
+        if model_values:
+            for m in model_values[:2]:
+                updates = dict(base_updates)
+                updates["_dFR[model][0]"] = m
+                add(_with_query_params(canonical, updates))
+        add(_with_query_params(canonical, base_updates))
+        add(canonical)
+    elif route and route.platform_id == "dealer_dot_com":
+        if condition == "used":
+            path = "/used-inventory/index.htm"
+        elif condition == "all":
+            path = "/all-inventory/index.htm"
+        else:
+            path = "/new-inventory/index.htm"
+        canonical = urlunsplit((parsed_base.scheme, parsed_base.netloc, path, "", ""))
+        if model_values:
+            for m in model_values[:2]:
+                add(_with_query_params(canonical, {"make": make, "model": m}))
+        add(_with_query_params(canonical, {"make": make}))
+
+    add(guess_franchise_inventory_srp_url(base_url, vehicle_condition))
+    return candidates
+
+
 def _bounded_phase_timeout(
     *,
     base_timeout: float,
@@ -1186,10 +1265,64 @@ async def stream_search(
                         return chunks
                 except Exception as e:
                     logger.warning(f"{cid_log}Initial inventory scrape failed for %s: %s", inv_url, e)
-                    if domain:
-                        record_provider_failure(domain)
-                    append_dealer_error(str(e), current_url=inv_url)
-                    return chunks
+                    recovered = False
+                    if "403" in str(e) or "All fetch methods failed" in str(e):
+                        for retry_url in _inventory_url_recovery_candidates(
+                            inv_url=inv_url,
+                            base_url=base_url,
+                            route=route,
+                            make=make,
+                            model=model,
+                            vehicle_condition=vehicle_condition,
+                        ):
+                            chunks.append(
+                                sse_pack(
+                                    "dealership",
+                                    {
+                                        "index": index,
+                                        "total": len(dealers),
+                                        "name": d.name,
+                                        "website": website,
+                                        "current_url": retry_url,
+                                        "status": "scraping",
+                                    },
+                                )
+                            )
+                            try:
+                                retry_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                                if retry_timeout is None:
+                                    raise RuntimeError("dealer_time_budget_exhausted")
+                                current_html, current_method = await asyncio.wait_for(
+                                    _fetch(
+                                        retry_url,
+                                        "inventory",
+                                        prefer_render=bool(route and route.requires_render),
+                                        platform_id=route.platform_id if route else None,
+                                    ),
+                                    timeout=retry_timeout,
+                                )
+                                inv_url = retry_url
+                                if route:
+                                    route.inventory_url_hint = retry_url
+                                recovered = True
+                                logger.info(
+                                    "Recovered initial inventory URL for %s via fallback %s",
+                                    d.name,
+                                    retry_url,
+                                )
+                                break
+                            except Exception as retry_error:
+                                logger.debug(
+                                    "Initial inventory retry failed for %s via %s: %s",
+                                    d.name,
+                                    retry_url,
+                                    retry_error,
+                                )
+                    if not recovered:
+                        if domain:
+                            record_provider_failure(domain)
+                        append_dealer_error(str(e), current_url=inv_url)
+                        return chunks
             elif route and route.requires_render:
                 try:
                     render_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)

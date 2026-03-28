@@ -655,7 +655,7 @@ def test_resolve_inventory_url_for_provider_uses_family_inventory_for_team_veloc
     assert url == "https://www.jeffreyacura.com/inventory/new"
 
 
-def test_resolve_inventory_url_for_provider_prefers_model_scoped_dealer_inspire_link() -> None:
+def test_resolve_inventory_url_for_provider_prefers_filtered_dealer_inspire_url_for_model() -> None:
     route = ProviderRoute(
         platform_id="dealer_inspire",
         confidence=1.0,
@@ -682,7 +682,12 @@ def test_resolve_inventory_url_for_provider_prefers_model_scoped_dealer_inspire_
         model="Blazer",
         vehicle_condition="new",
     )
-    assert url == "https://www.serrachevrolet.com/new-vehicles/chevrolet-blazer/"
+    parsed = urlsplit(url)
+    assert parsed.path == "/new-vehicles/"
+    query = parse_qs(parsed.query)
+    assert query.get("_dFR[type][0]") == ["New"]
+    assert query.get("_dFR[make][0]") == ["Chevrolet"]
+    assert query.get("_dFR[model][0]") == ["Blazer"]
 
 
 def test_resolve_inventory_url_for_provider_builds_filtered_team_velocity_model_query() -> None:

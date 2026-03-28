@@ -1292,22 +1292,15 @@ def resolve_inventory_url_for_provider(
                 updates["ModelAndTrim"] = model
             best_url = _with_query_params(generic_base, updates)
         elif route.platform_id == "dealer_inspire" and generic_base:
-            condition_prefix = "/used-vehicles" if condition == "used" else "/new-vehicles"
-            scoped_link = _find_model_scoped_inventory_link(
-                soup,
-                base_url,
-                model_norm=model_norm,
-                path_prefixes=(condition_prefix,),
+            # Prefer query-filtered SRP URLs over deep model-landing paths. A number of
+            # Dealer Inspire stores bot-challenge /new-vehicles/<model>/ links while the
+            # filtered SRP endpoint remains reachable and paginates reliably.
+            best_url = _canonical_dealer_inspire_filtered_inventory_url(
+                generic_base,
+                condition=condition,
+                make=make,
+                model=model,
             )
-            if scoped_link:
-                best_url = scoped_link
-            else:
-                best_url = _canonical_dealer_inspire_filtered_inventory_url(
-                    generic_base,
-                    condition=condition,
-                    make=make,
-                    model=model,
-                )
         elif route.platform_id == "team_velocity" and generic_base:
             condition_path = "/inventory/used" if condition == "used" else "/inventory/new"
             scoped_link = _find_model_scoped_inventory_link(

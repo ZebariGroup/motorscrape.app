@@ -12,6 +12,7 @@ from app.services.orchestrator import (
     _dealer_on_multi_model_inventory_urls,
     _dealer_inspire_model_inventory_urls,
     _find_inventory_url,
+    _inventory_url_recovery_candidates,
     _team_velocity_inventory_url_from_model_hub,
     _team_velocity_model_inventory_urls,
     _bounded_phase_timeout,
@@ -160,6 +161,53 @@ def test_dealer_on_multi_model_inventory_urls_skips_single_model_inputs() -> Non
         make="Chevrolet",
         model="Blazer EV",
     ) == []
+
+
+def test_inventory_url_recovery_candidates_builds_dealer_inspire_filtered_srp() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=1.0,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles",),
+        inventory_url_hint="https://dealer.example/new-vehicles/",
+    )
+    candidates = _inventory_url_recovery_candidates(
+        inv_url="https://dealer.example/new-vehicles/pacifica/",
+        base_url="https://dealer.example/",
+        route=route,
+        make="Chrysler",
+        model="Pacifica",
+        vehicle_condition="new",
+    )
+    assert candidates
+    assert candidates[0].startswith("https://dealer.example/new-vehicles/?")
+    assert any("_dFR%5Bmodel%5D%5B0%5D=Pacifica" in c for c in candidates)
+
+
+def test_inventory_url_recovery_candidates_builds_dealer_dot_com_canonical_path() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="structured_api",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-inventory/index.htm",),
+        inventory_url_hint="https://dealer.example/new-vehicles/",
+    )
+    candidates = _inventory_url_recovery_candidates(
+        inv_url="https://dealer.example/new-vehicles/",
+        base_url="https://dealer.example/",
+        route=route,
+        make="GMC",
+        model="Sierra 1500,Sierra 2500 HD",
+        vehicle_condition="new",
+    )
+    assert any(c.startswith("https://dealer.example/new-inventory/index.htm?") for c in candidates)
+    assert any("make=GMC" in c for c in candidates)
 
 
 def test_effective_search_concurrency_uses_config_without_managed_keys(monkeypatch: pytest.MonkeyPatch) -> None:
