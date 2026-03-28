@@ -673,6 +673,47 @@ def test_try_extract_synthesizes_next_from_dom_summary_counts() -> None:
     assert result.pagination.total_pages == 6
 
 
+def test_try_extract_inventory_anchor_cards_for_harley_style_srp() -> None:
+    html = """
+    <html><body>
+      <div>Showing 1 - 12 of 263 results</div>
+      <section class="inventory-item">
+        <h2>Used 2025 Harley-Davidson Tri Glide Ultra</h2>
+        <a href="/inventory/959629/used-2025-harley-davidson-tri-glide-ultra/9307/form/3871">CLICK FOR PRICE</a>
+        <div>U850174 4515 mi Mystic Shift - Black Finish</div>
+        <div>$44,480 Now $34,877</div>
+        <p>The Harley-Davidson Tri Glide Ultra is made for long-distance touring.</p>
+        <a href="/inventory/959629/used-2025-harley-davidson-tri-glide-ultra">MORE INFO</a>
+      </section>
+      <section class="inventory-item">
+        <h2>Used 2024 Harley-Davidson Road Glide 3</h2>
+        <div>U850258 6793 mi Vivid Black</div>
+        <div>$39,790 Now $28,977</div>
+        <a href="/inventory/959636/used-2024-harley-davidson-road-glide-3">MORE INFO</a>
+      </section>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/used-inventory",
+        html=html,
+        make_filter="Harley-Davidson",
+        model_filter="",
+        vehicle_category="motorcycle",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 2
+    assert result.pagination is not None
+    assert result.pagination.total_results == 263
+    assert result.next_page_url is not None
+    first = result.vehicles[0]
+    assert first.year == 2025
+    assert first.make == "Harley-Davidson"
+    assert first.model is not None
+    assert first.price == 34877
+    assert first.mileage == 4515
+    assert first.listing_url == "https://dealer.example/inventory/959629/used-2025-harley-davidson-tri-glide-ultra"
+
+
 def test_try_extract_returns_empty_result_when_filters_miss_but_more_pages_exist() -> None:
     html = """
     <html><body>

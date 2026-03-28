@@ -95,6 +95,7 @@ _TEXT_STOCK_RE = re.compile(
     r"\b(?:stock(?:\s*(?:#|number|no\.?))?)\s*[:#-]?\s*([A-Z0-9-]{4,})\b",
     re.I,
 )
+_INVENTORY_DETAIL_PATH_RE = re.compile(r"/inventory/\d+(?:/|$)", re.I)
 _TITLE_YEAR_RE = re.compile(r"^(?P<year>20\d{2}|19\d{2})\s+(?P<rest>.+)$")
 _SAVE_PRICE_MSRP_RE = re.compile(
     r"save:\s*\$[\d,]+\s*\$(?P<price>[\d,]+)\s*msrp\s*\$(?P<msrp>[\d,]+)",
@@ -127,6 +128,7 @@ _DISPLAY_RANGE_TOTAL_RES = (
     ),
 )
 _PAGE_OF_TOTAL_RE = re.compile(r"\bpage\s+(?P<page>\d{1,5})\s+of\s+(?P<total>\d{1,5})\b", re.I)
+_GENERIC_CARD_ACTION_TEXTS = frozenset({"click for price", "more info", "details", "learn more"})
 _KNOWN_MAKE_PREFIXES = tuple(
     sorted(
         {
@@ -1414,6 +1416,115 @@ def _extract_search_result_card_vehicles(
     return vehicles
 
 
+def _canonical_inventory_detail_url(page_url: str, href: str) -> str | None:
+    abs_url = urljoin(page_url, (href or "").strip())
+    parts = urlsplit(abs_url)
+    path = parts.path.lower()
+    if not _INVENTORY_DETAIL_PATH_RE.search(path):
+        return None
+    if "/form/" in path:
+        return None
+    query_keys = {k.lower() for k, _ in parse_qsl(parts.query, keep_blank_values=True)}
+    if query_keys.intersection({"video", "photo"}):
+        return None
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
+def _extract_inventory_anchor_card_vehicles(
+    html: str,
+    page_url: str,
+    *,
+    vehicle_category: str = "car",
+) -> list[VehicleListing]:
+    lower_url = (page_url or "").lower()
+    lower_html = (html or "").lower()
+    # Keep this fallback scoped to SRP-like pages so homepage featured inventory
+    # does not masquerade as the full inventory set.
+    if "/inventory" not in lower_url and "showing 1 -" not in lower_html and "results" not in lower_html:
+        return []
+
+    soup = BeautifulSoup(html, "lxml")
+    vehicles: list[VehicleListing] = []
+    seen_urls: set[str] = set()
+
+    for anchor in soup.find_all("a", href=True):
+        listing_url = _canonical_inventory_detail_url(page_url, str(anchor.get("href") or ""))
+        if not listing_url or listing_url in seen_urls:
+            continue
+
+        container = None
+        for parent in anchor.parents:
+            if getattr(parent, "name", None) not in {"article", "li", "div", "section"}:
+                continue
+            card_text = parent.get_text(" ", strip=True)
+            if len(card_text) < 60 or len(card_text) > 2500:
+                continue
+            lower_text = card_text.lower()
+            if not re.search(r"\b(?:19|20)\d{2}\b", card_text):
+                continue
+            if not any(token in lower_text for token in ("more info", "click for price", "$", " mi ", " mileage", " stock")):
+                continue
+            container = parent
+            break
+
+        if container is None:
+            continue
+
+        card_text = container.get_text(" ", strip=True)
+        raw_title = _text_or_none(container.select_one("h1, h2, h3, h4, h5, h6"))
+        if raw_title and raw_title.strip().lower() in _GENERIC_CARD_ACTION_TEXTS:
+            raw_title = None
+        if not raw_title:
+            card_text_prefix = re.split(r"\b(?:CLICK FOR PRICE|MORE INFO)\b", card_text, maxsplit=1, flags=re.I)[0].strip()
+            raw_title = card_text_prefix or None
+
+        title_fields = _parse_title_fields(raw_title or card_text)
+        raw_title = title_fields.get("raw_title") or raw_title
+        if not any((title_fields.get("year"), title_fields.get("make"), title_fields.get("model"))):
+            continue
+
+        usage_value, usage_unit = _pick_usage_from_dict(
+            {},
+            vehicle_category=vehicle_category,
+            fallback_text=card_text,
+        )
+        stock_match = _TEXT_STOCK_RE.search(card_text)
+        stock_value = stock_match.group(1) if stock_match else None
+        image_url = _pick_dom_vehicle_image(container, page_url)
+        card_prices = [
+            price
+            for price in (_coerce_float(match.group(0)) for match in _TEXT_PRICE_RE.finditer(card_text))
+            if price and price > 500
+        ]
+        current_price = min(card_prices) if card_prices else None
+        msrp_price = max(card_prices) if len(card_prices) >= 2 else None
+
+        vehicle = VehicleListing(
+            vehicle_category=vehicle_category,
+            year=_coerce_int(title_fields.get("year")),
+            make=str(title_fields.get("make")).strip() if title_fields.get("make") else None,
+            model=str(title_fields.get("model")).strip() if title_fields.get("model") else None,
+            trim=str(title_fields.get("trim")).strip() if title_fields.get("trim") else None,
+            price=current_price or _extract_price_from_text(card_text),
+            mileage=usage_value if usage_unit == "miles" else None,
+            usage_value=usage_value,
+            usage_unit=usage_unit,
+            vehicle_condition=normalize_vehicle_condition(raw_title) or normalize_vehicle_condition(card_text) or normalize_vehicle_condition(listing_url),
+            vehicle_identifier=stock_value,
+            image_url=image_url,
+            listing_url=listing_url,
+            raw_title=str(raw_title).strip() if raw_title else None,
+            msrp=msrp_price if msrp_price and current_price and msrp_price - current_price >= 50 else None,
+            dealer_discount=(msrp_price - current_price) if msrp_price and current_price and msrp_price - current_price >= 50 else None,
+        )
+        if not any([vehicle.make, vehicle.model, vehicle.raw_title]):
+            continue
+        seen_urls.add(listing_url)
+        vehicles.append(vehicle)
+
+    return vehicles
+
+
 def extract_dom_vehicle_cards(
     html: str,
     page_url: str,
@@ -2182,6 +2293,10 @@ def try_extract_vehicles_without_llm(
         by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
     for v in _extract_search_result_card_vehicles(html, page_url, vehicle_category=vehicle_category):
+        key = _vehicle_merge_key(v)
+        by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
+
+    for v in _extract_inventory_anchor_card_vehicles(html, page_url, vehicle_category=vehicle_category):
         key = _vehicle_merge_key(v)
         by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
