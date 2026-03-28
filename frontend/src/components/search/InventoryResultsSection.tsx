@@ -33,6 +33,8 @@ type Props = {
   filteredListings: AggregatedListing[];
   running: boolean;
   loadingInventoryCards: unknown[];
+  activeDealerCount: number;
+  dealersWithVisibleResultsCount: number;
   sortOrder: ListingSortOrder;
   onSortOrderChange: (order: ListingSortOrder) => void;
   vehicleCategory: VehicleCategory;
@@ -44,6 +46,8 @@ export function InventoryResultsSection({
   filteredListings,
   running,
   loadingInventoryCards,
+  activeDealerCount,
+  dealersWithVisibleResultsCount,
   sortOrder,
   onSortOrderChange,
   vehicleCategory,
@@ -163,13 +167,30 @@ export function InventoryResultsSection({
           No vehicles match the current result filters.
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {filteredListings.map((v, idx) => (
-            <article
-              key={`inventory-${listingIdentityKey(v, `${idx}`)}`}
-              className="flex flex-row sm:flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 cursor-pointer hover:border-emerald-300 hover:ring-1 hover:ring-emerald-500/20 transition-all"
-              onClick={() => setSelectedListingIndex(idx)}
-            >
+        <div className="space-y-4">
+          {running ? (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/25 dark:text-emerald-100">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
+                <span>
+                  Showing {listings.length.toLocaleString()} vehicle{listings.length === 1 ? "" : "s"} so far
+                  {dealersWithVisibleResultsCount > 0 ? ` from ${dealersWithVisibleResultsCount} dealer${dealersWithVisibleResultsCount === 1 ? "" : "s"}` : ""}.
+                </span>
+                <span className="text-emerald-800/80 dark:text-emerald-300/80">
+                  {activeDealerCount > 0
+                    ? `${activeDealerCount} dealer${activeDealerCount === 1 ? "" : "s"} still processing, more cards will appear as pages finish.`
+                    : "Final dealer updates are wrapping up."}
+                </span>
+              </div>
+            </div>
+          ) : null}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {filteredListings.map((v, idx) => (
+              <article
+                key={`inventory-${listingIdentityKey(v, `${idx}`)}`}
+                className="flex flex-row sm:flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 cursor-pointer hover:border-emerald-300 hover:ring-1 hover:ring-emerald-500/20 transition-all"
+                onClick={() => setSelectedListingIndex(idx)}
+              >
               <div className="relative w-2/5 shrink-0 sm:w-full sm:aspect-[16/10] min-h-[128px] bg-zinc-100 dark:bg-zinc-900">
                 {v.image_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -285,8 +306,9 @@ export function InventoryResultsSection({
                   </a>
                 </div>
               </div>
-            </article>
-          ))}
+              </article>
+            ))}
+          </div>
         </div>
       )}
 

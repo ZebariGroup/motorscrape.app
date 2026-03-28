@@ -97,6 +97,14 @@ export function DealerProgressList({
               const streamedListingCount = listingCountsByDealerKey[dealerSiteKey(d.website)] ?? 0;
               const visibleListingsFound = Math.max(d.listings_found ?? 0, streamedListingCount);
               const listingSummary = visibleListingsFound > 0 ? `${visibleListingsFound.toLocaleString()} listings` : null;
+              const pageSummary =
+                d.current_page_number != null && d.reported_total_pages != null
+                  ? `page ${d.current_page_number} of ${d.reported_total_pages}`
+                  : d.pages_scraped != null && d.pages_scraped > 0
+                    ? `${d.pages_scraped} page${d.pages_scraped === 1 ? "" : "s"} scraped`
+                    : null;
+              const totalResultsSummary =
+                d.reported_total_results != null ? `${d.reported_total_results.toLocaleString()} reported` : null;
               const canPin = Boolean(d.website?.trim());
               const isPinned = Boolean(
                 canPin &&
@@ -172,7 +180,7 @@ export function DealerProgressList({
                       ) : null}
                       {d.status === "parsing" ? (
                         <span className="text-zinc-500">
-                          AI extraction… {phaseSec}s
+                          {visibleListingsFound > 0 ? "Streaming results…" : "AI extraction…"} {phaseSec}s
                           {d.fetch_method ? (
                             <span className="text-zinc-400"> (page via {d.fetch_method})</span>
                           ) : null}
@@ -184,7 +192,24 @@ export function DealerProgressList({
                       {listingSummary ? (
                         <span className="text-zinc-500">{listingSummary}</span>
                       ) : null}
+                      {pageSummary ? (
+                        <span className="text-zinc-500">{pageSummary}</span>
+                      ) : null}
+                      {totalResultsSummary ? (
+                        <span className="text-zinc-500">{totalResultsSummary}</span>
+                      ) : null}
                     </div>
+                    {isBusy && (listingSummary || pageSummary || totalResultsSummary) ? (
+                      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                        {[
+                          visibleListingsFound > 0 ? `${visibleListingsFound.toLocaleString()} shown so far` : null,
+                          pageSummary,
+                          totalResultsSummary,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    ) : null}
                     {d.info ? (
                       <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{d.info}</p>
                     ) : null}
