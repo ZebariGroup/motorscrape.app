@@ -140,6 +140,32 @@ async def test_fetch_page_html_inventory_strips_dfr_query_on_direct_retry(clear_
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_enriches_dealer_spike_generic_vehinv_cache(clear_scraper_keys: None) -> None:
+    page_url = "https://dealer.example/default.asp?page=xAllInventory&make=ski-doo"
+    cache_url = "https://dealer.example/imglib/Inventory/cache/3392/VehInv.js?v=8767850"
+    html_shell = """
+    <html><body>
+      <script src="/imglib/Inventory/cache/3392/VehInv.js?v=8767850" type="text/javascript"></script>
+      <div>Inventory shell</div>
+    </body></html>
+    """
+    cache_body = """var Vehicles=[
+    {"id":"1","manuf":"Ski-Doo","model":"Summit Expert","bike_year":"2027","price":"19699","stockno":"SLEV1025"}
+    ];"""
+    respx.get(page_url).mock(return_value=Response(200, text=html_shell))
+    respx.get(cache_url).mock(return_value=Response(200, text=cache_body))
+
+    html, method = await fetch_page_html(page_url, page_kind="inventory", platform_id="dealer_spike")
+
+    assert method == "direct"
+    assert 'data-ms-source="inventory-api"' in html
+    assert '"make":"Ski-Doo"' in html
+    assert '"model":"Summit Expert"' in html
+    assert '"price":"19699"' in html
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_inventory_reports_sanitized_url_and_cloudflare_hint_on_full_block(
     clear_scraper_keys: None,
 ) -> None:

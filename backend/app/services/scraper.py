@@ -144,8 +144,9 @@ _EXTRA_API_RES = (
     re.compile(r'["\']inventory_url["\']\s*:\s*["\'](?P<url>[^"\']+)["\']', re.I),
     re.compile(r'["\']inventoryEndpoint["\']\s*:\s*["\'](?P<url>[^"\']+)["\']', re.I),
     re.compile(r'vehicle_data_url\s*=\s*[\'"](?P<url>[^\'"]+)[\'"]', re.I),
-    # Dealer Spike Marine static JS inventory cache: NVehInv.js / UVehInv.js
-    re.compile(r'["\'](?P<url>/imglib/Inventory/cache/\d+/[NU]VehInv\.js[^"\']*)["\']', re.I),
+    # Dealer Spike cached inventory JS can be generic all-inventory (VehInv.js)
+    # or split by new/used (NVehInv.js / UVehInv.js).
+    re.compile(r'["\'](?P<url>/imglib/Inventory/cache/\d+/(?:[NU])?VehInv\.js[^"\']*)["\']', re.I),
 )
 _WS_INV_FETCH_RE = re.compile(
     r'fetch\("(?P<url>/api/widget/ws-inv-data/getInventory)".*?body:decodeURI\("(?P<body>.*?)"\)',
