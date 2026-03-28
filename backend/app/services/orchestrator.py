@@ -1232,7 +1232,10 @@ async def stream_search(
                         )
                         break
 
-                if route and route.platform_id == "dealer_on" and current_method == "direct":
+                if route and route.platform_id in {"dealer_on", "harley_digital_showroom"} and current_method == "direct":
+                    # H-D Room58 / digital-showroom SRPs are fully SSR on direct HTTP; forcing managed
+                    # JS render on paginated ?page=N fetches often returns thinner DOM and breaks next-page
+                    # detection — keep subsequent pages on cheap direct fetch when it already worked.
                     route.requires_render = False
 
                 chunks.append(
