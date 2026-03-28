@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 from app.config import settings
 from app.schemas import DealershipFound, PaginationInfo, VehicleListing
 from app.services.dealer_platforms import detect_platform_profile
+from app.services.dealer_score_store import NO_SCORE_DEFAULT, get_scores, record_scrape_outcome
 from app.services.economics import build_search_economics, log_economics_line
 from app.services.inventory_discovery import discover_sitemap_inventory_urls
 from app.services.inventory_filters import (
@@ -431,6 +432,29 @@ def _needs_vdp_attribute_enrichment(vehicles: list[VehicleListing]) -> bool:
         if (not v.exterior_color) or (not v.availability_status) or (not v.inventory_location):
             missing_fields += 1
     return missing_fields >= max(1, len(vehicles) // 2)
+
+
+def _price_fill_rate(listings: list[dict[str, Any]]) -> float:
+    if not listings:
+        return 0.0
+    with_price = 0
+    for listing in listings:
+        price = listing.get("price")
+        if isinstance(price, (int, float)) and float(price) > 0:
+            with_price += 1
+    return with_price / len(listings)
+
+
+def _vin_fill_rate(listings: list[dict[str, Any]]) -> float:
+    if not listings:
+        return 0.0
+    with_vin = 0
+    for listing in listings:
+        vin = str(listing.get("vin") or "").strip()
+        identifier = str(listing.get("vehicle_identifier") or "").strip()
+        if vin or identifier:
+            with_vin += 1
+    return with_vin / len(listings)
 
 
 def _is_harley_search(make: str, route: ProviderRoute | None) -> bool:
@@ -970,6 +994,16 @@ async def stream_search(
     raw_dealer_count = len(dealers)
     dealers = dedupe_dealers_by_domain(dealers)
     deduped_dealer_count = len(dealers)
+    if len(dealers) > 1:
+        score_domains = [normalize_dealer_domain((dealer.website or "").strip()) for dealer in dealers]
+        dealer_scores = await asyncio.to_thread(get_scores, score_domains)
+        dealers.sort(
+            key=lambda dealer: dealer_scores.get(
+                normalize_dealer_domain((dealer.website or "").strip()),
+                NO_SCORE_DEFAULT,
+            ),
+            reverse=True,
+        )
     dealers = dealers[: requested_dealerships]
     if not dealers:
         if recorder is not None:
@@ -1049,6 +1083,9 @@ async def stream_search(
             max_pages=requested_pages,
         )
         listings_for_cache: list[dict] = []
+        total_vehicles = 0
+        dealer_failed = False
+        score_recorded = False
 
         async def _fetch(
             url: str,
@@ -1092,6 +1129,8 @@ async def stream_search(
             )
 
         def append_dealer_error(message: str, *, current_url: str | None = None, phase: str = "scrape") -> None:
+            nonlocal dealer_failed
+            dealer_failed = True
             if recorder is not None:
                 recorder.note_dealer_failed()
                 recorder.event(
@@ -1117,6 +1156,22 @@ async def stream_search(
                     },
                 )
             )
+
+        async def _record_dealer_score(*, used_cache: bool = False) -> None:
+            nonlocal score_recorded
+            if score_recorded or used_cache or not domain:
+                return
+            elapsed_s = time.perf_counter() - dealer_started_at
+            await asyncio.to_thread(
+                record_scrape_outcome,
+                domain,
+                listings=total_vehicles,
+                price_fill=_price_fill_rate(listings_for_cache),
+                vin_fill=_vin_fill_rate(listings_for_cache),
+                elapsed_s=elapsed_s,
+                failed=dealer_failed or total_vehicles <= 0,
+            )
+            score_recorded = True
 
         chunks.append(
             sse_pack(
@@ -1185,6 +1240,7 @@ async def stream_search(
                             "fetch_methods": fetch_methods_used,
                         },
                     )
+                await _record_dealer_score(used_cache=True)
                 return chunks
 
             # 1. Fetch homepage to find inventory link
@@ -1198,6 +1254,7 @@ async def stream_search(
                     append_dealer_error(
                         "Timed out while processing this dealership. Skipping to keep search moving."
                     )
+                    await _record_dealer_score()
                     return chunks
                 homepage_html, homepage_method = await asyncio.wait_for(
                     _fetch(website, "homepage"),
@@ -1258,11 +1315,13 @@ async def stream_search(
                         if domain:
                             record_provider_failure(domain)
                         append_dealer_error(homepage_timed_out_msg)
+                        await _record_dealer_score()
                         return chunks
                 else:
                     if domain:
                         record_provider_failure(domain)
                     append_dealer_error(homepage_timed_out_msg)
+                    await _record_dealer_score()
                     return chunks
             except Exception as e:
                 logger.warning(f"{cid_log}Scrape failed for %s: %s", website, e)
@@ -1305,11 +1364,13 @@ async def stream_search(
                         if domain:
                             record_provider_failure(domain)
                         append_dealer_error(str(e))
+                        await _record_dealer_score()
                         return chunks
                 else:
                     if domain:
                         record_provider_failure(domain)
                     append_dealer_error(str(e))
+                    await _record_dealer_score()
                     return chunks
 
             route = None
@@ -1375,6 +1436,7 @@ async def stream_search(
                             "Timed out while processing this dealership. Skipping to keep search moving.",
                             current_url=inv_url,
                         )
+                        await _record_dealer_score()
                         return chunks
                     current_html, current_method = await asyncio.wait_for(
                         _fetch(
@@ -1429,12 +1491,14 @@ async def stream_search(
                                 f"Timed out while fetching inventory page after ~{int(fetch_timeout)}s.",
                                 current_url=inv_url,
                             )
+                            await _record_dealer_score()
                             return chunks
                     else:
                         append_dealer_error(
                             f"Timed out while fetching inventory page after ~{int(fetch_timeout)}s.",
                             current_url=inv_url,
                         )
+                        await _record_dealer_score()
                         return chunks
                 except Exception as e:
                     logger.warning(f"{cid_log}Initial inventory scrape failed for %s: %s", inv_url, e)
@@ -1495,6 +1559,7 @@ async def stream_search(
                         if domain:
                             record_provider_failure(domain)
                         append_dealer_error(str(e), current_url=inv_url)
+                        await _record_dealer_score()
                         return chunks
             elif route and route.requires_render:
                 try:
@@ -2214,6 +2279,7 @@ async def stream_search(
                     },
                 )
             chunks.append(sse_pack("dealership", done_payload))
+            await _record_dealer_score()
             if recorder is not None:
                 recorder.note_dealer_done(listings_found=total_vehicles)
                 recorder.event(
@@ -2225,6 +2291,7 @@ async def stream_search(
                     dealership_website=website,
                     payload=done_payload,
                 )
+        await _record_dealer_score()
         return chunks
 
     async def process_one_with_timeout(index: int, d: DealershipFound) -> list[str]:

@@ -107,6 +107,8 @@ class Settings(BaseSettings):
     # Absolute safety cap for auto-pagination. Each page fetch can take 10-30s through
     # managed scrapers, so this must stay low enough to fit within dealership_timeout.
     search_max_pages_per_dealer_cap: int = 12
+    # Blend factor for per-dealer scrape score updates. Higher values react faster to recent runs.
+    dealer_score_ema_alpha: float = 0.35
     # Room58/Harley dealer SRPs often expose very large inventories and paginate cheaply over
     # direct HTTP; allow a higher safety cap only for Harley-focused searches.
     harley_search_max_pages_per_dealer_cap: int = 24

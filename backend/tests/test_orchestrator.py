@@ -514,6 +514,118 @@ async def test_stream_search_recovers_from_homepage_failure_with_guessed_invento
 
 
 @pytest.mark.asyncio
+async def test_stream_search_prioritizes_higher_scored_dealers_first() -> None:
+    from app.schemas import ExtractionResult, VehicleListing
+
+    dealers = [
+        DealershipFound(
+            name="Dealer A",
+            place_id="p1",
+            address="1 Main St",
+            website="https://dealer-a.example/",
+        ),
+        DealershipFound(
+            name="Dealer B",
+            place_id="p2",
+            address="2 Main St",
+            website="https://dealer-b.example/",
+        ),
+    ]
+    fetch_urls: list[str] = []
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        fetch_urls.append(url)
+        if page_kind == "homepage":
+            return '<html><body><a href="/inventory">Inventory</a></body></html>', "direct"
+        return "<html><body><div class='vehicle-card'>Inventory</div></body></html>", "direct"
+
+    with (
+        patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
+        patch("app.services.orchestrator.effective_search_concurrency", return_value=1),
+        patch("app.services.orchestrator.get_scores", return_value={"dealer-a.example": 20.0, "dealer-b.example": 80.0}),
+        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            return_value=ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2024,
+                        make="Toyota",
+                        model="Camry",
+                        price=28000,
+                        listing_url="https://dealer.example/vdp/1",
+                    )
+                ],
+                next_page_url=None,
+            ),
+        ),
+        patch("app.services.orchestrator.extract_vehicles_from_html", new_callable=AsyncMock),
+    ):
+        async for _ in stream_search("Detroit", "Toyota", "", max_dealerships=2, max_pages_per_dealer=1):
+            pass
+
+    homepage_fetches = [url for url in fetch_urls if url.endswith(".example/")]
+    assert homepage_fetches[:2] == ["https://dealer-b.example/", "https://dealer-a.example/"]
+
+
+@pytest.mark.asyncio
+async def test_stream_search_records_dealer_score_on_success() -> None:
+    from app.schemas import ExtractionResult, VehicleListing
+
+    dealers = [
+        DealershipFound(
+            name="Scored Dealer",
+            place_id="p1",
+            address="1 Main St",
+            website="https://scored-dealer.example/",
+        )
+    ]
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        if page_kind == "homepage":
+            return '<html><body><a href="/inventory">Inventory</a></body></html>', "direct"
+        return "<html><body><div class='vehicle-card'>Inventory</div></body></html>", "direct"
+
+    with (
+        patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
+        patch("app.services.orchestrator.get_scores", return_value={}),
+        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            return_value=ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2024,
+                        make="Toyota",
+                        model="Camry",
+                        price=28000,
+                        vin="4T1B11HK5KU123456",
+                        vehicle_identifier="4T1B11HK5KU123456",
+                        listing_url="https://scored-dealer.example/vdp/1",
+                    )
+                ],
+                next_page_url=None,
+            ),
+        ),
+        patch("app.services.orchestrator.extract_vehicles_from_html", new_callable=AsyncMock),
+        patch("app.services.orchestrator.record_scrape_outcome") as mock_record_score,
+    ):
+        async for _ in stream_search("Detroit", "Toyota", "", max_dealerships=1, max_pages_per_dealer=1):
+            pass
+
+    mock_record_score.assert_called_once()
+    _, kwargs = mock_record_score.call_args
+    assert kwargs["listings"] == 1
+    assert kwargs["price_fill"] == 1.0
+    assert kwargs["vin_fill"] == 1.0
+    assert kwargs["failed"] is False
+
+
+@pytest.mark.asyncio
 async def test_stream_search_reroutes_team_velocity_model_hub_to_inventory_srp() -> None:
     from app.schemas import ExtractionResult, VehicleListing
     from app.services.dealer_platforms import PlatformProfile
