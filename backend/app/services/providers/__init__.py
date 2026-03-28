@@ -15,11 +15,14 @@ from app.services.providers import (
 )
 
 _HANDLERS = {
+    "marinemax": generic_franchise.extract_inventory,
     "dealer_dot_com": dealer_dot_com.extract_inventory,
     "dealer_on": dealer_on.extract_inventory,
     "dealer_inspire": dealer_inspire.extract_inventory,
     "cdk_dealerfire": generic_franchise.extract_inventory,
     "d2c_media": generic_franchise.extract_inventory,
+    "revver_digital_marine": generic_franchise.extract_inventory,
+    "basspro_boating_center": generic_franchise.extract_inventory,
     "team_velocity": generic_franchise.extract_inventory,
     "honda_acura_inventory": honda_acura_inventory.extract_inventory,
     "hyundai_inventory_search": hyundai_inventory_search.extract_inventory,

@@ -97,11 +97,57 @@ def test_false_positive_boat_retailer_filter_excludes_supply_and_service() -> No
     )
 
 
+def test_trusted_national_boat_retailer_is_not_treated_as_false_positive() -> None:
+    assert places._is_trusted_national_retailer_match(
+        "Bass Pro Shops Boating Center Auburn Hills",
+        "https://www.bassproboatingcenters.com/boats-for-sale.html",
+        vehicle_category="boat",
+    )
+    assert not places._looks_like_false_positive_category_match(
+        "Bass Pro Shops Boating Center Auburn Hills",
+        "https://www.bassproboatingcenters.com/boats-for-sale.html",
+        vehicle_category="boat",
+    )
+    assert places._is_trusted_national_retailer_match(
+        "MarineMax Clearwater",
+        "https://www.marinemax.com/boats-for-sale/stores/clearwater",
+        vehicle_category="boat",
+    )
+
+
+def test_false_positive_genesis_make_match_excludes_other_oems_and_generic_groups() -> None:
+    assert places._looks_like_false_positive_make_match(
+        "Genesis Chevrolet",
+        "https://www.genesischevrolet.com/",
+        make="Genesis",
+        vehicle_category="car",
+    )
+    assert places._looks_like_false_positive_make_match(
+        "Genesis Automotive Group",
+        "https://www.genesisautomotivegroup.com/",
+        make="Genesis",
+        vehicle_category="car",
+    )
+    assert not places._looks_like_false_positive_make_match(
+        "Genesis of Southfield",
+        "https://www.genesisofsouthfield.com/",
+        make="Genesis",
+        vehicle_category="car",
+    )
+
+
 def test_normalize_dealer_website_url_strips_tracking() -> None:
     u = places._normalize_dealer_website_url("https://dealer.com/?gclid=1&utm_source=email")
     assert "gclid" not in u
     assert "utm_source" not in u
     assert "dealer.com" in u
+
+
+def test_normalize_dealer_website_url_collapses_buy_subdomain_to_homepage() -> None:
+    u = places._normalize_dealer_website_url(
+        "https://buy.jamesmartindetroit.com/carbravo?evar109=115100&evar120=dealeron"
+    )
+    assert u == "https://www.jamesmartindetroit.com/"
 
 
 def test_normalize_dealer_website_url_rejects_javascript_void() -> None:
@@ -329,6 +375,109 @@ async def test_find_dealerships_boats_skips_false_positive_retailers(places_api_
     )
     assert len(out) == 1
     assert out[0].name == "Temptation Yacht Sales"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_find_dealerships_boats_keeps_trusted_national_retailers_with_local_results(places_api_key: str) -> None:
+    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
+    search_response = {
+        "places": [
+            {
+                "id": "ChIJbasspro",
+                "name": "places/ChIJbasspro",
+                "displayName": {"text": "Bass Pro Shops Boating Center Auburn Hills"},
+                "formattedAddress": "Auburn Hills, MI",
+                "websiteUri": "https://www.bassproboatingcenters.com/boats-for-sale.html",
+            },
+            {
+                "id": "ChIJgear",
+                "name": "places/ChIJgear",
+                "displayName": {"text": "Michigan Marine Gear"},
+                "formattedAddress": "123 Harbor",
+                "websiteUri": "https://www.michiganmarinegear.com/",
+            },
+        ]
+    }
+
+    def _route(request: object) -> Response:
+        try:
+            raw = request.content.decode() if getattr(request, "content", None) else "{}"  # type: ignore[union-attr]
+            body = json.loads(raw) if raw else {}
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return Response(200, json={"places": []})
+        if body.get("textQuery") == "Detroit MI":
+            return Response(200, json=loc_response)
+        return Response(200, json=search_response)
+
+    respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
+
+    out = await places.find_dealerships(
+        "Detroit MI",
+        vehicle_category="boat",
+        make="Tracker",
+        limit=5,
+        radius_miles=25,
+    )
+    assert len(out) == 1
+    assert out[0].name == "Bass Pro Shops Boating Center Auburn Hills"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_find_dealerships_cars_genesis_skips_false_positive_named_businesses(places_api_key: str) -> None:
+    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
+    search_response = {
+        "places": [
+            {
+                "id": "ChIJgenchevy",
+                "name": "places/ChIJgenchevy",
+                "displayName": {"text": "Genesis Chevrolet"},
+                "formattedAddress": "21800 Gratiot Ave, Eastpointe, MI",
+                "websiteUri": "https://www.genesischevrolet.com/",
+            },
+            {
+                "id": "ChIJgengroup",
+                "name": "places/ChIJgengroup",
+                "displayName": {"text": "Genesis Automotive Group"},
+                "formattedAddress": "23001 W Industrial Dr, St Clair Shores, MI",
+                "websiteUri": "https://www.genesisautomotivegroup.com/",
+            },
+            {
+                "id": "ChIJgensouthfield",
+                "name": "places/ChIJgensouthfield",
+                "displayName": {"text": "Genesis of Southfield"},
+                "formattedAddress": "Southfield, MI",
+                "websiteUri": "https://www.genesisofsouthfield.com/",
+            },
+        ]
+    }
+
+    def _route(request: object) -> Response:
+        try:
+            raw = request.content.decode() if getattr(request, "content", None) else "{}"  # type: ignore[union-attr]
+            body = json.loads(raw) if raw else {}
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return Response(200, json={"places": []})
+        if body.get("textQuery") == "Detroit MI":
+            return Response(200, json=loc_response)
+        return Response(200, json=search_response)
+
+    respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
+
+    out = await places.find_dealerships(
+        "Detroit MI",
+        vehicle_category="car",
+        make="Genesis",
+        limit=10,
+        radius_miles=25,
+    )
+    assert len(out) == 1
+    assert out[0].name == "Genesis of Southfield"
 
 
 @respx.mock

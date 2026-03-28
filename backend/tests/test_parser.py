@@ -52,6 +52,165 @@ def test_try_extract_dom_msrp_and_discount_from_attributes() -> None:
     assert v.days_on_lot == 18
 
 
+def test_try_extract_basspro_inventory_card() -> None:
+    html = """
+    <html><body>
+      <div class="cell inventory-card">
+        <a href="/boats-for-sale/boatmodel/2026+nitro+zv19+sport+pro-10128601.html">
+          <div class="card">
+            <div class="grid-x">
+              <div class="small-6 medium-12">
+                <div class="card-divider"><div class="condition">New</div></div>
+                <img class="item-image" src="https://images.example.com/nitro.jpg" />
+              </div>
+              <div class="small-6 medium-12">
+                <div class="card-section">
+                  <p class="mname">2026 Nitro ZV19 Sport Pro</p>
+                  <p class="locname">Avon, OH</p>
+                  <p class="price">$80,665 <span class="currency">USD</span></p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </a>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.bassproboatingcenters.com/boats-for-sale.html",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.year == 2026
+    assert v.make == "Nitro"
+    assert v.model == "ZV19"
+    assert v.trim == "Sport Pro"
+    assert v.price == 80665
+    assert v.vehicle_condition == "new"
+    assert v.inventory_location == "Avon, OH"
+    assert v.image_url == "https://images.example.com/nitro.jpg"
+    assert v.listing_url == "https://www.bassproboatingcenters.com/boats-for-sale/boatmodel/2026+nitro+zv19+sport+pro-10128601.html"
+
+
+def test_try_extract_onewater_listing_card_and_hidden_json() -> None:
+    html = """
+    <html><body>
+      <div class="sbiGrid">
+        <div class="item">
+          <div class="itemImage">
+            <a href="https://www.onewaterinventory.com/details/barletta/l23m/abc123">
+              <img class="sbAlertImg imageLink" src="https://images.example.com/barletta.jpg" />
+            </a>
+          </div>
+          <div class="itemInner">
+            <div class="iiPad">
+              <div class="mainInfo">
+                <div class="miLeft">
+                  <h3 class="yearMake">2026 BARLETTA</h3>
+                  <h4 class="model">L23M</h4>
+                </div>
+              </div>
+              <div class="secondaryInfo">
+                <div class="priceBlock">
+                  <div class="msrpPrice">$184,445.56</div>
+                  <div class="price">$149,402</div>
+                </div>
+              </div>
+              <div class="lastInfo nationSearch">
+                <div class="lILeft"><div class="dealer"><strong>Singleton Marine - Lake Keowee</strong> (Sunset, SC)</div></div>
+                <div class="lIRight"><div class="condition">New</div>| <div class="itemNumber">N316381</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="modal micromodal-slide">
+            <div class="modal__overlay">
+              <div class="modal__container">
+                <div class="modal-content-content">
+                  <input type="hidden" name="boat_details" value="{&quot;title&quot;:&quot;2026 BARLETTA L23M&quot;,&quot;stockNumber&quot;:&quot;N316381&quot;,&quot;price&quot;:149401.95,&quot;sharePhoto&quot;:&quot;https:\/\/images.example.com\/barletta-alt.jpg&quot;,&quot;condition&quot;:&quot;New&quot;,&quot;owner&quot;:&quot;Singleton Marine - Lake Keowee&quot;,&quot;year&quot;:2026,&quot;make&quot;:&quot;BARLETTA&quot;,&quot;model&quot;:&quot;L23M&quot;}" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="sbPaging">
+          <div class="currentPage">Page: 1 of 121</div>
+          <div class="prevNext"><a href="?sbpage=2" class="sbNext">Next Page</a></div>
+        </div>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.onewaterinventory.com/search/",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.year == 2026
+    assert v.make == "BARLETTA"
+    assert v.model == "L23M"
+    assert v.price == 149401.95
+    assert v.vehicle_condition == "new"
+    assert v.vehicle_identifier == "N316381"
+    assert v.inventory_location == "Singleton Marine - Lake Keowee (Sunset, SC)"
+    assert v.image_url == "https://images.example.com/barletta-alt.jpg"
+    assert v.listing_url == "https://www.onewaterinventory.com/details/barletta/l23m/abc123"
+    assert result.next_page_url == "https://www.onewaterinventory.com/search/?sbpage=2"
+    assert result.pagination is not None
+    assert result.pagination.total_pages == 121
+
+
+def test_try_extract_marinemax_rendered_card() -> None:
+    html = """
+    <html><body>
+      <a class="mmx-boat-card fab plp-redesign" href="/boats-for-sale/details/used/sea-ray/slx-280/2024/-/123456">
+        <div class="image" style="background-image:url('https://images.example.com/marinemax.jpg')"></div>
+        <div class="details">
+          <div class="condition-and-type">28' | Used | New Arrival</div>
+          <h2 class="title"><span>2024 Sea Ray SLX 280</span></h2>
+          <span class="stock-number"># 199479</span>
+          <div class="card-bottom">
+            <div class="cta-wrapper">
+              <span class="current-price">$189,900</span>
+              <span class="old-price">$199,900</span>
+            </div>
+          </div>
+        </div>
+      </a>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.marinemax.com/boats-for-sale",
+        html=html,
+        make_filter="Sea Ray",
+        model_filter="",
+        vehicle_category="boat",
+        platform_id="marinemax",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.year == 2024
+    assert v.make == "Sea Ray"
+    assert v.model == "SLX"
+    assert v.trim == "280"
+    assert v.price == 189900
+    assert v.msrp == 199900
+    assert v.dealer_discount == 10000
+    assert v.vehicle_condition == "used"
+    assert v.vehicle_identifier == "199479"
+    assert v.image_url == "https://images.example.com/marinemax.jpg"
+    assert v.listing_url == "https://www.marinemax.com/boats-for-sale/details/used/sea-ray/slx-280/2024/-/123456"
+
+
 def test_try_extract_team_velocity_vehicle_card() -> None:
     html = """
     <html><body>
@@ -569,6 +728,30 @@ def test_find_next_page_numbered_pn() -> None:
     nxt = find_next_page_url(html, base)
     assert nxt is not None
     assert "pn=2" in nxt
+
+
+def test_find_next_page_onewater_sbpage() -> None:
+    html = '<html><body><a href="?sbpage=2" class="sbNext">Next Page</a></body></html>'
+    base = "https://www.onewaterinventory.com/search/"
+    nxt = find_next_page_url(html, base)
+    assert nxt == "https://www.onewaterinventory.com/search/?sbpage=2"
+
+
+def test_find_next_page_basspro_uses_data_val() -> None:
+    html = """
+    <html><body>
+      <nav aria-label="Pagination">
+        <ul class="pagination text-center">
+          <li class="current"><span class="show-for-sr">You're on page</span> 1 </li>
+          <li><a aria-label="Page 2" data-val="2" href="">2</a></li>
+          <li class="pagination-next"><a aria-label="Next page" data-val="+1" href="#">Next</a></li>
+        </ul>
+      </nav>
+    </body></html>
+    """
+    base = "https://www.bassproboatingcenters.com/boats-for-sale.html"
+    nxt = find_next_page_url(html, base)
+    assert nxt == "https://www.bassproboatingcenters.com/boats-for-sale.html?page=2"
 
 
 def test_try_extract_synthesizes_next_from_inventory_api_json() -> None:

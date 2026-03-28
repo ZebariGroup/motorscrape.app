@@ -57,10 +57,14 @@ _PLAYWRIGHT_INVENTORY_READY_SELECTOR = ",".join(
         ".carbox",
         ".vehicle-card",
         ".vehicle-card--mod",
+        ".inventory-card",
+        ".sbiGrid .item",
         ".si-vehicle-box",
         ".v7list-results__item",
         ".v7list-vehicle",
         ".vehicle-heading__link",
+        ".mmx-boat-card[href]",
+        ".mmx-boat-card .title",
         "li[data-component='result-tile']",
         "[data-component='result-tile']",
     )
@@ -246,6 +250,19 @@ def inventory_render_plan_for_url(url: str, platform_id: str | None = None) -> I
 
 _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
     PlatformDefinition(
+        platform_id="marinemax",
+        markers=(
+            "marinemax.com",
+            "find-a-boat-v2",
+            "boat-card-template",
+            "algoliaapplicationid",
+            "algoliaapikey",
+        ),
+        inventory_path_hints=("boats-for-sale", "boats-for-sale/stores"),
+        extraction_mode="rendered_dom",
+        requires_render=True,
+    ),
+    PlatformDefinition(
         platform_id="oneaudi_falcon",
         markers=("oneaudi-falcon", "audi.com", "vtpimages.audi.com"),
         inventory_path_hints=(
@@ -324,6 +341,18 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         requires_render=True,
     ),
     PlatformDefinition(
+        platform_id="revver_digital_marine",
+        markers=(
+            "powered by revver digital",
+            "name=\"boat_details\"",
+            "name='boat_details'",
+            "class=\"sbnext\"",
+            "onewaterinventory.com/search",
+        ),
+        inventory_path_hints=("search", "details", "boats-for-sale"),
+        extraction_mode="structured_html",
+    ),
+    PlatformDefinition(
         platform_id="dealer_spike",
         markers=(
             "dealer spike",
@@ -347,6 +376,17 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
             "used-inventory-in-stock",
         ),
         extraction_mode="hybrid",
+    ),
+    PlatformDefinition(
+        platform_id="basspro_boating_center",
+        markers=(
+            "bassproboatingcenters.com",
+            "data-modelpage=\"/boats-for-sale/boatmodel/\"",
+            "class=\"cell inventory-card\"",
+            "class=\"mname\"",
+        ),
+        inventory_path_hints=("boats-for-sale.html", "boats-for-sale/boatmodel", "brands"),
+        extraction_mode="structured_html",
     ),
     PlatformDefinition(
         platform_id="d2c_media",

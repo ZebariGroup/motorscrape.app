@@ -122,9 +122,11 @@ _INVENTORY_HINTS = (
     "vehicle-card-title",
     "vehicle-card",
     "vehicle-card--mod",
+    "inventory-card",
     "vehiclecard",
     "inventory_list",
     "inventory-listing",
+    "sbalerttitle",
     "srpvehicle",
     "v7list-results__item",
     "v7list-vehicle",
@@ -152,6 +154,8 @@ _STRUCTURE_HINTS = (
     '"@type": "vehicle"',
     '"vehicleidentificationnumber"',
     '"vdpurl"',
+    'name="boat_details"',
+    "name='boat_details'",
 )
 _PLACEHOLDER_MARKERS = (
     "srp-inventory skeleton",
@@ -619,6 +623,22 @@ def _has_dom_inventory_result_tiles(html: str) -> bool:
     )
 
 
+def _has_rendered_marinemax_cards(html: str) -> bool:
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return False
+    for anchor in soup.select("a.mmx-boat-card[href]"):
+        href = str(anchor.get("href") or "").strip()
+        if not href or "{" in href or href.startswith(":"):
+            continue
+        title = anchor.select_one(".title")
+        title_text = title.get_text(" ", strip=True) if title else ""
+        if title_text and "{{" not in title_text:
+            return True
+    return False
+
+
 def _should_prefer_zenrows_render(html: str, *, page_kind: PageKind) -> bool:
     if page_kind != "inventory":
         return False
@@ -701,6 +721,19 @@ def _fallback_browser_headers() -> dict[str, str]:
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     }
+
+
+def _inventory_api_headers(*, content_type: str | None = None) -> dict[str, str]:
+    headers = {
+        **_browser_headers(),
+        # Dealer.com inventory APIs sometimes return Brotli bodies that the runtime
+        # does not transparently decode, so prefer identity/gzip here.
+        "Accept": "application/json,text/plain,*/*",
+        "Accept-Encoding": "identity",
+    }
+    if content_type:
+        headers["Content-Type"] = content_type
+    return headers
 
 
 async def _direct_get(url: str, timeout: httpx.Timeout) -> str:
@@ -806,7 +839,11 @@ async def _scrapingbee_fetch(
 
 def _html_looks_inventory_ready(html: str) -> bool:
     lower = html.lower()
-    return any(marker in lower for marker in _INVENTORY_HINTS) or _has_dom_inventory_result_tiles(html)
+    return (
+        any(marker in lower for marker in _INVENTORY_HINTS)
+        or _has_dom_inventory_result_tiles(html)
+        or _has_rendered_marinemax_cards(html)
+    )
 
 
 def _extract_inventory_api_urls(html: str, base_url: str) -> list[str]:
@@ -1195,7 +1232,7 @@ async def _maybe_append_inventory_api_data(
                 rewritten_body = _rewrite_inventory_post_body_for_page(body, page_url)
                 r = await client.post(
                     api_url,
-                    headers={**_browser_headers(), "Content-Type": "application/json"},
+                    headers=_inventory_api_headers(content_type="application/json"),
                     content=rewritten_body,
                 )
                 r.raise_for_status()
@@ -1220,7 +1257,11 @@ async def _maybe_append_inventory_api_data(
         for api_url, query in api_gets[:2]:
             try:
                 rewritten_query = _rewrite_inventory_get_query_for_page(query, page_url)
-                r = await client.get(api_url, params=rewritten_query or None, headers=_browser_headers())
+                r = await client.get(
+                    api_url,
+                    params=rewritten_query or None,
+                    headers=_inventory_api_headers(),
+                )
                 if r.status_code == 403 and settings.zenrows_api_key:
                     full_url = api_url
                     if rewritten_query:
@@ -1238,7 +1279,7 @@ async def _maybe_append_inventory_api_data(
             payloads.append(content)
         for api_url in api_urls[:2]:
             try:
-                r = await client.get(api_url, headers=_browser_headers())
+                r = await client.get(api_url, headers=_inventory_api_headers())
                 r.raise_for_status()
             except Exception as e:
                 logger.debug("Inventory API fetch failed for %s: %s", api_url, e)

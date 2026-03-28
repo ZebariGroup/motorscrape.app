@@ -424,6 +424,36 @@ def test_resolve_inventory_url_for_provider_keeps_generic_ddc_srp_for_single_bra
     assert url == "https://www.bmwofannarbor.com/new-inventory/index.htm"
 
 
+def test_resolve_inventory_url_for_provider_avoids_single_brand_suburban_ford_model_landings() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-inventory",),
+        inventory_url_hint="https://www.suburbanfordofferndale.com/new-inventory/index.htm",
+    )
+    html = """
+    <html><body>
+      <a href="/new-ford/bronco-ferndale-mi.htm">Bronco</a>
+      <a href="/new-ford/f-150-ferndale-mi.htm">F-150</a>
+      <a href="/new-inventory/index.htm">New Inventory</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.suburbanfordofferndale.com/",
+        route,
+        fallback_url="https://www.suburbanfordofferndale.com/new-inventory/index.htm",
+        make="Ford",
+        model="",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.suburbanfordofferndale.com/all-inventory/index.htm"
+
+
 def test_resolve_inventory_url_for_provider_avoids_single_brand_bmw_marketing_landings() -> None:
     route = ProviderRoute(
         platform_id="dealer_dot_com",
@@ -452,6 +482,38 @@ def test_resolve_inventory_url_for_provider_avoids_single_brand_bmw_marketing_la
         vehicle_condition="new",
     )
     assert url == "https://www.bmwofrochesterhills.com/new-inventory/index.htm"
+
+
+def test_resolve_inventory_url_for_provider_canonicalizes_ddc_model_search_to_all_inventory() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory",),
+        inventory_url_hint="https://www.suburbanbuickgmcoftroy.com/new-inventory/index.htm",
+    )
+    html = """
+    <html><body>
+      <a href="/used-inventory/buick-envision-troy-mi.htm">Used Buick Envision</a>
+      <a href="/all-inventory/index.htm">All Inventory</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.suburbanbuickgmcoftroy.com/",
+        route,
+        fallback_url="https://www.suburbanbuickgmcoftroy.com/new-inventory/index.htm",
+        make="Buick",
+        model="Envision",
+        vehicle_condition="all",
+    )
+    parsed = urlsplit(url)
+    assert parsed.path == "/all-inventory/index.htm"
+    query = parse_qs(parsed.query)
+    assert query["model"] == ["Envision"]
 
 
 def test_resolve_inventory_url_for_provider_keeps_gm_family_all_inventory_index() -> None:

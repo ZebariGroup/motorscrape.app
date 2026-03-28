@@ -127,3 +127,47 @@ def test_detect_platform_profile_matches_dealer_spike_homepage_markers() -> None
     assert profile is not None
     assert profile.platform_id == "dealer_spike"
     assert "default.asp?page=xallinventory" in inventory_hints_for_platform("dealer_spike")
+
+
+def test_detect_platform_profile_matches_marinemax_markers() -> None:
+    html = """
+    <html><body>
+      <div id="find-a-boat-v2"></div>
+      <script id="boat-card-template" type="text/x-template"></script>
+      <script>window.algoliaApplicationID = 'MES124X9KA'; window.algoliaAPIKey = 'abc';</script>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.marinemax.com/boats-for-sale")
+    assert profile is not None
+    assert profile.platform_id == "marinemax"
+    assert profile.requires_render is True
+
+
+def test_detect_platform_profile_matches_revver_digital_marine_markers() -> None:
+    html = """
+    <html><body>
+      <input type="hidden" name="boat_details" value="{}" />
+      <a class="sbNext" href="?sbpage=2">Next Page</a>
+      <footer>Powered by Revver Digital</footer>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.onewaterinventory.com/search/")
+    assert profile is not None
+    assert profile.platform_id == "revver_digital_marine"
+    assert "search" in inventory_hints_for_platform("revver_digital_marine")
+
+
+def test_detect_platform_profile_matches_basspro_markers() -> None:
+    html = """
+    <html><body>
+      <div class="grid-x" data-modelPage="/boats-for-sale/boatmodel/">
+        <div class="cell inventory-card">
+          <p class="mname">2026 Nitro ZV19 Sport Pro</p>
+        </div>
+      </div>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.bassproboatingcenters.com/boats-for-sale.html")
+    assert profile is not None
+    assert profile.platform_id == "basspro_boating_center"
+    assert "boats-for-sale.html" in inventory_hints_for_platform("basspro_boating_center")

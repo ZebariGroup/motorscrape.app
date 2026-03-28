@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html as stdlib_html
 import json
 import logging
 import re
@@ -127,7 +128,7 @@ _DISPLAY_RANGE_TOTAL_RES = (
         re.I,
     ),
 )
-_PAGE_OF_TOTAL_RE = re.compile(r"\bpage\s+(?P<page>\d{1,5})\s+of\s+(?P<total>\d{1,5})\b", re.I)
+_PAGE_OF_TOTAL_RE = re.compile(r"\bpage\s*:?\s*(?P<page>\d{1,5})\s+of\s+(?P<total>\d{1,5})\b", re.I)
 _GENERIC_CARD_ACTION_TEXTS = frozenset({"click for price", "more info", "details", "learn more"})
 _KNOWN_MAKE_PREFIXES = tuple(
     sorted(
@@ -231,6 +232,30 @@ def _extract_json_inventory(html: str, soup: BeautifulSoup) -> list[dict]:
             continue
 
         _collect_vehicle_arrays(blob, json_records)
+
+    for node in soup.find_all("input", attrs={"name": "boat_details"}):
+        raw = node.get("value")
+        if not raw:
+            continue
+        try:
+            boat_details = json.loads(stdlib_html.unescape(str(raw)), strict=False)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if not isinstance(boat_details, dict):
+            continue
+        normalized = {
+            "title": boat_details.get("title"),
+            "stockNumber": boat_details.get("stockNumber"),
+            "price": boat_details.get("price"),
+            "sharePhoto": boat_details.get("sharePhoto"),
+            "condition": boat_details.get("condition"),
+            "owner": boat_details.get("owner"),
+            "year": boat_details.get("year"),
+            "make": boat_details.get("make"),
+            "model": boat_details.get("model"),
+        }
+        if any(normalized.values()):
+            json_records.append({k: v for k, v in normalized.items() if v not in (None, "", [], {})})
 
     regex_records = _extract_vehicles_regex(html)
 
@@ -928,7 +953,7 @@ def _pick_year(d: dict[str, Any]) -> int | None:
 
 
 def _pick_inventory_location(d: dict[str, Any]) -> str | None:
-    for key in ("location", "inventoryLocation", "accountName", "dealerName", "dealer_name"):
+    for key in ("location", "inventoryLocation", "accountName", "dealerName", "dealer_name", "owner"):
         value = d.get(key)
         if isinstance(value, dict):
             value = value.get("name") or value.get("text")
@@ -1074,6 +1099,9 @@ def _prefer_vehicle_fields(existing: VehicleListing, incoming: VehicleListing) -
                 continue
             if cc is None or iv > cc:
                 merged[key] = value
+        else:
+            if len(str(value)) > len(str(current)):
+                merged[key] = value
     return VehicleListing(**merged)
 
 
@@ -1132,6 +1160,7 @@ def dict_to_vehicle_listing(
         or d.get("imageUrl")
         or d.get("image")
         or d.get("primaryImageUrl")
+        or d.get("sharePhoto")
     )
     if not img and isinstance(d.get("images"), list) and d["images"]:
         img = d["images"][0]
@@ -1308,7 +1337,9 @@ def _pick_dom_vehicle_image(card: Any, page_url: str) -> str | None:
         ".hero-carousel__background-image--grid",
         ".hero-carousel__background-image--list",
         ".boat-image-container",
+        ".itemImage img",
         ".vehicle__image[data-src]",
+        ".image",
         "img[data-src]",
         "img[data-lazy-src]",
         ".vehicle-image img",
@@ -1572,11 +1603,13 @@ def extract_dom_vehicle_cards(
 
     selectors = (
         ".vehicle-card",
+        ".inventory-card",
         ".inventoryList-bike",
         ".result-wrap.new-vehicle",
         ".new-vehicle[data-vehicle]",
         ".brandInventoryCard",
         ".hit",
+        ".sbiGrid .item",
         ".inventory-model-single",
         ".unit-row",
         ".inv-card",
@@ -1584,6 +1617,7 @@ def extract_dom_vehicle_cards(
         ".v7list-vehicle",
         ".si-vehicle-box",
         ".carbox",
+        ".mmx-boat-card",
         ".inventory-vehicle-block",
         ".vehicle-box",
         ".vehicle-specials",
@@ -1617,6 +1651,29 @@ def extract_dom_vehicle_cards(
         tv_current_price = _text_or_none(card.select_one(".vehicle-price--current .vehicle-price__price"))
         tv_old_price = _text_or_none(card.select_one(".vehicle-price--old .vehicle-price__price"))
         tv_savings = _text_or_none(card.select_one(".vehicle-price--savings .vehicle-price__price"))
+        basspro_title = _text_or_none(card.select_one(".mname"))
+        basspro_condition = _text_or_none(card.select_one(".condition"))
+        basspro_location = _text_or_none(card.select_one(".locname"))
+        basspro_price = _text_or_none(card.select_one(".price"))
+        onewater_title = " ".join(
+            part
+            for part in (
+                _text_or_none(card.select_one(".yearMake")),
+                _text_or_none(card.select_one(".model")),
+            )
+            if part
+        ).strip()
+        onewater_condition = _text_or_none(card.select_one(".lastInfo .condition")) or _text_or_none(card.select_one(".lIRight .condition"))
+        onewater_location = _text_or_none(card.select_one(".dealer"))
+        onewater_stock = _text_or_none(card.select_one(".itemNumber"))
+        onewater_price = _text_or_none(card.select_one(".priceBlock .price"))
+        marinemax_title = _text_or_none(card.select_one(".title"))
+        marinemax_condition_meta = _text_or_none(card.select_one(".condition-and-type"))
+        marinemax_stock = _text_or_none(card.select_one(".stock-number"))
+        if marinemax_stock:
+            marinemax_stock = marinemax_stock.replace("#", " ").strip()
+        marinemax_price = _text_or_none(card.select_one(".current-price"))
+        marinemax_old_price = _text_or_none(card.select_one(".old-price"))
         temptation_make = _text_or_none(card.select_one(".boat-make h5"))
         temptation_model = _text_or_none(card.select_one(".boat-make h5 span"))
         temptation_price = _text_or_none(card.select_one(".main-boat-price"))
@@ -1696,6 +1753,7 @@ def extract_dom_vehicle_cards(
             or card.get("data-retail-price")
             or payload.get("msrp")
             or tv_old_price
+            or marinemax_old_price
         )
         price = _coerce_float(
             card.get("data-price")
@@ -1705,6 +1763,9 @@ def extract_dom_vehicle_cards(
             or payload.get("internetPrice")
             or payload.get("salePrice")
             or tv_current_price
+            or basspro_price
+            or onewater_price
+            or marinemax_price
             or temptation_price
             or wilson_price
             or gp_price
@@ -1769,6 +1830,9 @@ def extract_dom_vehicle_cards(
         )
         raw_title = (
             card.get("data-name")
+            or basspro_title
+            or onewater_title
+            or marinemax_title
             or _text_or_none(card.select_one(".inventoryList-bike-details-title > a"))
             or _text_or_none(card.select_one(".vehicle-heading__link"))
             or _text_or_none(card.select_one(".featuredCardHeading"))
@@ -1839,6 +1903,9 @@ def extract_dom_vehicle_cards(
             or normalize_vehicle_condition(card.get("data-unit-condition"))
             or normalize_vehicle_condition(payload.get("condition"))
             or normalize_vehicle_condition(payload.get("type"))
+            or normalize_vehicle_condition(basspro_condition)
+            or normalize_vehicle_condition(onewater_condition)
+            or normalize_vehicle_condition(marinemax_condition_meta)
             or normalize_vehicle_condition(tv_condition)
             or normalize_vehicle_condition(wilson_specs.get("condition"))
             or normalize_vehicle_condition(raw_title)
@@ -1852,7 +1919,16 @@ def extract_dom_vehicle_cards(
                 "hullIdentificationNumber": payload.get("hullIdentificationNumber"),
                 "boatHin": card.get("data-boat-hin"),
                 "stock_number": card.get("data-boat-stock-number"),
-                "stock": card.get("data-stock") or payload.get("stock") or tv_stock or wilson_specs.get("stock number") or gp_stock or colony_details.get("stock #"),
+                "stock": (
+                    card.get("data-stock")
+                    or payload.get("stock")
+                    or tv_stock
+                    or onewater_stock
+                    or marinemax_stock
+                    or wilson_specs.get("stock number")
+                    or gp_stock
+                    or colony_details.get("stock #")
+                ),
                 "stockNo": card.get("data-stock-no") or payload.get("stockNo"),
             },
             vehicle_category=vehicle_category,
@@ -1885,9 +1961,25 @@ def extract_dom_vehicle_cards(
                 listing_url=listing_url,
                 raw_title=str(raw_title).strip() if raw_title else None,
                 inventory_location=str(
-                    inventory_location or tv_location or temptation_location or wilson_specs.get("location") or gp_location or colony_details.get("location")
+                    inventory_location
+                    or basspro_location
+                    or onewater_location
+                    or tv_location
+                    or temptation_location
+                    or wilson_specs.get("location")
+                    or gp_location
+                    or colony_details.get("location")
                 ).strip()
-                if (inventory_location or tv_location or temptation_location or wilson_specs.get("location") or gp_location or colony_details.get("location"))
+                if (
+                    inventory_location
+                    or basspro_location
+                    or onewater_location
+                    or tv_location
+                    or temptation_location
+                    or wilson_specs.get("location")
+                    or gp_location
+                    or colony_details.get("location")
+                )
                 else None,
                 availability_status=availability_status,
                 is_offsite=False,
@@ -1912,7 +2004,7 @@ def _query_lower_dict(url: str) -> dict[str, str]:
 
 def _current_page_from_url(url: str) -> int:
     q = _query_lower_dict(url)
-    for k in ("page", "pt", "_p", "pn", "currentpage"):
+    for k in ("page", "pt", "_p", "pn", "currentpage", "sbpage"):
         if k in q:
             try:
                 return int(q[k])
@@ -2049,7 +2141,10 @@ def _pagination_info_from_page_links(html: str, page_url: str) -> PaginationInfo
     for a in soup.find_all("a", href=True):
         parsed = urljoin(page_url, str(a["href"]))
         q = _query_lower_dict(parsed)
-        raw = q.get("page") or q.get("pt") or q.get("_p") or q.get("pn") or q.get("currentpage")
+        raw = q.get("page") or q.get("pt") or q.get("_p") or q.get("pn") or q.get("currentpage") or q.get("sbpage")
+        if not raw:
+            data_val = str(a.get("data-val") or "").strip()
+            raw = data_val if data_val.isdigit() else None
         if not raw:
             continue
         try:
@@ -2115,6 +2210,7 @@ def _pagination_link_tokens() -> tuple[str, ...]:
         "pt=",
         "_p=",
         "pn=",
+        "sbpage=",
         "p=",
         "offset=",
         "start=",
@@ -2217,7 +2313,7 @@ def synthesize_next_page_url(page_url: str, next_page_num: int) -> str | None:
     """Build URL for page N, reusing an existing page query param when possible."""
     parts = urlsplit(page_url)
     pairs = parse_qsl(parts.query, keep_blank_values=True)
-    page_key_names = ("pt", "page", "_p", "pn", "currentpage")
+    page_key_names = ("pt", "page", "_p", "pn", "currentpage", "sbpage")
     idx: int | None = None
     key_used: str | None = None
     for i, (k, v) in enumerate(pairs):
@@ -2237,6 +2333,8 @@ def synthesize_next_page_url(page_url: str, next_page_num: int) -> str | None:
     path_lower = parts.path.lower()
     if "searchnew" in path_lower or "searchused" in path_lower:
         extra: list[tuple[str, str]] = [("pt", str(next_page_num))]
+    elif "onewaterinventory.com" in parts.netloc.lower():
+        extra = [("sbpage", str(next_page_num))]
     else:
         extra = [("page", str(next_page_num))]
     q = urlencode(list(pairs) + extra)
@@ -2260,6 +2358,7 @@ def find_next_page_url(html: str, base_url: str) -> str | None:
         if "next" in rel_s:
             return urljoin(base_url, str(a["href"]))
 
+    current_page = _current_page_from_url(base_url)
     href_lower_tokens = _pagination_link_tokens()
     for a in soup.find_all("a", href=True):
         cls = " ".join(a.get("class") or []).lower()
@@ -2270,15 +2369,23 @@ def find_next_page_url(html: str, base_url: str) -> str | None:
             continue
         if any(t in href_l for t in href_lower_tokens):
             return urljoin(base_url, href)
-
-    current_page = _current_page_from_url(base_url)
+        data_val = str(a.get("data-val") or "").strip()
+        if data_val == "+1":
+            return synthesize_next_page_url(base_url, current_page + 1)
+        if data_val.isdigit():
+            next_page = int(data_val)
+            if next_page > current_page:
+                return synthesize_next_page_url(base_url, next_page)
 
     numbered_pages: list[tuple[int, str]] = []
     for a in soup.find_all("a", href=True):
         href = str(a["href"])
         parsed = urljoin(base_url, href)
         q = _query_lower_dict(parsed)
-        page_val = q.get("page") or q.get("pt") or q.get("_p") or q.get("pn") or q.get("currentpage")
+        page_val = q.get("page") or q.get("pt") or q.get("_p") or q.get("pn") or q.get("currentpage") or q.get("sbpage")
+        if not page_val:
+            data_val = str(a.get("data-val") or "").strip()
+            page_val = data_val if data_val.isdigit() else None
         if not page_val:
             continue
         try:
@@ -2286,7 +2393,7 @@ def find_next_page_url(html: str, base_url: str) -> str | None:
         except ValueError:
             continue
         if page_num > current_page:
-            numbered_pages.append((page_num, parsed))
+            numbered_pages.append((page_num, parsed if any(q.values()) else (synthesize_next_page_url(base_url, page_num) or parsed)))
 
     if numbered_pages:
         numbered_pages.sort(key=lambda item: item[0])

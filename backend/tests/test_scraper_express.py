@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.services.scraper import (
     _extract_inventory_api_urls,
     _extract_inventory_get_requests,
+    _inventory_api_headers,
     _host_is_express_retail,
     _rewrite_inventory_get_query_for_page,
     _rewrite_inventory_post_body_for_page,
@@ -133,6 +134,13 @@ def test_extract_inventory_get_requests_handles_single_quote_and_param_order() -
     assert query["pageSize"] == "9"
     assert query["start"] == "0"
     assert query["params"] == "page=1&pageSize=9&start=0"
+
+
+def test_inventory_api_headers_disable_brotli() -> None:
+    headers = _inventory_api_headers(content_type="application/json")
+    assert headers["Accept-Encoding"] == "identity"
+    assert headers["Accept"].startswith("application/json")
+    assert headers["Content-Type"] == "application/json"
 
 
 def test_rewrite_inventory_get_query_for_page_from_params_only() -> None:

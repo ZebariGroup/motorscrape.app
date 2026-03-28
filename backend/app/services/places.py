@@ -75,8 +75,6 @@ _CATEGORY_NEGATIVE_CONTEXT_KEYWORDS: dict[str, tuple[str, ...]] = {
         "parts",
         "accessories",
         "west marine",
-        "bass pro",
-        "cabela",
     ),
 }
 _CATEGORY_POSITIVE_DEALER_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -90,8 +88,63 @@ _CATEGORY_POSITIVE_DEALER_KEYWORDS: dict[str, tuple[str, ...]] = {
         "sales",
         "showroom",
         "marina",
+        "boating center",
     ),
 }
+_TRUSTED_NATIONAL_RETAILER_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
+    "boat": (
+        "marinemax.com",
+        "onewatermarine.com",
+        "onewaterinventory.com",
+        "bassproboatingcenters.com",
+        "basspro.com",
+        "cabelas.com",
+    ),
+}
+_TRUSTED_NATIONAL_RETAILER_NAME_HINTS: dict[str, tuple[str, ...]] = {
+    "boat": (
+        "marinemax",
+        "onewater",
+        "boating center",
+        "bass pro shops boating center",
+        "cabela's boating center",
+        "cabelas boating center",
+    ),
+}
+_CAR_BRAND_CONFLICT_TOKENS: frozenset[str] = frozenset(
+    {
+        "acura",
+        "alfa romeo",
+        "audi",
+        "bmw",
+        "buick",
+        "cadillac",
+        "chevrolet",
+        "chevy",
+        "chrysler",
+        "dodge",
+        "fiat",
+        "ford",
+        "gmc",
+        "honda",
+        "hyundai",
+        "infiniti",
+        "jeep",
+        "kia",
+        "lexus",
+        "lincoln",
+        "mazda",
+        "mercedes",
+        "mini",
+        "mitsubishi",
+        "nissan",
+        "ram",
+        "subaru",
+        "toyota",
+        "volkswagen",
+        "volvo",
+    }
+)
 _CATEGORY_SEARCH_CONFIG: dict[str, dict[str, Any]] = {
     "car": {
         "included_type": "car_dealer",
@@ -174,6 +227,60 @@ def _looks_like_false_positive_category_match(
         return False
     positive_keywords = _CATEGORY_POSITIVE_DEALER_KEYWORDS.get(category, ())
     return not any(keyword in hay for keyword in positive_keywords)
+
+
+def _is_trusted_national_retailer_match(
+    dealer_name: str,
+    website: str,
+    *,
+    vehicle_category: str,
+) -> bool:
+    category = _normalize_vehicle_category(vehicle_category)
+    hay = " ".join(filter(None, [dealer_name, website])).strip().lower()
+    if not hay:
+        return False
+    if any(token in hay for token in _TRUSTED_NATIONAL_RETAILER_DOMAIN_HINTS.get(category, ())):
+        return True
+    if any(token in hay for token in _TRUSTED_NATIONAL_RETAILER_NAME_HINTS.get(category, ())):
+        return True
+    return False
+
+
+def _looks_like_false_positive_make_match(
+    dealer_name: str,
+    website: str,
+    *,
+    make: str,
+    vehicle_category: str,
+) -> bool:
+    if _normalize_vehicle_category(vehicle_category) != "car":
+        return False
+    make_norm = (make or "").strip().lower()
+    hay = " ".join(filter(None, [dealer_name, website])).strip().lower()
+    if not hay or not make_norm:
+        return False
+    if make_norm != "genesis":
+        return False
+
+    parts = urlsplit(website or "")
+    host = (parts.netloc or "").lower().split("@")[-1].split(":")[0]
+    path = (parts.path or "").lower()
+
+    # Actual Genesis franchises usually present as "Genesis of <city>" or use a
+    # Genesis-specific host. Businesses that merely contain the word Genesis while
+    # clearly advertising another OEM should not qualify for Genesis brand searches.
+    has_genesis_dealer_pattern = (
+        "genesis of " in hay
+        or host.startswith("genesisof")
+        or ".genesisof" in host
+        or "/genesis/" in path
+    )
+    has_conflicting_brand = any(token in hay for token in _CAR_BRAND_CONFLICT_TOKENS)
+    if has_conflicting_brand:
+        return True
+    if "automotive group" in hay and not has_genesis_dealer_pattern:
+        return True
+    return False
 
 
 async def _search_places_text(
@@ -296,6 +403,17 @@ def _normalize_dealer_website_url(website: str) -> str:
     if not parts.scheme or not parts.netloc:
         return raw
 
+    host = parts.netloc.lower().split("@")[-1].split(":")[0]
+
+    # DealerOn / OEM "buy" subdomains often point at thin shopping shells that generate
+    # broken inventory URLs (e.g. buy.dealer.com/searchall.aspx) instead of the real site.
+    # Normalize those back to the dealer homepage before discovery.
+    if host.startswith("buy."):
+        base_host = host.removeprefix("buy.")
+        if base_host:
+            canonical_host = base_host if base_host.startswith("www.") else f"www.{base_host}"
+            return urlunsplit((parts.scheme, canonical_host, "/", "", ""))
+
     # Reject well-known aggregator/marketplace profile URLs — these are not dealer websites.
     # e.g. boats.com/sites/<dealer>, cars.com/dealers/<id>, autotrader.com/dealers/...
     # Trying to scrape inventory from these fails because the aggregator blocks bots
@@ -324,7 +442,6 @@ def _normalize_dealer_website_url(website: str) -> str:
         "www.yachtworld.com",
         "yachtworld.com",
     }
-    host = parts.netloc.lower().split("@")[-1].split(":")[0]
     if host in _AGGREGATOR_HOSTS:
         return ""
 
@@ -507,12 +624,25 @@ async def find_dealerships(
             if not website:
                 logger.debug("Skipping %s — no website in Places data", name)
                 continue
+            trusted_national = _is_trusted_national_retailer_match(
+                name,
+                str(website or ""),
+                vehicle_category=category,
+            )
             if _looks_like_false_positive_category_match(
                 name,
                 str(website or ""),
                 vehicle_category=category,
-            ):
+            ) and not trusted_national:
                 logger.debug("Skipping %s — looks like non-inventory %s retailer", name, category)
+                continue
+            if make_q and _looks_like_false_positive_make_match(
+                name,
+                str(website or ""),
+                make=make_q,
+                vehicle_category=category,
+            ):
+                logger.debug("Skipping %s — looks like false-positive make match for %s", name, make_q)
                 continue
 
             results.append(

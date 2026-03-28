@@ -247,6 +247,13 @@ def _dealer_dot_com_host_is_multi_brand(url: str, make_norm: str) -> bool:
     return any(token != make_norm for token in host_tokens)
 
 
+def _dealer_dot_com_host_is_single_brand(url: str, make_norm: str) -> bool:
+    if not make_norm:
+        return False
+    host_tokens = _dealer_dot_com_host_brand_tokens(url)
+    return bool(host_tokens) and host_tokens == {make_norm}
+
+
 def _canonical_dealer_dot_com_inventory_url(url: str, condition: str) -> str:
     parts = urlsplit(url)
     if condition == "new":
@@ -752,6 +759,10 @@ def resolve_inventory_url_for_provider(
         ):
             # Prefer make-family SRPs like /new-gmc/vehicles-*.htm over generic index pages.
             score += 90
+            if _dealer_dot_com_host_is_single_brand(base_url, make_norm):
+                # On single-brand hosts like suburbanford..., /new-ford/... links are
+                # usually marketing/model landings; canonical inventory/index pages are safer.
+                score -= 110
         if (
             route
             and route.platform_id in {"gm_family_inventory", "ford_family_inventory", "toyota_lexus_oem_inventory"}
@@ -938,6 +949,10 @@ def resolve_inventory_url_for_provider(
             make_query_needed = bool(make_norm) and (
                 _dealer_dot_com_host_is_multi_brand(generic_base, make_norm) or multi_model_filter
             )
+            host_is_single_brand = bool(make_norm) and _dealer_dot_com_host_is_single_brand(
+                generic_base,
+                make_norm,
+            )
             is_canonical_srp = any(
                 token in path
                 for token in (
@@ -959,6 +974,9 @@ def resolve_inventory_url_for_provider(
                 generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "make", "model", "search"})
                 if make_query_needed:
                     generic_base = _with_query_params(generic_base, {"make": make})
+            elif host_is_single_brand and make_specific_path:
+                generic_base = _canonical_dealer_dot_com_inventory_url(generic_base, condition)
+                generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "make", "model", "search"})
             elif is_canonical_srp:
                 generic_base = _drop_query_keys(generic_base, {"gvBodyStyle", "model", "search"})
                 if make_query_needed:
@@ -1008,6 +1026,17 @@ def resolve_inventory_url_for_provider(
         )
         if route.platform_id == "dealer_dot_com" and generic_base:
             base = _normalize_inventory_candidate_url(best_url if best_score > 0 else generic_base)
+            base_path = urlsplit(base).path.lower().rstrip("/")
+            is_canonical_srp = any(
+                token in base_path
+                for token in (
+                    "/new-inventory/index.htm",
+                    "/used-inventory/index.htm",
+                    "/all-inventory/index.htm",
+                )
+            )
+            if not is_canonical_srp:
+                base = _canonical_dealer_dot_com_inventory_url(base, condition)
             if make_norm == "bmw" and _looks_like_exact_bmw_inventory_path(base, model):
                 best_url = base
             else:

@@ -160,9 +160,21 @@ def _find_inventory_url(
             try:
                 parsed_href = urlparse(a['href'])
                 if parsed_href.netloc:
+                    if (
+                        parsed_href.netloc.endswith("onewaterinventory.com")
+                        and parsed_href.path.rstrip("/").lower() == "/search"
+                        and "inventory" in text
+                    ):
+                        score += 120
                     base_netloc = urlparse(base_url).netloc
                     # If it's a completely different domain (not just a subdomain)
-                    if not parsed_href.netloc.endswith(base_netloc.replace("www.", "")):
+                    if (
+                        not parsed_href.netloc.endswith(base_netloc.replace("www.", ""))
+                        and not (
+                            parsed_href.netloc.endswith("onewaterinventory.com")
+                            and parsed_href.path.rstrip("/").lower() == "/search"
+                        )
+                    ):
                         score -= 50
             except Exception:
                 pass

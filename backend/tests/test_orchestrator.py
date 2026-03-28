@@ -116,6 +116,18 @@ def test_find_inventory_url_prefers_unfiltered_inventory_over_fragment_scoped_sh
     )
 
 
+def test_find_inventory_url_allows_onewater_external_inventory_link() -> None:
+    html = """
+    <html><body>
+      <a href="/portfolio/">Brands</a>
+      <a href="https://www.onewaterinventory.com/search/" target="_blank">Inventory</a>
+    </body></html>
+    """
+    assert _find_inventory_url(html, "https://www.onewatermarine.com/") == (
+        "https://www.onewaterinventory.com/search/"
+    )
+
+
 @pytest.mark.asyncio
 async def test_stream_search_places_error_surfaces_search_error() -> None:
     with patch(
