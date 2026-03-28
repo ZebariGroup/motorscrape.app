@@ -12,7 +12,41 @@ import httpx
 
 from app.config import settings
 from app.schemas import DealershipFound
-from app.services.inventory_filters import text_mentions_make
+from app.services.inventory_filters import normalize_model_text, text_mentions_make
+
+# When the UI category is still "car" but the user searches an OEM that only sells through
+# motorcycle/powersports dealers, Google Places' car_dealer type filter returns nothing useful.
+# Use the same Text Search profile as motorcycle (no strict car_dealer type).
+_POWERSPORTS_MAKE_PLACES_NORMS: frozenset[str] = frozenset(
+    {
+        "canam",
+        "skidoo",
+        "seadoo",
+        "lynx",
+        "arcticcat",
+        "cfmoto",
+        "polaris",
+        "hisun",
+        "massimo",
+        "kymco",
+        "harleydavidson",
+        "indianmotorcycle",
+        "ktm",
+        "ducati",
+        "triumph",
+        "royalenfield",
+    }
+)
+
+
+def _effective_places_search_category(vehicle_category: str, make: str) -> str:
+    category = _normalize_vehicle_category(vehicle_category)
+    if category != "car":
+        return category
+    make_norm = normalize_model_text((make or "").strip())
+    if make_norm and make_norm in _POWERSPORTS_MAKE_PLACES_NORMS:
+        return "motorcycle"
+    return "car"
 
 logger = logging.getLogger(__name__)
 
@@ -547,9 +581,10 @@ async def find_dealerships(
             radius_miles=requested_radius,
         )
         category = _normalize_vehicle_category(vehicle_category)
-        config = _CATEGORY_SEARCH_CONFIG[category]
+        places_category = _effective_places_search_category(vehicle_category, make_q)
+        config = _CATEGORY_SEARCH_CONFIG[places_category]
         text_queries = _build_text_queries(
-            vehicle_category=category,
+            vehicle_category=places_category,
             location=location,
             make=make_q,
             model=model_q,
@@ -583,7 +618,7 @@ async def find_dealerships(
             if len(places) >= limit:
                 break
 
-        if not places and config.get("included_type"):
+        if not places and _CATEGORY_SEARCH_CONFIG[category].get("included_type"):
             for text_query in text_queries:
                 try:
                     found = await _search_places_text(
@@ -718,7 +753,13 @@ async def find_dealerships(
                 max_generic = min(len(category_matches), generic_cap)
                 return category_matches[:max_generic]
 
-        brand_matches = [d for d in results if _name_matches_make(d.name, make_q)]
+        # Include website in the haystack: OEM often appears in the domain/path (e.g. …/shop-brp/can-am)
+        # but not in the Google Places display name ("River Raisin Powersports").
+        brand_matches = [
+            d
+            for d in results
+            if _name_matches_make(" ".join(filter(None, [d.name, d.website or ""])), make_q)
+        ]
         # If we found brand-specific dealers, prefer those so searches feel sane to users.
         return brand_matches if brand_matches else results
 

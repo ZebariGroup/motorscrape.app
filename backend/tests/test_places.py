@@ -74,6 +74,19 @@ def test_name_matches_make() -> None:
     assert places._name_matches_make("Any", "")
 
 
+def test_effective_places_search_category_powersports_oem_under_car() -> None:
+    """Car + Can-Am should use motorcycle Places profile (no strict car_dealer type)."""
+    assert places._effective_places_search_category("car", "Can-Am") == "motorcycle"
+    assert places._effective_places_search_category("car", "can am") == "motorcycle"
+    assert places._effective_places_search_category("car", "Toyota") == "car"
+    assert places._effective_places_search_category("motorcycle", "Can-Am") == "motorcycle"
+
+
+def test_name_matches_make_includes_can_am_in_combined_name_and_website() -> None:
+    hay = "River Raisin Powersports https://www.riverraisinpowersports.com/shop-brp/can-am"
+    assert places._name_matches_make(hay, "Can-Am")
+
+
 def test_false_positive_boat_retailer_filter_excludes_supply_and_service() -> None:
     assert places._looks_like_false_positive_category_match(
         "Michigan Marine Gear",
