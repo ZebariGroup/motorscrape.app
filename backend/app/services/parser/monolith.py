@@ -1468,6 +1468,14 @@ def _normalize_dom_image_candidate(raw: str | None) -> str | None:
 
 
 def _pick_dom_vehicle_image(card: Any, page_url: str) -> str | None:
+    # Dealer Spike: hero image on div[role=img] via background-image, no <img> in modern browsers
+    for node in card.select(".image-container-image[role=img], .image-container-image"):
+        style = (node.get("style") or "").strip()
+        bg_match = re.search(r"""background-image\s*:\s*url\((['"]?)(.*?)\1\)""", style, re.I)
+        if bg_match:
+            src = _normalize_dom_image_candidate(bg_match.group(2).strip())
+            if src:
+                return urljoin(page_url, src)
     preferred_selectors = (
         ".hero-carousel__background-image--grid",
         ".hero-carousel__background-image--list",
@@ -1740,6 +1748,7 @@ def extract_dom_vehicle_cards(
         ".vehicle-card",
         ".inventory-card",
         ".inventoryList-bike",
+        "li.featuredVehicle",
         ".result-wrap.new-vehicle",
         ".new-vehicle[data-vehicle]",
         ".brandInventoryCard",
@@ -1841,6 +1850,13 @@ def extract_dom_vehicle_cards(
         gp_stock = _text_or_none(card.select_one(".inv-stock"))
         gp_price = _text_or_none(card.select_one(".inv-price"))
         gp_location = _text_or_none(card.select_one(".inv-location"))
+        # Dealer Spike homepage / SRP featured tiles (e.g. Club Royale)
+        ds_spike_price_raw = _text_or_none(card.select_one("li.featuredVehicleAttr.price span.value"))
+        ds_spike_make = _text_or_none(card.select_one("li.featuredVehicleAttr.manuf span.value"))
+        ds_spike_model = _text_or_none(card.select_one("li.featuredVehicleAttr.model span.value"))
+        ds_spike_year = _coerce_int(_text_or_none(card.select_one("li.featuredVehicleAttr.year span.value")))
+        ds_spike_stock = _text_or_none(card.select_one("li.featuredVehicleAttr.stockno span.value"))
+        ds_spike_price = _coerce_float(ds_spike_price_raw.replace("$", "").replace(",", "")) if ds_spike_price_raw else None
         vin = (
             card.get("data-vin")
             or card.get("data-vehicle-vin")
@@ -1858,6 +1874,7 @@ def extract_dom_vehicle_cards(
             or card.get("data-boat-make")
             or colony_details.get("manufacturer")
             or payload.get("make")
+            or ds_spike_make
         )
         model = (
             card.get("data-model")
@@ -1865,6 +1882,7 @@ def extract_dom_vehicle_cards(
             or card.get("data-dotagging-item-model")
             or card.get("data-boat-model")
             or payload.get("model")
+            or ds_spike_model
         )
         year = _coerce_int(
             card.get("data-year")
@@ -1873,6 +1891,7 @@ def extract_dom_vehicle_cards(
             or card.get("data-unit-year")
             or card.get("data-boat-year")
             or payload.get("year")
+            or ds_spike_year
         )
         trim = card.get("data-trim") or card.get("data-vehicle-trim") or card.get("data-dotagging-item-variant") or payload.get("trim")
         odom_merge: dict[str, Any] = dict(payload)
@@ -1916,6 +1935,7 @@ def extract_dom_vehicle_cards(
             or temptation_price
             or wilson_price
             or gp_price
+            or ds_spike_price
         )
         if price in (None, 0.0):
             price = _pick_price_from_pricelib(card.get("data-pricelib")) or price
@@ -2074,6 +2094,7 @@ def extract_dom_vehicle_cards(
                     or marinemax_stock
                     or wilson_specs.get("stock number")
                     or gp_stock
+                    or ds_spike_stock
                     or colony_details.get("stock #")
                 ),
                 "stockNo": card.get("data-stock-no") or payload.get("stockNo"),

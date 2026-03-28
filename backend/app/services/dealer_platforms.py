@@ -65,6 +65,8 @@ _PLAYWRIGHT_INVENTORY_READY_SELECTOR = ",".join(
         ".vehicle-heading__link",
         ".mmx-boat-card[href]",
         ".mmx-boat-card .title",
+        "a[href*='/boats-for-sale/details/']",
+        "[class*='boat-card'] a[href]",
         "li[data-component='result-tile']",
         "[data-component='result-tile']",
     )
@@ -202,6 +204,18 @@ def _looks_like_oneaudi_falcon_inventory_url(url: str) -> bool:
     return path.endswith("/inventory/new") or path.endswith("/inventory/used") or path.endswith("/en/inventory/new") or path.endswith("/en/inventory/used")
 
 
+_MARINEMAX_BOATS_SRP_ZENROWS_JS = _compact_instruction_payload(
+    [
+        # MarineMax / SkipperBuds Vue+Algolia SRPs: wait for app boot, then scroll so hits load.
+        {"wait": 4000},
+        {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 9000));"},
+        {"wait": 4500},
+        {"evaluate": "window.scrollTo(0, document.body.scrollHeight);"},
+        {"wait": 5500},
+    ]
+)
+
+
 def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None = None) -> str | None:
     """Return platform-specific ZenRows JS instructions for inventory URLs, if any."""
     if platform_id == "oneaudi_falcon":
@@ -210,6 +224,8 @@ def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None 
         return None
     if _looks_like_oneaudi_falcon_inventory_url(url):
         return _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS.strip()
+    if platform_id == "marinemax" and "boats-for-sale" in url.lower():
+        return _MARINEMAX_BOATS_SRP_ZENROWS_JS.strip()
     return None
 
 

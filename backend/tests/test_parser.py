@@ -339,6 +339,55 @@ def test_try_extract_marinemax_rendered_card() -> None:
     assert v.listing_url == "https://www.marinemax.com/boats-for-sale/details/used/sea-ray/slx-280/2024/-/123456"
 
 
+def test_try_extract_dealer_spike_featured_vehicle_tile() -> None:
+    """Dealer Spike homepage tiles (Club Royale–style) expose price/make in labeled spans."""
+    html = """
+    <html><body>
+      <ul>
+        <li class="featuredVehicle" data-unitid="16641599">
+          <a class="featured-content" href="--xInventoryDetail?id=16641599">
+            <div class="vehicle-container">
+              <div class="image-container">
+                <div class="image-container-image" role="img"
+                  style="background-image:url(https://cdn.example.com/boat.jpg);"></div>
+              </div>
+              <div class="data">
+                <ul>
+                  <li class="featuredVehicleAttr price"><label>Price</label>
+                    <span class="value">$76,995.00</span></li>
+                  <li class="featuredVehicleAttr year"><label>Year</label>
+                    <span class="value">2025</span></li>
+                  <li class="featuredVehicleAttr manuf"><label>Make</label>
+                    <span class="value">Malibu Boats</span></li>
+                  <li class="featuredVehicleAttr model"><label>Model</label>
+                    <span class="value">23 LSV</span></li>
+                </ul>
+              </div>
+            </div>
+          </a>
+        </li>
+      </ul>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="boat",
+        platform_id="dealer_spike",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.year == 2025
+    assert v.make == "Malibu Boats"
+    assert v.model == "23 LSV"
+    assert v.price == 76995
+    assert v.image_url == "https://cdn.example.com/boat.jpg"
+    assert "InventoryDetail" in (v.listing_url or "")
+
+
 def test_try_extract_team_velocity_vehicle_card() -> None:
     html = """
     <html><body>

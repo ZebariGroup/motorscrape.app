@@ -172,6 +172,7 @@ _INVENTORY_HINTS = (
     "vehicle-card",
     "vehicle-card--mod",
     "inventory-card",
+    "featuredvehicle",
     "vehiclecard",
     "inventory_list",
     "inventory-listing",
@@ -684,6 +685,17 @@ def _has_rendered_marinemax_cards(html: str) -> bool:
         title = anchor.select_one(".title")
         title_text = title.get_text(" ", strip=True) if title else ""
         if title_text and "{{" not in title_text:
+            return True
+    for anchor in soup.select("a[href*='/boats-for-sale/details/']"):
+        href = str(anchor.get("href") or "").strip()
+        if href and "{{" not in href and "{" not in href:
+            return True
+    for node in soup.select("[class*='boat-card'] a[href], .boat-card a[href]"):
+        href = str(node.get("href") or "").strip()
+        if not href or "{" in href:
+            continue
+        title = node.get_text(" ", strip=True)
+        if title and "{{" not in title and len(title) > 3:
             return True
     return False
 
