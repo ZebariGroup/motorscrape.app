@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password_hash TEXT NOT NULL,
     tier TEXT NOT NULL DEFAULT 'free',
+    is_admin INTEGER NOT NULL DEFAULT 0,
     stripe_customer_id TEXT,
     stripe_subscription_id TEXT,
     stripe_metered_item_id TEXT,
@@ -155,6 +156,22 @@ CREATE TABLE IF NOT EXISTS scrape_events (
 
 CREATE INDEX IF NOT EXISTS idx_scrape_events_run_id
 ON scrape_events (scrape_run_id, sequence_no ASC);
+
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_user_id INTEGER,
+    actor_email TEXT,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT,
+    summary TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created_at
+ON admin_audit_logs (created_at DESC);
 """
 
 _lock = threading.Lock()
@@ -172,6 +189,9 @@ def init_db(path: str) -> None:
         conn = _connect(path)
         try:
             conn.executescript(_schema)
+            columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+            if "is_admin" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
             conn.commit()
         finally:
             conn.close()
@@ -182,10 +202,13 @@ class UserRecord:
     id: str
     email: str
     tier: str
+    is_admin: bool
     stripe_customer_id: str | None
     stripe_subscription_id: str | None
     stripe_metered_item_id: str | None
     entitlements: dict[str, Any]
+    created_at: float
+    updated_at: float
 
 
 @dataclass(slots=True)
@@ -273,6 +296,19 @@ class ScrapeEventRecord:
     created_at: float
 
 
+@dataclass(slots=True)
+class AdminAuditLogRecord:
+    id: str
+    actor_user_id: str | None
+    actor_email: str | None
+    action: str
+    target_type: str
+    target_id: str | None
+    summary: str
+    payload: dict[str, Any]
+    created_at: float
+
+
 class AccountStore:
     def __init__(self, path: str) -> None:
         self.path = path
@@ -301,8 +337,8 @@ class AccountStore:
         with self._conn() as c:
             row = c.execute(
                 """
-                SELECT id, email, tier, stripe_customer_id, stripe_subscription_id,
-                       stripe_metered_item_id, entitlements_json
+                SELECT id, email, tier, is_admin, stripe_customer_id, stripe_subscription_id,
+                       stripe_metered_item_id, entitlements_json, created_at, updated_at
                 FROM users WHERE id = ?
                 """,
                 (user_id,),
@@ -313,8 +349,8 @@ class AccountStore:
         with self._conn() as c:
             row = c.execute(
                 """
-                SELECT id, email, tier, stripe_customer_id, stripe_subscription_id,
-                       stripe_metered_item_id, entitlements_json
+                SELECT id, email, tier, is_admin, stripe_customer_id, stripe_subscription_id,
+                       stripe_metered_item_id, entitlements_json, created_at, updated_at
                 FROM users WHERE email = ? COLLATE NOCASE
                 """,
                 (email.strip().lower(),),
@@ -374,6 +410,215 @@ class AccountStore:
                 (metered_item_id, now, user_id),
             )
             c.commit()
+
+    def set_admin(self, user_id: int | str, is_admin: bool) -> None:
+        now = time.time()
+        with self._conn() as c:
+            c.execute(
+                "UPDATE users SET is_admin = ?, updated_at = ? WHERE id = ?",
+                (1 if is_admin else 0, now, user_id),
+            )
+            c.commit()
+
+    def list_users(self, *, limit: int = 50, offset: int = 0, query: str | None = None) -> list[UserRecord]:
+        with self._conn() as c:
+            if query:
+                rows = c.execute(
+                    """
+                    SELECT id, email, tier, is_admin, stripe_customer_id, stripe_subscription_id,
+                           stripe_metered_item_id, entitlements_json, created_at, updated_at
+                    FROM users
+                    WHERE email LIKE ? COLLATE NOCASE
+                    ORDER BY created_at DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (f"%{query.strip()}%", limit, offset),
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    """
+                    SELECT id, email, tier, is_admin, stripe_customer_id, stripe_subscription_id,
+                           stripe_metered_item_id, entitlements_json, created_at, updated_at
+                    FROM users
+                    ORDER BY created_at DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (limit, offset),
+                ).fetchall()
+        return [user for row in rows if (user := _row_to_user(row)) is not None]
+
+    def count_users(self, *, query: str | None = None) -> int:
+        with self._conn() as c:
+            if query:
+                row = c.execute(
+                    "SELECT COUNT(*) AS count FROM users WHERE email LIKE ? COLLATE NOCASE",
+                    (f"%{query.strip()}%",),
+                ).fetchone()
+            else:
+                row = c.execute("SELECT COUNT(*) AS count FROM users").fetchone()
+        return int(row["count"]) if row is not None else 0
+
+    def count_users_by_tier(self) -> dict[str, int]:
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT tier, COUNT(*) AS count
+                FROM users
+                GROUP BY tier
+                """
+            ).fetchall()
+        return {str(row["tier"]): int(row["count"]) for row in rows}
+
+    def total_searches_in_period(self, period: str) -> int:
+        with self._conn() as c:
+            row = c.execute(
+                """
+                SELECT COALESCE(SUM(search_count + overage_count), 0) AS total
+                FROM usage_monthly
+                WHERE period = ?
+                """,
+                (period,),
+            ).fetchone()
+        return int(row["total"]) if row is not None else 0
+
+    def total_overage_searches_in_period(self, period: str) -> int:
+        with self._conn() as c:
+            row = c.execute(
+                """
+                SELECT COALESCE(SUM(overage_count), 0) AS total
+                FROM usage_monthly
+                WHERE period = ?
+                """,
+                (period,),
+            ).fetchone()
+        return int(row["total"]) if row is not None else 0
+
+    def count_recent_users(self, *, since_ts: float) -> int:
+        with self._conn() as c:
+            row = c.execute("SELECT COUNT(*) AS count FROM users WHERE created_at >= ?", (since_ts,)).fetchone()
+        return int(row["count"]) if row is not None else 0
+
+    def count_scrape_runs(self, *, since_ts: float | None = None, status: str | None = None) -> int:
+        clauses: list[str] = []
+        args: list[Any] = []
+        if since_ts is not None:
+            clauses.append("started_at >= ?")
+            args.append(since_ts)
+        if status:
+            clauses.append("status = ?")
+            args.append(status)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._conn() as c:
+            row = c.execute(
+                f"""
+                SELECT COUNT(*) AS count
+                FROM scrape_runs
+                {where_sql}
+                """,
+                args,
+            ).fetchone()
+        return int(row["count"]) if row is not None else 0
+
+    def count_alert_subscriptions(self, *, active_only: bool | None = None, due_before_ts: float | None = None) -> int:
+        clauses: list[str] = []
+        args: list[Any] = []
+        if active_only is not None:
+            clauses.append("is_active = ?")
+            args.append(1 if active_only else 0)
+        if due_before_ts is not None:
+            clauses.append("next_run_at <= ?")
+            args.append(due_before_ts)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._conn() as c:
+            row = c.execute(
+                f"""
+                SELECT COUNT(*) AS count
+                FROM alert_subscriptions
+                {where_sql}
+                """,
+                args,
+            ).fetchone()
+        return int(row["count"]) if row is not None else 0
+
+    def count_alert_runs(self, *, since_ts: float | None = None, status: str | None = None) -> int:
+        clauses: list[str] = []
+        args: list[Any] = []
+        if since_ts is not None:
+            clauses.append("started_at >= ?")
+            args.append(since_ts)
+        if status:
+            clauses.append("status = ?")
+            args.append(status)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._conn() as c:
+            row = c.execute(
+                f"""
+                SELECT COUNT(*) AS count
+                FROM alert_runs
+                {where_sql}
+                """,
+                args,
+            ).fetchone()
+        return int(row["count"]) if row is not None else 0
+
+    def admin_list_scrape_runs(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        status: str | None = None,
+    ) -> list[ScrapeRunRecord]:
+        clauses: list[str] = []
+        args: list[Any] = []
+        if status:
+            clauses.append("status = ?")
+            args.append(status)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        args.extend([limit, offset])
+        with self._conn() as c:
+            rows = c.execute(
+                f"""
+                SELECT *
+                FROM scrape_runs
+                {where_sql}
+                ORDER BY started_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                args,
+            ).fetchall()
+        return [_row_to_scrape_run(row) for row in rows]
+
+    def count_admin_scrape_runs(self, *, status: str | None = None) -> int:
+        clauses: list[str] = []
+        args: list[Any] = []
+        if status:
+            clauses.append("status = ?")
+            args.append(status)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._conn() as c:
+            row = c.execute(
+                f"""
+                SELECT COUNT(*) AS count
+                FROM scrape_runs
+                {where_sql}
+                """,
+                args,
+            ).fetchone()
+        return int(row["count"]) if row is not None else 0
+
+    def admin_get_scrape_run(self, correlation_id: str) -> ScrapeRunRecord | None:
+        with self._conn() as c:
+            row = c.execute(
+                """
+                SELECT *
+                FROM scrape_runs
+                WHERE correlation_id = ?
+                ORDER BY started_at DESC
+                LIMIT 1
+                """,
+                (correlation_id,),
+            ).fetchone()
+        return _row_to_scrape_run(row) if row is not None else None
 
     def monthly_usage(self, user_id: int | str, period: str) -> tuple[int, int]:
         """Returns (included_searches, overage_searches)."""
@@ -653,6 +898,33 @@ class AccountStore:
             ).fetchall()
         return [_row_to_alert_subscription(row) for row in rows]
 
+    def admin_list_alert_subscriptions(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        due_only: bool = False,
+    ) -> list[AlertSubscriptionRecord]:
+        clauses: list[str] = []
+        args: list[Any] = []
+        if due_only:
+            clauses.append("is_active = 1 AND next_run_at <= ?")
+            args.append(time.time())
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        args.extend([limit, offset])
+        with self._conn() as c:
+            rows = c.execute(
+                f"""
+                SELECT *
+                FROM alert_subscriptions
+                {where_sql}
+                ORDER BY next_run_at ASC, created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                args,
+            ).fetchall()
+        return [_row_to_alert_subscription(row) for row in rows]
+
     def create_alert_run(
         self,
         *,
@@ -709,6 +981,33 @@ class AccountStore:
                 LIMIT ?
                 """,
                 (user_id, limit),
+            ).fetchall()
+        return [_row_to_alert_run(row) for row in rows]
+
+    def admin_list_alert_runs(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        status: str | None = None,
+    ) -> list[AlertRunRecord]:
+        clauses: list[str] = []
+        args: list[Any] = []
+        if status:
+            clauses.append("status = ?")
+            args.append(status)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        args.extend([limit, offset])
+        with self._conn() as c:
+            rows = c.execute(
+                f"""
+                SELECT *
+                FROM alert_runs
+                {where_sql}
+                ORDER BY started_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                args,
             ).fetchall()
         return [_row_to_alert_run(row) for row in rows]
 
@@ -945,6 +1244,57 @@ class AccountStore:
             ).fetchall()
         return [_row_to_scrape_event(row) for row in rows]
 
+    def record_admin_audit_event(
+        self,
+        *,
+        actor_user_id: int | str | None,
+        actor_email: str | None,
+        action: str,
+        target_type: str,
+        target_id: int | str | None,
+        summary: str,
+        payload: dict[str, Any],
+    ) -> AdminAuditLogRecord:
+        created_at = time.time()
+        with self._conn() as c:
+            cur = c.execute(
+                """
+                INSERT INTO admin_audit_logs (
+                    actor_user_id, actor_email, action, target_type, target_id, summary, payload_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    actor_user_id,
+                    actor_email,
+                    action,
+                    target_type,
+                    str(target_id) if target_id is not None else None,
+                    summary,
+                    json.dumps(payload, separators=(",", ":"), sort_keys=True),
+                    created_at,
+                ),
+            )
+            audit_id = int(cur.lastrowid)
+            c.commit()
+        with self._conn() as c:
+            row = c.execute("SELECT * FROM admin_audit_logs WHERE id = ?", (audit_id,)).fetchone()
+        assert row is not None
+        return _row_to_admin_audit_log(row)
+
+    def list_admin_audit_logs(self, *, limit: int = 50, offset: int = 0) -> list[AdminAuditLogRecord]:
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT *
+                FROM admin_audit_logs
+                ORDER BY created_at DESC, id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+        return [_row_to_admin_audit_log(row) for row in rows]
+
 
 def _row_to_user(row: sqlite3.Row | None) -> UserRecord | None:
     if row is None:
@@ -960,10 +1310,13 @@ def _row_to_user(row: sqlite3.Row | None) -> UserRecord | None:
         id=str(row["id"]),
         email=str(row["email"]),
         tier=str(row["tier"]),
+        is_admin=bool(row["is_admin"]),
         stripe_customer_id=row["stripe_customer_id"],
         stripe_subscription_id=row["stripe_subscription_id"],
         stripe_metered_item_id=row["stripe_metered_item_id"],
         entitlements=ent,
+        created_at=float(row["created_at"]),
+        updated_at=float(row["updated_at"]),
     )
 
 
@@ -1075,6 +1428,20 @@ def _row_to_scrape_event(row: sqlite3.Row) -> ScrapeEventRecord:
         message=str(row["message"]),
         dealership_name=str(row["dealership_name"]) if row["dealership_name"] is not None else None,
         dealership_website=str(row["dealership_website"]) if row["dealership_website"] is not None else None,
+        payload=_json_dict(row["payload_json"]),
+        created_at=float(row["created_at"]),
+    )
+
+
+def _row_to_admin_audit_log(row: sqlite3.Row) -> AdminAuditLogRecord:
+    return AdminAuditLogRecord(
+        id=str(row["id"]),
+        actor_user_id=str(row["actor_user_id"]) if row["actor_user_id"] is not None else None,
+        actor_email=str(row["actor_email"]) if row["actor_email"] is not None else None,
+        action=str(row["action"]),
+        target_type=str(row["target_type"]),
+        target_id=str(row["target_id"]) if row["target_id"] is not None else None,
+        summary=str(row["summary"]),
         payload=_json_dict(row["payload_json"]),
         created_at=float(row["created_at"]),
     )

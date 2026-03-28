@@ -57,12 +57,22 @@ export function SiteHeader({ access }: Props) {
             ) : null}
           </div>
           {access.authenticated ? (
-            <Link
-              href="/account"
-              className="font-medium text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
-            >
-              Account
-            </Link>
+            <div className="flex items-center gap-3">
+              {access.is_admin ? (
+                <Link
+                  href="/admin"
+                  className="font-medium text-zinc-700 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
+                >
+                  Admin
+                </Link>
+              ) : null}
+              <Link
+                href="/account"
+                className="font-medium text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+              >
+                Account
+              </Link>
+            </div>
           ) : (
             <div className="flex items-center gap-3">
               <Link

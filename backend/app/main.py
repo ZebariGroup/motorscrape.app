@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import AccessContext, get_access_context
+from app.api.routes_admin import router as admin_router
 from app.api.routes_alerts import router as alerts_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_billing import router as billing_router
@@ -214,6 +215,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(billing_router)
 app.include_router(alerts_router)
 app.include_router(search_logs_router)
@@ -223,6 +225,7 @@ app.include_router(search_logs_router)
 app.include_router(router)
 app.include_router(router, prefix="/server")
 app.include_router(auth_router, prefix="/server")
+app.include_router(admin_router, prefix="/server")
 app.include_router(billing_router, prefix="/server")
 app.include_router(alerts_router, prefix="/server")
 app.include_router(search_logs_router, prefix="/server")

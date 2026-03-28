@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+from app.config import settings
 from app.main import app
 from fastapi.testclient import TestClient
 
@@ -32,6 +33,21 @@ def test_signup_login_me_logout() -> None:
     client.post("/auth/logout")
     r3 = client.get("/auth/me")
     assert r3.status_code == 401
+
+
+def test_access_summary_marks_bootstrapped_admin(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "admin_emails", "matthew@zebarigroup.com")
+    client = TestClient(app)
+    signup = client.post("/auth/signup", json={"email": "matthew@zebarigroup.com", "password": "hunter22!!"})
+    assert signup.status_code == 201
+
+    me = client.get("/auth/me")
+    assert me.status_code == 200
+    assert me.json()["is_admin"] is True
+
+    summary = client.get("/auth/access-summary")
+    assert summary.status_code == 200
+    assert summary.json()["is_admin"] is True
 
 
 def test_anonymous_quota_sse() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+from app.config import settings
 from app.main import app
 from fastapi.testclient import TestClient
 
@@ -80,3 +81,49 @@ def test_search_logs_endpoint_returns_run_and_events() -> None:
     assert detail["run"]["correlation_id"] == runs[0]["correlation_id"]
     assert any(event["event_type"] == "search_started" for event in detail["events"])
     assert any(event["event_type"] == "search_finished" for event in detail["events"])
+
+
+def test_admin_overview_requires_admin() -> None:
+    local_client = TestClient(app)
+    unauthorized = local_client.get("/admin/overview")
+    assert unauthorized.status_code == 401
+
+
+def test_admin_overview_allows_bootstrapped_admin(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "admin_emails", "matthew@zebarigroup.com")
+    local_client = TestClient(app)
+    signup = local_client.post("/auth/signup", json={"email": "matthew@zebarigroup.com", "password": "hunter22!!"})
+    assert signup.status_code == 201
+
+    response = local_client.get("/admin/overview")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "stats" in payload
+    assert payload["stats"]["total_users"] >= 1
+
+
+def test_admin_user_update_appears_in_audit_and_detail(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "admin_emails", "matthew@zebarigroup.com")
+    local_client = TestClient(app)
+    admin_signup = local_client.post("/auth/signup", json={"email": "matthew@zebarigroup.com", "password": "hunter22!!"})
+    assert admin_signup.status_code == 201
+
+    target_signup = local_client.post("/auth/signup", json={"email": "customer@example.com", "password": "hunter22!!"})
+    assert target_signup.status_code == 201
+    target_user_id = target_signup.json()["id"]
+
+    patch_response = local_client.patch(f"/admin/users/{target_user_id}", json={"tier": "premium", "is_admin": True})
+    assert patch_response.status_code == 200
+    assert patch_response.json()["user"]["tier"] == "premium"
+    assert patch_response.json()["user"]["is_admin"] is True
+
+    detail_response = local_client.get(f"/admin/users/{target_user_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["user"]["email"] == "customer@example.com"
+    assert detail["user"]["tier"] == "premium"
+    assert any(log["action"] == "user_updated" for log in detail["audit_logs"])
+
+    audit_response = local_client.get("/admin/audit-log")
+    assert audit_response.status_code == 200
+    assert any(log["target_id"] == target_user_id for log in audit_response.json()["logs"])

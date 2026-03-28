@@ -168,6 +168,7 @@ class Settings(BaseSettings):
     resend_api_key: str = Field(default="", validation_alias=AliasChoices("RESEND_API_KEY"))
     alerts_from_email: str = Field(default="", validation_alias=AliasChoices("ALERTS_FROM_EMAIL"))
     alerts_internal_secret: str = Field(default="", validation_alias=AliasChoices("ALERTS_INTERNAL_SECRET"))
+    admin_emails: str = Field(default="", validation_alias=AliasChoices("ADMIN_EMAILS", "MOTORSCRAPE_ADMIN_EMAILS"))
     enabled_vehicle_categories: str = Field(
         default="car",
         validation_alias=AliasChoices(
@@ -188,3 +189,8 @@ def enabled_vehicle_categories() -> set[str]:
 
 def vehicle_category_enabled(category: str) -> bool:
     return (category or "car").strip().lower() in enabled_vehicle_categories()
+
+
+def configured_admin_emails() -> set[str]:
+    raw = (settings.admin_emails or "").strip()
+    return {part.strip().lower() for part in raw.split(",") if part.strip()}

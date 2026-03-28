@@ -114,6 +114,7 @@ def me(ctx: Annotated[AccessContext, Depends(get_access_context)]) -> dict[str, 
         "id": user.id,
         "email": user.email,
         "tier": user.tier,
+        "is_admin": ctx.is_admin,
         "usage": {
             "period": period,
             "included_used": used,
@@ -139,6 +140,7 @@ def access_summary(ctx: Annotated[AccessContext, Depends(get_access_context)]) -
     out: dict[str, Any] = {
         "authenticated": ctx.user_id is not None,
         "tier": ctx.tier,
+        "is_admin": ctx.is_admin,
         "limits": {
             "max_dealerships": lim.max_dealerships,
             "max_pages_per_dealer": lim.max_pages_per_dealer,

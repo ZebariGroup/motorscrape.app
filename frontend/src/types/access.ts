@@ -1,6 +1,7 @@
 export type AccessSummary = {
   authenticated: boolean;
   tier: string;
+  is_admin: boolean;
   limits: {
     max_dealerships: number;
     max_pages_per_dealer: number;

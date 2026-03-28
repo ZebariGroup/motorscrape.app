@@ -6,10 +6,10 @@ import hashlib
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import Cookie, Header, Request
+from fastapi import Cookie, Header, HTTPException, Request, status
 
 from app.auth.session import SESSION_COOKIE_NAME, read_session_token
-from app.config import settings
+from app.config import configured_admin_emails, settings
 from app.db.account_store import get_account_store
 from app.tiers import TierId, TierLimits, limits_for_tier
 
@@ -40,6 +40,13 @@ class AccessContext:
     user_id: str | None
     email: str | None
     anon_key: str | None
+    is_admin: bool
+
+
+def _is_admin_email(email: str | None) -> bool:
+    if not email:
+        return False
+    return email.strip().lower() in configured_admin_emails()
 
 
 def get_access_context(
@@ -60,6 +67,7 @@ def get_access_context(
                 user_id=user.id,
                 email=user.email,
                 anon_key=None,
+                is_admin=bool(user.is_admin or _is_admin_email(user.email)),
             )
     ak = anon_key_for_request(request, x_forwarded_for, x_real_ip)
     return AccessContext(
@@ -68,4 +76,13 @@ def get_access_context(
         user_id=None,
         email=None,
         anon_key=ak,
+        is_admin=False,
     )
+
+
+def require_admin_context(ctx: AccessContext) -> AccessContext:
+    if ctx.user_id is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated.")
+    if not ctx.is_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrator access required.")
+    return ctx

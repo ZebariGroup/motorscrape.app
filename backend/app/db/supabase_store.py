@@ -11,6 +11,7 @@ from supabase import Client, create_client
 
 from app.config import settings
 from app.db.account_store import (
+    AdminAuditLogRecord,
     AlertRunRecord,
     AlertSubscriptionRecord,
     ScrapeEventRecord,
@@ -92,6 +93,74 @@ class SupabaseAccountStore:
 
     def set_metered_item(self, user_id: str, metered_item_id: str | None) -> None:
         self.client.table("profiles").update({"stripe_metered_item_id": metered_item_id}).eq("id", user_id).execute()
+
+    def set_admin(self, user_id: str, is_admin: bool) -> None:
+        self.client.table("profiles").update({"is_admin": is_admin}).eq("id", user_id).execute()
+
+    def list_users(self, *, limit: int = 50, offset: int = 0, query: str | None = None) -> list[UserRecord]:
+        request = self.client.table("profiles").select("*").order("created_at", desc=True).range(offset, offset + limit - 1)
+        if query:
+            request = request.ilike("email", f"%{query.strip()}%")
+        res = request.execute()
+        return [_row_to_user(row) for row in (res.data or [])]
+
+    def count_users(self, *, query: str | None = None) -> int:
+        request = self.client.table("profiles").select("id")
+        if query:
+            request = request.ilike("email", f"%{query.strip()}%")
+        res = request.execute()
+        return len(res.data or [])
+
+    def count_users_by_tier(self) -> dict[str, int]:
+        res = self.client.table("profiles").select("tier").execute()
+        counts: dict[str, int] = {}
+        for row in res.data or []:
+            tier = str(row.get("tier") or "free")
+            counts[tier] = counts.get(tier, 0) + 1
+        return counts
+
+    def total_searches_in_period(self, period: str) -> int:
+        res = self.client.table("usage_monthly").select("search_count, overage_count").eq("period", period).execute()
+        return sum(int(row.get("search_count") or 0) + int(row.get("overage_count") or 0) for row in (res.data or []))
+
+    def total_overage_searches_in_period(self, period: str) -> int:
+        res = self.client.table("usage_monthly").select("overage_count").eq("period", period).execute()
+        return sum(int(row.get("overage_count") or 0) for row in (res.data or []))
+
+    def count_recent_users(self, *, since_ts: float) -> int:
+        threshold = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since_ts))
+        res = self.client.table("profiles").select("id").gte("created_at", threshold).execute()
+        return len(res.data or [])
+
+    def count_scrape_runs(self, *, since_ts: float | None = None, status: str | None = None) -> int:
+        request = self.client.table("scrape_runs").select("id")
+        if since_ts is not None:
+            threshold = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since_ts))
+            request = request.gte("started_at", threshold)
+        if status:
+            request = request.eq("status", status)
+        res = request.execute()
+        return len(res.data or [])
+
+    def count_alert_subscriptions(self, *, active_only: bool | None = None, due_before_ts: float | None = None) -> int:
+        request = self.client.table("alert_subscriptions").select("id")
+        if active_only is not None:
+            request = request.eq("is_active", active_only)
+        if due_before_ts is not None:
+            threshold = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(due_before_ts))
+            request = request.lte("next_run_at", threshold)
+        res = request.execute()
+        return len(res.data or [])
+
+    def count_alert_runs(self, *, since_ts: float | None = None, status: str | None = None) -> int:
+        request = self.client.table("alert_runs").select("id")
+        if since_ts is not None:
+            threshold = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since_ts))
+            request = request.gte("started_at", threshold)
+        if status:
+            request = request.eq("status", status)
+        res = request.execute()
+        return len(res.data or [])
 
     def monthly_usage(self, user_id: str, period: str) -> tuple[int, int]:
         res = self.client.table("usage_monthly").select("search_count, overage_count").eq("user_id", user_id).eq("period", period).execute()
@@ -289,6 +358,26 @@ class SupabaseAccountStore:
         )
         return [_row_to_alert_subscription(row) for row in (res.data or [])]
 
+    def admin_list_alert_subscriptions(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        due_only: bool = False,
+    ) -> list[AlertSubscriptionRecord]:
+        query = (
+            self.client.table("alert_subscriptions")
+            .select("*")
+            .order("next_run_at")
+            .order("created_at", desc=True)
+            .range(offset, offset + limit - 1)
+        )
+        if due_only:
+            now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time()))
+            query = query.eq("is_active", True).lte("next_run_at", now_iso)
+        res = query.execute()
+        return [_row_to_alert_subscription(row) for row in (res.data or [])]
+
     def create_alert_run(
         self,
         *,
@@ -329,6 +418,19 @@ class SupabaseAccountStore:
             .limit(limit)
             .execute()
         )
+        return [_row_to_alert_run(row) for row in (res.data or [])]
+
+    def admin_list_alert_runs(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        status: str | None = None,
+    ) -> list[AlertRunRecord]:
+        query = self.client.table("alert_runs").select("*").order("started_at", desc=True).range(offset, offset + limit - 1)
+        if status:
+            query = query.eq("status", status)
+        res = query.execute()
         return [_row_to_alert_run(row) for row in (res.data or [])]
 
     def create_scrape_run(
@@ -456,6 +558,20 @@ class SupabaseAccountStore:
         res = query.execute()
         return [_row_to_scrape_run(row) for row in (res.data or [])]
 
+    def admin_list_scrape_runs(self, *, limit: int = 20, offset: int = 0, status: str | None = None) -> list[ScrapeRunRecord]:
+        query = self.client.table("scrape_runs").select("*").order("started_at", desc=True).range(offset, offset + limit - 1)
+        if status:
+            query = query.eq("status", status)
+        res = query.execute()
+        return [_row_to_scrape_run(row) for row in (res.data or [])]
+
+    def count_admin_scrape_runs(self, *, status: str | None = None) -> int:
+        query = self.client.table("scrape_runs").select("id")
+        if status:
+            query = query.eq("status", status)
+        res = query.execute()
+        return len(res.data or [])
+
     def get_scrape_run(
         self,
         correlation_id: str,
@@ -481,6 +597,19 @@ class SupabaseAccountStore:
             return None
         return _row_to_scrape_run(res.data[0])
 
+    def admin_get_scrape_run(self, correlation_id: str) -> ScrapeRunRecord | None:
+        res = (
+            self.client.table("scrape_runs")
+            .select("*")
+            .eq("correlation_id", correlation_id)
+            .order("started_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+        return _row_to_scrape_run(res.data[0])
+
     def list_scrape_events(self, scrape_run_id: str, *, limit: int = 200) -> list[ScrapeEventRecord]:
         res = (
             self.client.table("scrape_events")
@@ -492,6 +621,51 @@ class SupabaseAccountStore:
         )
         return [_row_to_scrape_event(row) for row in (res.data or [])]
 
+    def record_admin_audit_event(
+        self,
+        *,
+        actor_user_id: str | None,
+        actor_email: str | None,
+        action: str,
+        target_type: str,
+        target_id: str | None,
+        summary: str,
+        payload: dict[str, Any],
+    ) -> AdminAuditLogRecord | None:
+        try:
+            res = self.client.table("admin_audit_logs").insert(
+                {
+                    "actor_user_id": actor_user_id,
+                    "actor_email": actor_email,
+                    "action": action,
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "summary": summary,
+                    "payload_json": payload,
+                    "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time())),
+                }
+            ).execute()
+            if not res.data:
+                return None
+            return _row_to_admin_audit_log(res.data[0])
+        except Exception as exc:
+            logger.warning("admin audit logging unavailable: %s", exc)
+            return None
+
+    def list_admin_audit_logs(self, *, limit: int = 50, offset: int = 0) -> list[AdminAuditLogRecord]:
+        try:
+            res = (
+                self.client.table("admin_audit_logs")
+                .select("*")
+                .order("created_at", desc=True)
+                .range(offset, offset + limit - 1)
+                .execute()
+            )
+            return [_row_to_admin_audit_log(row) for row in (res.data or [])]
+        except Exception as exc:
+            logger.warning("admin audit log unavailable: %s", exc)
+            return []
+
 
 def _row_to_user(row: dict[str, Any]) -> UserRecord:
     ent = row.get("entitlements_json") or {}
@@ -499,10 +673,13 @@ def _row_to_user(row: dict[str, Any]) -> UserRecord:
         id=str(row["id"]),
         email=str(row["email"]),
         tier=str(row["tier"]),
+        is_admin=bool(row.get("is_admin") or False),
         stripe_customer_id=row.get("stripe_customer_id"),
         stripe_subscription_id=row.get("stripe_subscription_id"),
         stripe_metered_item_id=row.get("stripe_metered_item_id"),
         entitlements=ent,
+        created_at=_ts(row.get("created_at")),
+        updated_at=_ts(row.get("updated_at")),
     )
 
 
@@ -600,6 +777,20 @@ def _row_to_scrape_event(row: dict[str, Any]) -> ScrapeEventRecord:
         message=str(row["message"]),
         dealership_name=str(row["dealership_name"]) if row.get("dealership_name") is not None else None,
         dealership_website=str(row["dealership_website"]) if row.get("dealership_website") is not None else None,
+        payload=dict(row.get("payload_json") or {}),
+        created_at=_ts(row.get("created_at")),
+    )
+
+
+def _row_to_admin_audit_log(row: dict[str, Any]) -> AdminAuditLogRecord:
+    return AdminAuditLogRecord(
+        id=str(row["id"]),
+        actor_user_id=str(row["actor_user_id"]) if row.get("actor_user_id") is not None else None,
+        actor_email=str(row["actor_email"]) if row.get("actor_email") is not None else None,
+        action=str(row["action"]),
+        target_type=str(row["target_type"]),
+        target_id=str(row["target_id"]) if row.get("target_id") is not None else None,
+        summary=str(row["summary"]),
         payload=dict(row.get("payload_json") or {}),
         created_at=_ts(row.get("created_at")),
     )

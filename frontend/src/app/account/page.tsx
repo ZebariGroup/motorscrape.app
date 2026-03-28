@@ -15,6 +15,7 @@ type MeResponse = {
   id: string;
   email: string;
   tier: string;
+  is_admin: boolean;
   usage: { period: string; included_used: number; overage_used: number; included_limit: number };
   limits: AccessSummary["limits"];
   stripe_customer_id: string | null;
@@ -151,6 +152,13 @@ export default function AccountPage() {
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
                 Plan: <span className="font-medium text-zinc-800 dark:text-zinc-200">{me.tier}</span>
               </p>
+              {me.is_admin ? (
+                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                  <Link href="/admin" className="font-medium text-emerald-700 dark:text-emerald-400">
+                    Open administrator console
+                  </Link>
+                </p>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void logout()}
