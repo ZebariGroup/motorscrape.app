@@ -227,6 +227,29 @@ async def test_fetch_page_html_homepage_skips_managed_js_render_by_default(zenro
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_inventory_uses_single_rendered_wait_attempt(
+    zenrows_key: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fresh_settings(monkeypatch)
+    url = "https://dealer.example/inventory"
+    respx.get(url).mock(return_value=Response(200, text="<html><body><p>thin</p></body></html>"))
+    rendered_waits: list[str] = []
+
+    def zenrows_route(request: httpx.Request) -> Response:
+        if request.url.params.get("js_render") == "true":
+            rendered_waits.append(request.url.params.get("wait", ""))
+        return Response(200, text="<html><body><p>still thin</p></body></html>")
+
+    respx.get("https://api.zenrows.com/v1/").mock(side_effect=zenrows_route)
+
+    html, method = await fetch_page_html(url, page_kind="inventory")
+    assert method == "direct_fallback"
+    assert html
+    assert rendered_waits == ["3000"]
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_oneaudi_uses_compact_zenrows_instructions(
     zenrows_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

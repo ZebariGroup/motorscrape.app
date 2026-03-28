@@ -400,7 +400,11 @@ async def fetch_page_html(
             return (0,)
         waits = [max(0, base_wait_ms)]
         if page_kind == "inventory":
-            waits.append(max(base_wait_ms * 2, base_wait_ms + 3000, 6000))
+            # Inventory SRPs already consume most of the dealer worker budget through
+            # provider detection, rendering, and pagination. A second managed-render
+            # wait tends to create long-tail timeouts in production without improving
+            # yield enough, so keep inventory pages to a single rendered wait.
+            return tuple(waits)
         out: list[int] = []
         for wait in waits:
             if wait not in out:
