@@ -63,10 +63,17 @@ _INVENTORY_KEYS = {
     "bodytype",
     "enginehours",
     "engine_hours",
+    # Help nested inventory records match even when mileage uses OEM-specific keys
+    "miles",
+    "mileage",
+    "odometer",
+    "odometermiles",
+    "odometerreading",
+    "mileagevalue",
 }
 
 _VEHICLE_KEEP_KEYS = {
-    "make", "model", "trim", "year", "miles", "mileage", "price",
+    "make", "model", "trim", "year", "miles", "mileage", "odometer", "odometermiles", "price",
     "priceinet", "price_inet", "pricesticker", "vin", "stockno",
     "stock_no", "bodytype", "bodystyle", "colorexterior", "colorinterior",
     "transmission", "engine", "drivetrain", "vdpurl", "vdp_url",
@@ -90,6 +97,10 @@ _VEHICLE_FULL_REGEX = re.compile(
 _TEXT_PRICE_RE = re.compile(r"\$([0-9][0-9,]{2,})(?:\.\d{2})?")
 _TEXT_MILEAGE_LABELED_RE = re.compile(r"\bmileage\s*:\s*([0-9][0-9,]{0,6})\b", re.I)
 _TEXT_MILEAGE_UNITS_RE = re.compile(r"\b([0-9][0-9,]{0,6})\s*(?:mi|miles?)\b", re.I)
+_TEXT_ODOMETER_LABELED_RE = re.compile(
+    r"\b(?:odometer|odo)\s*:\s*([0-9][0-9,]{0,6})\b",
+    re.I,
+)
 _TEXT_VIN_RE = re.compile(r"\b([A-HJ-NPR-Z0-9]{17})\b")
 _TEXT_HIN_RE = re.compile(r"\b([A-Z]{3}[A-Z0-9]{5}[A-Z0-9]{4})\b")
 _TEXT_ENGINE_HOURS_RE = re.compile(r"\b([0-9][0-9,]{0,6})\s*(?:hrs?|hours?)\b", re.I)
@@ -313,6 +324,12 @@ def _normalize_schema_org(rec: dict) -> dict:
         out["make"] = out.pop("manuf")
     if "vehicleIdentificationNumber" in out and "vin" not in out:
         out["vin"] = out.pop("vehicleIdentificationNumber")
+    if "mileageFromOdometer" in out and "mileage" not in out:
+        mfo = out.pop("mileageFromOdometer")
+        if isinstance(mfo, dict):
+            mfo = mfo.get("value") or mfo.get("name")
+        if mfo not in (None, "", []):
+            out["mileage"] = mfo
     if "vehicleModelDate" in out and "year" not in out:
         out["year"] = out.pop("vehicleModelDate")
     if "color" in out and "colorExterior" not in out:
@@ -521,10 +538,75 @@ def _extract_price_from_text(text: str | None) -> float | None:
     return None
 
 
+def _unwrap_quantitative_value(val: Any) -> Any:
+    """schema.org QuantitativeValue and similar `{value: n}` wrappers."""
+    if isinstance(val, dict):
+        if "value" in val:
+            return val.get("value")
+        if "mileageValue" in val:
+            return val.get("mileageValue")
+    return val
+
+
+# Ordered: most specific / common dealer API & DMS field names first
+_MILEAGE_FIELD_KEYS: tuple[str, ...] = (
+    "odometerMiles",
+    "odometer_miles",
+    "vehicleOdometer",
+    "vehicle_odometer",
+    "actualMileage",
+    "actual_mileage",
+    "mileageValue",
+    "mileage_value",
+    "odometerReading",
+    "odometer_reading",
+    "odometerValue",
+    "odometer_value",
+    "milesOdometer",
+    "miles_odometer",
+    "mileageFromOdometer",
+    "displayMileage",
+    "display_mileage",
+    "odometer",
+    "mileage",
+    "miles",
+    "mile",
+    "odo",
+)
+
+
+def _mileage_int_from_flat_dict(d: dict[str, Any]) -> int | None:
+    for key in _MILEAGE_FIELD_KEYS:
+        if key not in d:
+            continue
+        raw = _unwrap_quantitative_value(d.get(key))
+        miles = _coerce_int(raw)
+        if miles is not None:
+            return miles
+    return None
+
+
+def _mileage_int_from_dict(d: dict[str, Any]) -> int | None:
+    m = _mileage_int_from_flat_dict(d)
+    if m is not None:
+        return m
+    for nested_key in ("vehicle", "inventoryItem", "inventory", "unit", "attributes", "specs"):
+        sub = d.get(nested_key)
+        if isinstance(sub, dict):
+            m = _mileage_int_from_flat_dict(sub)
+            if m is not None:
+                return m
+    return None
+
+
 def _extract_mileage_from_text(text: str | None) -> int | None:
     if not text:
         return None
     for match in _TEXT_MILEAGE_LABELED_RE.finditer(text):
+        miles = _coerce_int(match.group(1))
+        if miles is not None:
+            return miles
+    for match in _TEXT_ODOMETER_LABELED_RE.finditer(text):
         miles = _coerce_int(match.group(1))
         if miles is not None:
             return miles
@@ -629,11 +711,6 @@ def _pick_usage_from_dict(
         d.get("hourMeter"),
         d.get("hour_meter"),
     )
-    mile_candidates = (
-        d.get("miles"),
-        d.get("mileage"),
-        d.get("odometer"),
-    )
     if vehicle_category in {"boat", "other"}:
         for candidate in hour_candidates:
             hours = _coerce_int(candidate)
@@ -642,10 +719,9 @@ def _pick_usage_from_dict(
         fallback_hours = _extract_engine_hours_from_text(fallback_text)
         if fallback_hours is not None:
             return fallback_hours, "hours"
-    for candidate in mile_candidates:
-        miles = _coerce_int(candidate)
-        if miles is not None:
-            return miles, "miles"
+    miles = _mileage_int_from_dict(d)
+    if miles is not None:
+        return miles, "miles"
     fallback_miles = _extract_mileage_from_text(fallback_text)
     if fallback_miles is not None:
         return fallback_miles, "miles"
@@ -1670,6 +1746,11 @@ def extract_dom_vehicle_cards(
         tv_location = _text_or_none(card.select_one(".vehicle-specs__item--location .vehicle-specs__value"))
         tv_stock = _text_or_none(card.select_one(".vehicle-specs__item--stock-number .vehicle-specs__value"))
         tv_vin = _text_or_none(card.select_one(".vehicle-specs__item--vin .vehicle-specs__value"))
+        tv_mileage = (
+            _text_or_none(card.select_one(".vehicle-specs__item--mileage .vehicle-specs__value"))
+            or _text_or_none(card.select_one(".vehicle-specs__item--odometer .vehicle-specs__value"))
+            or _text_or_none(card.select_one(".vehicle-specs__item--miles .vehicle-specs__value"))
+        )
         tv_current_price = _text_or_none(card.select_one(".vehicle-price--current .vehicle-price__price"))
         tv_old_price = _text_or_none(card.select_one(".vehicle-price--old .vehicle-price__price"))
         tv_savings = _text_or_none(card.select_one(".vehicle-price--savings .vehicle-price__price"))
@@ -1757,15 +1838,22 @@ def extract_dom_vehicle_cards(
             or payload.get("year")
         )
         trim = card.get("data-trim") or card.get("data-vehicle-trim") or card.get("data-dotagging-item-variant") or payload.get("trim")
+        odom_merge: dict[str, Any] = dict(payload)
+        for attr, pkey in (
+            ("data-odometer", "mileage"),
+            ("data-mileage", "mileage"),
+            ("data-vehicle-mileage", "mileage"),
+            ("data-miles", "miles"),
+            ("data-odometer-miles", "odometerMiles"),
+            ("data-dotagging-item-odometer", "odometer"),
+        ):
+            val = card.get(attr)
+            if val not in (None, ""):
+                odom_merge[pkey] = val
+        if tv_mileage:
+            odom_merge["mileage"] = tv_mileage
         usage_value, usage_unit = _pick_usage_from_dict(
-            {
-                "mileage": card.get("data-odometer") or payload.get("mileage"),
-                "odometer": card.get("data-dotagging-item-odometer") or payload.get("odometer"),
-                "engineHours": payload.get("engineHours"),
-                "engine_hours": payload.get("engine_hours"),
-                "hours": payload.get("hours"),
-                "hourMeter": payload.get("hourMeter"),
-            },
+            odom_merge,
             vehicle_category=vehicle_category,
             fallback_text=card_text,
         )

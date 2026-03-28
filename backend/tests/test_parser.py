@@ -52,6 +52,94 @@ def test_try_extract_dom_msrp_and_discount_from_attributes() -> None:
     assert v.days_on_lot == 18
 
 
+def test_try_extract_dom_vehicle_card_reads_data_mileage_attributes() -> None:
+    html = """
+    <html><body>
+      <div class="vehicle-card" data-year="2021" data-make="Honda" data-model="Accord"
+           data-mileage="33210" data-price="26500">
+        <a href="/inventory/h1">2021 Honda Accord Sport</a>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+    )
+    assert result is not None
+    v = result.vehicles[0]
+    assert v.mileage == 33210
+    assert v.usage_value == 33210
+    assert v.usage_unit == "miles"
+
+
+def test_try_extract_embedded_json_odometer_miles_maps_to_mileage() -> None:
+    # Inline JSON scripts are only parsed when long enough (see monolith _extract_json_inventory).
+    pad = "x" * 220
+    html = f"""
+    <html><body>
+    <script type="application/json">
+    {{"vehicles":[{{"make":"Toyota","model":"Camry","year":2022,"odometerMiles":45215,
+    "vin":"4T1B11HK5KU123456","vdpUrl":"/inventory/v1","_pad":"{pad}"}}]}}
+    </script>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.mileage == 45215
+    assert v.vin == "4T1B11HK5KU123456"
+
+
+def test_try_extract_team_velocity_mileage_from_vehicle_specs_row() -> None:
+    html = """
+    <html><body>
+      <li class="v7list-results__item" data-unit-condition="USED" data-unit-id="991122"
+          data-unit-make="Ford" data-unit-year="2019">
+        <article class="v7list-vehicle">
+          <a class="vehicle__image" href="/used-2019-Ford-Explorer-991122?ref=list"></a>
+          <h3 class="v7list-vehicle__heading">
+            <a class="vehicle-heading__link" href="/used-2019-Ford-Explorer-991122?ref=list">
+              <span class="vehicle-heading__year">2019</span>
+              <span class="vehicle-heading__name">Ford</span>
+              <span class="vehicle-heading__model">Explorer XLT</span>
+            </a>
+          </h3>
+          <span class="vehicle-price vehicle-price--current">
+            <span class="vehicle-price__price">$22,400</span>
+          </span>
+          <ul class="vehicle-specs__list">
+            <li class="vehicle-specs__item vehicle-specs__item--mileage">
+              <span class="vehicle-specs__value">45,215 mi</span>
+            </li>
+            <li class="vehicle-specs__item vehicle-specs__item--vin">
+              <span class="vehicle-specs__value">1FM5K8D85KGA12345</span>
+            </li>
+          </ul>
+        </article>
+      </li>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/--inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="car",
+        platform_id="team_velocity",
+    )
+    assert result is not None
+    v = result.vehicles[0]
+    assert v.mileage == 45215
+
+
 def test_try_extract_basspro_inventory_card() -> None:
     html = """
     <html><body>
