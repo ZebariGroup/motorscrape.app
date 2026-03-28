@@ -253,6 +253,7 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         platform_id="marinemax",
         markers=(
             "marinemax.com",
+            "skipperbuds.com",
             "find-a-boat-v2",
             "boat-card-template",
             "algoliaapplicationid",
@@ -356,6 +357,7 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         platform_id="dealer_spike",
         markers=(
             "dealer spike",
+            "dsp.dealerid",
             "default.asp?page=xallinventory",
             "default.asp?page=xnewinventory",
             "default.asp?page=xpreownedinventory",
@@ -366,13 +368,13 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         inventory_path_hints=(
             "default.asp?page=xallinventory",
             "default.asp?page=xnewinventory",
-            "default.asp?page=xpreownedinventory",
             "inventory/all-inventory-in-stock",
             "inventory/new-inventory-in-stock",
-            "inventory/used-inventory",
-            "inventory/used-inventory-in-stock",
             "all-inventory-in-stock",
             "new-inventory-in-stock",
+            "default.asp?page=xpreownedinventory",
+            "inventory/used-inventory",
+            "inventory/used-inventory-in-stock",
             "used-inventory-in-stock",
         ),
         extraction_mode="hybrid",

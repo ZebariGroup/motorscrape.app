@@ -96,6 +96,8 @@ _EXTRA_API_RES = (
     re.compile(r'["\']inventory_url["\']\s*:\s*["\'](?P<url>[^"\']+)["\']', re.I),
     re.compile(r'["\']inventoryEndpoint["\']\s*:\s*["\'](?P<url>[^"\']+)["\']', re.I),
     re.compile(r'vehicle_data_url\s*=\s*[\'"](?P<url>[^\'"]+)[\'"]', re.I),
+    # Dealer Spike Marine static JS inventory cache: NVehInv.js / UVehInv.js
+    re.compile(r'["\'](?P<url>/imglib/Inventory/cache/\d+/[NU]VehInv\.js[^"\']*)["\']', re.I),
 )
 _WS_INV_FETCH_RE = re.compile(
     r'fetch\("(?P<url>/api/widget/ws-inv-data/getInventory)".*?body:decodeURI\("(?P<body>.*?)"\)',
@@ -846,6 +848,57 @@ def _html_looks_inventory_ready(html: str) -> bool:
     )
 
 
+_DEALER_SPIKE_VEHICLES_RE = re.compile(
+    r"(?:^|\xef\xbb\xbf|\ufeff|;)\s*var\s+Vehicles\s*=\s*(\[.*?\])\s*;?\s*$",
+    re.S | re.M,
+)
+
+
+def _extract_dealer_spike_vehicle_js(text: str) -> list[dict]:
+    """Parse Dealer Spike Marine NVehInv.js / UVehInv.js into vehicle dicts."""
+    m = _DEALER_SPIKE_VEHICLES_RE.search(text)
+    if not m:
+        return []
+    try:
+        records = json.loads(m.group(1), strict=False)
+    except (json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(records, list):
+        return []
+    out: list[dict] = []
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        make = r.get("manuf") or r.get("brand")
+        model = r.get("model")
+        if not make and not model:
+            continue
+        stock = r.get("stockno") or r.get("id")
+        year = r.get("bike_year") or r.get("year")
+        price = r.get("price") or r.get("sale_price") or r.get("MSRP") or r.get("retail_price")
+        vin = r.get("vin")
+        condition_code = str(r.get("type") or "").upper()
+        condition = "new" if condition_code == "N" else ("used" if condition_code in ("U", "P") else None)
+        image = r.get("bike_image") or r.get("stock_image")
+        hours = r.get("enginehours")
+        unit_id = r.get("id")
+        out.append({k: v for k, v in {
+            "make": make,
+            "model": model,
+            "year": year,
+            "stock": stock,
+            "vin": vin,
+            "price": price,
+            "condition": condition,
+            "color": r.get("color"),
+            "engineHours": hours,
+            "image_url": image,
+            "_dealer_spike_unit_id": unit_id,
+        }.items() if v not in (None, "", 0)})
+    logger.info("Dealer Spike NVehInv.js: parsed %d vehicle records", len(out))
+    return out
+
+
 def _extract_inventory_api_urls(html: str, base_url: str) -> list[str]:
     urls: list[str] = []
     for m in _INVENTORY_URL_RE.finditer(html):
@@ -1285,6 +1338,14 @@ async def _maybe_append_inventory_api_data(
                 logger.debug("Inventory API fetch failed for %s: %s", api_url, e)
                 continue
             content = r.text.strip()
+            # Dealer Spike NVehInv.js uses `var Vehicles=[...]` format — parse and re-inject as JSON.
+            # The file often starts with a UTF-8 BOM (\ufeff) so check both with and without it.
+            content_stripped = content.lstrip("\ufeff\xef\xbb\xbf")
+            if content_stripped.startswith("var Vehicles") or "var Vehicles=" in content[:80]:
+                dsp_records = _extract_dealer_spike_vehicle_js(content)
+                if dsp_records:
+                    payloads.append(json.dumps({"inventory": dsp_records}, separators=(",", ":")))
+                continue
             if not content.startswith("{"):
                 continue
             payloads.append(content)

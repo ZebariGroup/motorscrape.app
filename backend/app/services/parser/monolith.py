@@ -52,6 +52,7 @@ Extraction rules:
 
 _INVENTORY_KEYS = {
     "make",
+    "manuf",  # Dealer Spike Marine uses "manuf" for manufacturer/make
     "model",
     "vin",
     "hin",
@@ -133,34 +134,53 @@ _GENERIC_CARD_ACTION_TEXTS = frozenset({"click for price", "more info", "details
 _KNOWN_MAKE_PREFIXES = tuple(
     sorted(
         {
+            # Cars / motorcycles
             "Alfa Romeo",
+            "BMW Motorrad",
+            "Can-Am",
+            "Harley-Davidson",
+            "Indian Motorcycle",
+            "Land Rover",
+            "Mercedes-Benz",
+            # Boats — SkipperBud's brand list (authoritative US marine retail reference)
+            "ATX Surf Boats",
+            "ATX",
             "Barletta",
             "Bennington",
             "Boston Whaler",
-            "Land Rover",
-            "Mercedes-Benz",
-            "Harley-Davidson",
-            "Indian Motorcycle",
-            "BMW Motorrad",
-            "Can-Am",
+            "Carolina Classic",
+            "Carver Yachts",
             "Chris Craft",
             "Cobalt",
+            "Correct Craft",
             "Crestliner",
+            "Cruisers Yachts",
             "Four Winns",
             "Godfrey",
             "Harris Pontoon",
+            "JC Mfg",
             "Key West Boats",
             "Key West",
+            "MB Sports",
             "MasterCraft",
-            "Robalo",
+            "Misty Harbor",
+            "Palm Beach",
             "Ranger Boats",
+            "Robalo",
+            "Sea Fox",
             "Sea Nymph",
             "Sea Pro",
-            "Yamaha Boats",
             "Sea Ray",
+            "Sea-Doo",
             "South Bay",
             "Starcraft",
+            "Sun Chaser",
             "Sun Tracker",
+            "SunCatcher",
+            "Tiara Yachts",
+            "Willard Boat Works",
+            "World Cat",
+            "Yamaha Boats",
         },
         key=len,
         reverse=True,
@@ -289,6 +309,8 @@ def _normalize_schema_org(rec: dict) -> dict:
         out["make"] = out.pop("manufacturer")
     if "brand" in out and "make" not in out:
         out["make"] = out.pop("brand")
+    if "manuf" in out and "make" not in out:
+        out["make"] = out.pop("manuf")
     if "vehicleIdentificationNumber" in out and "vin" not in out:
         out["vin"] = out.pop("vehicleIdentificationNumber")
     if "vehicleModelDate" in out and "year" not in out:
@@ -1112,7 +1134,7 @@ def dict_to_vehicle_listing(
     vehicle_category: str = "car",
 ) -> VehicleListing | None:
     """Map a loose inventory/schema dict to VehicleListing; returns None if not vehicle-like."""
-    make = d.get("make") or d.get("manufacturer") or d.get("brand")
+    make = d.get("make") or d.get("manufacturer") or d.get("brand") or d.get("manuf")
     model = d.get("model")
     vin = d.get("vin") or d.get("vehicleIdentificationNumber") or d.get("vehicle_identification_number")
     if isinstance(make, dict):

@@ -94,6 +94,7 @@ _CATEGORY_POSITIVE_DEALER_KEYWORDS: dict[str, tuple[str, ...]] = {
 _TRUSTED_NATIONAL_RETAILER_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
     "boat": (
         "marinemax.com",
+        "skipperbuds.com",
         "onewatermarine.com",
         "onewaterinventory.com",
         "bassproboatingcenters.com",
@@ -104,6 +105,7 @@ _TRUSTED_NATIONAL_RETAILER_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
 _TRUSTED_NATIONAL_RETAILER_NAME_HINTS: dict[str, tuple[str, ...]] = {
     "boat": (
         "marinemax",
+        "skipperbud",
         "onewater",
         "boating center",
         "bass pro shops boating center",
