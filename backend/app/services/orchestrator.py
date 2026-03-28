@@ -736,22 +736,76 @@ async def stream_search(
                     pass
             except asyncio.TimeoutError:
                 logger.warning(f"{cid_log}Scrape timed out for %s", website)
-                chunks.append(
-                    sse_pack(
-                        "dealership",
-                        {
-                            "index": index,
-                            "total": len(dealers),
-                            "name": d.name,
-                            "website": website,
-                            "status": "error",
-                            "error": (
-                                f"Timed out while fetching pages after ~{int(fetch_timeout)}s."
-                            ),
-                        },
+                homepage_timed_out_msg = f"Timed out while fetching pages after ~{int(fetch_timeout)}s."
+                guess_inv = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
+                if guess_inv and guess_inv.rstrip("/") != prefer_https_website_url(base_url).rstrip("/"):
+                    chunks.append(
+                        sse_pack(
+                            "dealership",
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "current_url": guess_inv,
+                                "status": "scraping",
+                            },
+                        )
                     )
-                )
-                return chunks
+                    try:
+                        rescue_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                        if rescue_timeout is None:
+                            raise RuntimeError("dealer_time_budget_exhausted")
+                        homepage_html, homepage_method = await asyncio.wait_for(
+                            _fetch(guess_inv, "inventory", prefer_render=True),
+                            timeout=rescue_timeout,
+                        )
+                        seed_inventory_url = guess_inv
+                        logger.info(
+                            "Recovered dealership %s after homepage timeout using guessed SRP %s",
+                            d.name,
+                            guess_inv,
+                        )
+                    except Exception as rescue_error:
+                        logger.warning(
+                            "%sHomepage timeout rescue via guessed SRP failed for %s: %s",
+                            cid_log,
+                            website,
+                            rescue_error,
+                        )
+                        if domain:
+                            record_provider_failure(domain)
+                        chunks.append(
+                            sse_pack(
+                                "dealership",
+                                {
+                                    "index": index,
+                                    "total": len(dealers),
+                                    "name": d.name,
+                                    "website": website,
+                                    "status": "error",
+                                    "error": homepage_timed_out_msg,
+                                },
+                            )
+                        )
+                        return chunks
+                else:
+                    if domain:
+                        record_provider_failure(domain)
+                    chunks.append(
+                        sse_pack(
+                            "dealership",
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "status": "error",
+                                "error": homepage_timed_out_msg,
+                            },
+                        )
+                    )
+                    return chunks
             except Exception as e:
                 logger.warning(f"{cid_log}Scrape failed for %s: %s", website, e)
                 guess_inv = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
@@ -911,23 +965,77 @@ async def stream_search(
                     logger.warning(f"{cid_log}Initial inventory scrape timed out for %s", inv_url)
                     if domain:
                         record_provider_failure(domain)
-                    chunks.append(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "current_url": inv_url,
-                                "status": "error",
-                                "error": (
-                                    f"Timed out while fetching inventory page after ~{int(fetch_timeout)}s."
-                                ),
-                            },
+                    inventory_retry_url = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
+                    if inventory_retry_url and inventory_retry_url.rstrip("/") != (inv_url or "").rstrip("/"):
+                        chunks.append(
+                            sse_pack(
+                                "dealership",
+                                {
+                                    "index": index,
+                                    "total": len(dealers),
+                                    "name": d.name,
+                                    "website": website,
+                                    "current_url": inventory_retry_url,
+                                    "status": "scraping",
+                                },
+                            )
                         )
-                    )
-                    return chunks
+                        try:
+                            retry_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                            if retry_timeout is None:
+                                raise RuntimeError("dealer_time_budget_exhausted")
+                            current_html, current_method = await asyncio.wait_for(
+                                _fetch(
+                                    inventory_retry_url,
+                                    "inventory",
+                                    prefer_render=True,
+                                    platform_id=route.platform_id if route else None,
+                                ),
+                                timeout=retry_timeout,
+                            )
+                            inv_url = inventory_retry_url
+                        except Exception as e:
+                            logger.warning(
+                                "%sInventory timeout rescue via guessed SRP failed for %s: %s",
+                                cid_log,
+                                inv_url,
+                                e,
+                            )
+                            chunks.append(
+                                sse_pack(
+                                    "dealership",
+                                    {
+                                        "index": index,
+                                        "total": len(dealers),
+                                        "name": d.name,
+                                        "website": website,
+                                        "current_url": inv_url,
+                                        "status": "error",
+                                        "error": (
+                                            f"Timed out while fetching inventory page after ~{int(fetch_timeout)}s."
+                                        ),
+                                    },
+                                )
+                            )
+                            return chunks
+                    else:
+                        chunks.append(
+                            sse_pack(
+                                "dealership",
+                                {
+                                    "index": index,
+                                    "total": len(dealers),
+                                    "name": d.name,
+                                    "website": website,
+                                    "current_url": inv_url,
+                                    "status": "error",
+                                    "error": (
+                                        f"Timed out while fetching inventory page after ~{int(fetch_timeout)}s."
+                                    ),
+                                },
+                            )
+                        )
+                        return chunks
                 except Exception as e:
                     logger.warning(f"{cid_log}Initial inventory scrape failed for %s: %s", inv_url, e)
                     if domain:
