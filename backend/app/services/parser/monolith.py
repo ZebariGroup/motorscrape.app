@@ -26,6 +26,43 @@ from app.services.inventory_filters import (
 
 logger = logging.getLogger(__name__)
 
+_openai_client: AsyncOpenAI | None = None
+_openai_sem: asyncio.Semaphore | None = None
+_openai_init_lock = asyncio.Lock()
+
+
+async def _get_openai_client() -> AsyncOpenAI:
+    global _openai_client
+    if _openai_client is None:
+        async with _openai_init_lock:
+            if _openai_client is None:
+                _openai_client = AsyncOpenAI(
+                    api_key=settings.openai_api_key,
+                    max_retries=2,
+                    timeout=settings.openai_timeout,
+                )
+    return _openai_client
+
+
+async def _get_openai_semaphore() -> asyncio.Semaphore:
+    global _openai_sem
+    if _openai_sem is None:
+        async with _openai_init_lock:
+            if _openai_sem is None:
+                _openai_sem = asyncio.Semaphore(max(1, settings.openai_max_concurrency))
+    return _openai_sem
+
+
+async def close_openai_client() -> None:
+    """Close shared AsyncOpenAI client (app shutdown)."""
+    global _openai_client, _openai_sem
+    async with _openai_init_lock:
+        if _openai_client is not None:
+            await _openai_client.close()
+            _openai_client = None
+        _openai_sem = None
+
+
 SYSTEM_PROMPT = """You extract motor vehicle inventory from dealership webpage HTML or JSON data.
 
 Filtering (highest priority):
@@ -2656,21 +2693,19 @@ async def extract_vehicles_from_html(
         f"HTML (possibly truncated):\n{snippet}"
     )
 
-    client = AsyncOpenAI(
-        api_key=settings.openai_api_key,
-        max_retries=2,
-        timeout=settings.openai_timeout,
-    )
-    response = await client.beta.chat.completions.parse(
-        model=settings.openai_extraction_model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        response_format=ExtractionResult,
-        temperature=0.1,
-        max_tokens=4096,
-    )
+    sem = await _get_openai_semaphore()
+    async with sem:
+        client = await _get_openai_client()
+        response = await client.beta.chat.completions.parse(
+            model=settings.openai_extraction_model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            response_format=ExtractionResult,
+            temperature=0.1,
+            max_tokens=4096,
+        )
 
     parsed = response.choices[0].message.parsed
     if not parsed:

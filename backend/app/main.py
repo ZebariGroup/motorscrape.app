@@ -121,6 +121,18 @@ async def lifespan(_app: FastAPI):
         logger.warning("SESSION_SECRET is not set in production! Sessions and anon keys will use a weak default.")
     yield
     try:
+        from app.services.scraper import close_scraper_http_clients
+
+        await close_scraper_http_clients()
+    except Exception:
+        pass
+    try:
+        from app.services.parser.monolith import close_openai_client
+
+        await close_openai_client()
+    except Exception:
+        pass
+    try:
         from app.services.playwright_fetch import shutdown_playwright
 
         await shutdown_playwright()

@@ -19,3 +19,24 @@ def extract_inventory(
         make_filter=make_filter,
         model_filter=model_filter,
     )
+
+
+def extract_inventory_for_platform(platform_id: str):
+    """Structured extraction with platform-specific parser hooks (reduces LLM fallback)."""
+
+    def _extract(
+        *,
+        page_url: str,
+        html: str,
+        make_filter: str,
+        model_filter: str,
+    ) -> ExtractionResult | None:
+        return try_extract_vehicles_without_llm(
+            page_url=page_url,
+            html=html,
+            make_filter=make_filter,
+            model_filter=model_filter,
+            platform_id=platform_id,
+        )
+
+    return _extract

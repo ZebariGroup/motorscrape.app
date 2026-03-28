@@ -43,7 +43,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # Max concurrent Place Details requests when Text Search omits websiteUri.
+    places_details_max_concurrency: int = 8
+
     # Accept GOOGLE_PLACES_API_KEY or the common Google Cloud console name for a Maps/Places key.
+
     google_places_api_key: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -56,6 +60,8 @@ class Settings(BaseSettings):
     openai_extraction_model: str = "gpt-4o-mini"
     # Seconds; bounds slow/hung LLM calls so the search stream can finish.
     openai_timeout: float = 75.0
+    # Cap concurrent OpenAI extraction calls across dealerships (rate limits / tail latency).
+    openai_max_concurrency: int = 4
     zenrows_api_key: str = ""
     # Some ZenRows plans do not include premium proxies; leave off unless needed.
     zenrows_premium_proxy: bool = False

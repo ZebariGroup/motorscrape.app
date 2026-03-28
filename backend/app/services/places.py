@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from typing import Any
@@ -607,6 +608,7 @@ async def find_dealerships(
 
         results: list[DealershipFound] = []
 
+        candidates: list[dict[str, Any]] = []
         for place in places[:limit]:
             if not isinstance(place, dict):
                 continue
@@ -618,10 +620,35 @@ async def find_dealerships(
             name = _display_name(place)
             address = place.get("formattedAddress") or ""
             website = place.get("websiteUri")
+            candidates.append(
+                {
+                    "name": name,
+                    "address": address,
+                    "pid": pid,
+                    "place_resource": place_resource,
+                    "website": website,
+                }
+            )
 
-            if not website and place_resource:
-                website = await _place_details_website(client, place_resource, key)
-            website = _normalize_dealer_website_url(str(website or ""))
+        detail_sem = asyncio.Semaphore(max(1, settings.places_details_max_concurrency))
+
+        async def _ensure_website(c: dict[str, Any]) -> None:
+            if c.get("website") or not c.get("place_resource"):
+                return
+            async with detail_sem:
+                w = await _place_details_website(client, str(c["place_resource"]), key)
+            if w:
+                c["website"] = w
+
+        await asyncio.gather(
+            *(_ensure_website(c) for c in candidates if not c.get("website") and c.get("place_resource"))
+        )
+
+        for c in candidates:
+            name = c["name"]
+            address = c["address"]
+            pid = c["pid"]
+            website = _normalize_dealer_website_url(str(c.get("website") or ""))
 
             if not website:
                 logger.debug("Skipping %s — no website in Places data", name)

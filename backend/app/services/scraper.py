@@ -31,6 +31,53 @@ _zenrows_cooldown_until_monotonic: float = 0.0
 
 _ZENROWS_TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504, 520, 522, 524})
 
+# Long-lived clients reuse TLS sessions and connection pools (per-request timeout still applies).
+_scraper_client_lock = asyncio.Lock()
+_direct_httpx_client: httpx.AsyncClient | None = None
+_standard_httpx_client: httpx.AsyncClient | None = None
+_HTTPX_LIMITS = httpx.Limits(max_connections=200, max_keepalive_connections=50)
+
+
+async def _get_direct_httpx_client() -> httpx.AsyncClient:
+    """Direct dealer fetches (verify=False for broken dealer TLS)."""
+    global _direct_httpx_client
+    if _direct_httpx_client is None:
+        async with _scraper_client_lock:
+            if _direct_httpx_client is None:
+                _direct_httpx_client = httpx.AsyncClient(
+                    verify=False,
+                    follow_redirects=True,
+                    limits=_HTTPX_LIMITS,
+                    timeout=httpx.Timeout(30.0),
+                )
+    return _direct_httpx_client
+
+
+async def _get_standard_httpx_client() -> httpx.AsyncClient:
+    """ZenRows, ScrapingBee, and inventory API enrichment (verified TLS)."""
+    global _standard_httpx_client
+    if _standard_httpx_client is None:
+        async with _scraper_client_lock:
+            if _standard_httpx_client is None:
+                _standard_httpx_client = httpx.AsyncClient(
+                    follow_redirects=True,
+                    limits=_HTTPX_LIMITS,
+                    timeout=httpx.Timeout(30.0),
+                )
+    return _standard_httpx_client
+
+
+async def close_scraper_http_clients() -> None:
+    """Close pooled httpx clients (app shutdown)."""
+    global _direct_httpx_client, _standard_httpx_client
+    async with _scraper_client_lock:
+        if _direct_httpx_client is not None:
+            await _direct_httpx_client.aclose()
+            _direct_httpx_client = None
+        if _standard_httpx_client is not None:
+            await _standard_httpx_client.aclose()
+            _standard_httpx_client = None
+
 
 async def _zenrows_concurrency_gate() -> asyncio.Semaphore:
     global _zenrows_semaphore
@@ -739,14 +786,14 @@ def _inventory_api_headers(*, content_type: str | None = None) -> dict[str, str]
 
 
 async def _direct_get(url: str, timeout: httpx.Timeout) -> str:
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=False) as client:
-        r = await client.get(url, headers=_browser_headers())
-        if r.status_code == 403:
-            retry = await client.get(url, headers=_fallback_browser_headers())
-            retry.raise_for_status()
-            return retry.text
-        r.raise_for_status()
-        return r.text
+    client = await _get_direct_httpx_client()
+    r = await client.get(url, headers=_browser_headers(), timeout=timeout)
+    if r.status_code == 403:
+        retry = await client.get(url, headers=_fallback_browser_headers(), timeout=timeout)
+        retry.raise_for_status()
+        return retry.text
+    r.raise_for_status()
+    return r.text
 
 
 async def _zenrows_fetch(
@@ -784,8 +831,8 @@ async def _zenrows_fetch(
             managed_sem = await _managed_scraper_concurrency_gate()
             async with managed_sem:
                 async with zenrows_sem:
-                    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                        r = await client.get(api_url, params=params)
+                    client = await _get_standard_httpx_client()
+                    r = await client.get(api_url, params=params, timeout=timeout)
             if r.status_code in _ZENROWS_TRANSIENT_STATUS_CODES:
                 if attempt < attempts:
                     await asyncio.sleep(backoff_seconds * (2 ** (attempt - 1)))
@@ -833,10 +880,10 @@ async def _scrapingbee_fetch(
     managed_sem = await _managed_scraper_concurrency_gate()
     async with managed_sem:
         async with scrapingbee_sem:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                r = await client.get(f"{base}?{qs}")
-                r.raise_for_status()
-                return r.text
+            client = await _get_standard_httpx_client()
+            r = await client.get(f"{base}?{qs}", timeout=timeout)
+            r.raise_for_status()
+            return r.text
 
 
 def _html_looks_inventory_ready(html: str) -> bool:
@@ -1279,76 +1326,78 @@ async def _maybe_append_inventory_api_data(
         return html
 
     payloads: list[str] = []
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        for api_url, body in api_posts[:2]:
-            try:
-                rewritten_body = _rewrite_inventory_post_body_for_page(body, page_url)
-                r = await client.post(
-                    api_url,
-                    headers=_inventory_api_headers(content_type="application/json"),
-                    content=rewritten_body,
-                )
-                r.raise_for_status()
-            except Exception as e:
-                logger.debug("Inventory API POST failed for %s: %s", api_url, e)
-                continue
-            content = r.text.strip()
-            if not content.startswith("{"):
-                continue
-            payloads.append(content)
-        if payloads:
-            injected = "".join(
-                f'\n<script type="application/json" data-ms-source="inventory-api">{p}</script>\n'
-                for p in payloads
+    client = await _get_standard_httpx_client()
+    for api_url, body in api_posts[:2]:
+        try:
+            rewritten_body = _rewrite_inventory_post_body_for_page(body, page_url)
+            r = await client.post(
+                api_url,
+                headers=_inventory_api_headers(content_type="application/json"),
+                content=rewritten_body,
+                timeout=timeout,
             )
-            logger.info(
-                "Enriched %s with %d inventory API payload(s)",
-                page_url,
-                len(payloads),
+            r.raise_for_status()
+        except Exception as e:
+            logger.debug("Inventory API POST failed for %s: %s", api_url, e)
+            continue
+        content = r.text.strip()
+        if not content.startswith("{"):
+            continue
+        payloads.append(content)
+    if payloads:
+        injected = "".join(
+            f'\n<script type="application/json" data-ms-source="inventory-api">{p}</script>\n'
+            for p in payloads
+        )
+        logger.info(
+            "Enriched %s with %d inventory API payload(s)",
+            page_url,
+            len(payloads),
+        )
+        return html + injected
+    for api_url, query in api_gets[:2]:
+        try:
+            rewritten_query = _rewrite_inventory_get_query_for_page(query, page_url)
+            r = await client.get(
+                api_url,
+                params=rewritten_query or None,
+                headers=_inventory_api_headers(),
+                timeout=timeout,
             )
-            return html + injected
-        for api_url, query in api_gets[:2]:
-            try:
-                rewritten_query = _rewrite_inventory_get_query_for_page(query, page_url)
-                r = await client.get(
-                    api_url,
-                    params=rewritten_query or None,
-                    headers=_inventory_api_headers(),
-                )
-                if r.status_code == 403 and settings.zenrows_api_key:
-                    full_url = api_url
-                    if rewritten_query:
-                        full_url = f"{api_url}?{urlencode(rewritten_query)}"
-                    content = await _zenrows_fetch(full_url, timeout, js_render=False)
-                    payloads.append(content)
-                    continue
-                r.raise_for_status()
-            except Exception as e:
-                logger.debug("Inventory API GET failed for %s: %s", api_url, e)
+            if r.status_code == 403 and settings.zenrows_api_key:
+                full_url = api_url
+                if rewritten_query:
+                    full_url = f"{api_url}?{urlencode(rewritten_query)}"
+                content = await _zenrows_fetch(full_url, timeout, js_render=False)
+                payloads.append(content)
                 continue
-            content = r.text.strip()
-            if not content.startswith("{"):
-                continue
-            payloads.append(content)
-        for api_url in api_urls[:2]:
-            try:
-                r = await client.get(api_url, headers=_inventory_api_headers())
-                r.raise_for_status()
-            except Exception as e:
-                logger.debug("Inventory API fetch failed for %s: %s", api_url, e)
-                continue
-            content = r.text.strip()
-            # Dealer Spike NVehInv.js uses `var Vehicles=[...]` format — parse and re-inject as JSON.
-            # The file often starts with a UTF-8 BOM (\ufeff) so check both with and without it.
-            content_stripped = content.lstrip("\ufeff\xef\xbb\xbf")
-            if content_stripped.startswith("var Vehicles") or "var Vehicles=" in content[:80]:
-                dsp_records = _extract_dealer_spike_vehicle_js(content)
-                if dsp_records:
-                    payloads.append(json.dumps({"inventory": dsp_records}, separators=(",", ":")))
-                continue
-            if not content.startswith("{"):
-                continue
-            payloads.append(content)
+            r.raise_for_status()
+        except Exception as e:
+            logger.debug("Inventory API GET failed for %s: %s", api_url, e)
+            continue
+        content = r.text.strip()
+        if not content.startswith("{"):
+            continue
+        payloads.append(content)
+    for api_url in api_urls[:2]:
+        try:
+            r = await client.get(api_url, headers=_inventory_api_headers(), timeout=timeout)
+            r.raise_for_status()
+        except Exception as e:
+            logger.debug("Inventory API fetch failed for %s: %s", api_url, e)
+            continue
+        content = r.text.strip()
+        # Dealer Spike NVehInv.js uses `var Vehicles=[...]` format — parse and re-inject as JSON.
+        # The file often starts with a UTF-8 BOM (\ufeff) so check both with and without it.
+        content_stripped = content.lstrip("\ufeff\xef\xbb\xbf")
+        if content_stripped.startswith("var Vehicles") or "var Vehicles=" in content[:80]:
+            dsp_records = _extract_dealer_spike_vehicle_js(content)
+            if dsp_records:
+                payloads.append(json.dumps({"inventory": dsp_records}, separators=(",", ":")))
+            continue
+        if not content.startswith("{"):
+            continue
+        payloads.append(content)
 
     if not payloads:
         return html

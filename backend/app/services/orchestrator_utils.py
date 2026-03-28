@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from urllib.parse import urlsplit, urlunsplit
 
 from app.config import settings
@@ -9,13 +10,20 @@ from app.services.inventory_filters import model_filter_variants, text_mentions_
 from app.services.platform_store import normalize_dealer_domain
 from app.services.provider_router import ProviderRoute
 
-_domain_fetch_limiters: dict[str, asyncio.Semaphore] = {}
+# Bound memory in long-lived workers: evict least-recently-used host keys (semaphores may still be held in-flight).
+_MAX_DOMAIN_FETCH_LIMITERS = 512
+_domain_fetch_limiters: OrderedDict[str, asyncio.Semaphore] = OrderedDict()
 
 
 def domain_fetch_limiter(host_key: str) -> asyncio.Semaphore:
-    if host_key not in _domain_fetch_limiters:
-        _domain_fetch_limiters[host_key] = asyncio.Semaphore(max(1, settings.domain_fetch_concurrency))
-    return _domain_fetch_limiters[host_key]
+    if host_key in _domain_fetch_limiters:
+        _domain_fetch_limiters.move_to_end(host_key)
+        return _domain_fetch_limiters[host_key]
+    while len(_domain_fetch_limiters) >= _MAX_DOMAIN_FETCH_LIMITERS:
+        _domain_fetch_limiters.popitem(last=False)
+    sem = asyncio.Semaphore(max(1, settings.domain_fetch_concurrency))
+    _domain_fetch_limiters[host_key] = sem
+    return sem
 
 
 def effective_search_concurrency() -> int:

@@ -36,6 +36,8 @@ _HANDLERS = {
     "purecars": generic_franchise.extract_inventory,
     "jazel": generic_franchise.extract_inventory,
     "harley_digital_showroom": generic_franchise.extract_inventory,
+    "dealer_spike": generic_franchise.extract_inventory_for_platform("dealer_spike"),
+    "oneaudi_falcon": generic_franchise.extract_inventory_for_platform("oneaudi_falcon"),
 }
 
 

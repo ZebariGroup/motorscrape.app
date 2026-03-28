@@ -656,7 +656,7 @@ async def stream_search(
             )
         )
         async with sem:
-            cached_inv = get_cached_inventory_listings(inv_cache_key)
+            cached_inv = await asyncio.to_thread(get_cached_inventory_listings, inv_cache_key)
             if cached_inv and cached_inv.get("listings"):
                 fetch_methods_used.append("inventory_cache")
                 cached_listings = cached_inv["listings"]
@@ -1552,7 +1552,8 @@ async def stream_search(
                 and total_vehicles > 0
                 and not skip_info
             ):
-                set_cached_inventory_listings(
+                await asyncio.to_thread(
+                    set_cached_inventory_listings,
                     inv_cache_key,
                     {
                         "listings": listings_for_cache,
