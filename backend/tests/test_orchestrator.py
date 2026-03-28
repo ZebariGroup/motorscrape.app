@@ -11,6 +11,7 @@ from app.schemas import DealershipFound
 from app.services.orchestrator import (
     _find_inventory_url,
     _bounded_phase_timeout,
+    _effective_max_pages_for_route,
     stream_search,
 )
 from app.services.orchestrator_utils import (
@@ -70,6 +71,19 @@ def test_bounded_phase_timeout_returns_none_when_budget_exhausted() -> None:
         min_timeout=5.0,
     )
     assert timeout is None
+
+
+def test_effective_max_pages_for_route_caps_render_heavy_dealer_platforms() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_on",
+        confidence=1.0,
+        extraction_mode="rendered_dom",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory",),
+    )
+    assert _effective_max_pages_for_route(10, route) == 3
 
 
 def test_effective_search_concurrency_uses_config_without_managed_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -698,6 +712,121 @@ async def test_stream_search_auto_expands_pagination_from_site_counts() -> None:
     assert mock_structured.call_count == 3
     assert mock_llm.await_count == 0
     assert tail.count("https://example-dealer.test/vdp/") == 3
+    assert '"listings_found": 3' in tail
+    assert '"pages_scraped": 3' in tail
+
+
+@pytest.mark.asyncio
+async def test_stream_search_caps_dealer_on_pagination_depth_even_when_more_pages_exist() -> None:
+    from app.schemas import ExtractionResult, PaginationInfo, VehicleListing
+
+    dealers = [
+        DealershipFound(
+            name="DealerOn Test",
+            place_id="p1",
+            address="1 Main St",
+            website="https://dealeron-example.test",
+        )
+    ]
+    route = ProviderRoute(
+        platform_id="dealer_on",
+        confidence=1.0,
+        extraction_mode="rendered_dom",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory",),
+        inventory_url_hint="https://dealeron-example.test/inventory",
+    )
+
+    async def fake_fetch(url, *_args, **_kwargs):
+        if url == "https://dealeron-example.test":
+            return '<html><body><a href="/inventory?page=1">Inventory</a></body></html>', "direct"
+        return "<html><body><div>Inventory</div></body></html>", "zenrows_rendered"
+
+    structured_results = [
+        ExtractionResult(
+            vehicles=[
+                VehicleListing(
+                    year=2024,
+                    make="Chevrolet",
+                    model="Blazer",
+                    price=32001,
+                    listing_url="https://dealeron-example.test/vdp/1",
+                )
+            ],
+            next_page_url="https://dealeron-example.test/inventory?page=2",
+            pagination=PaginationInfo(current_page=1, total_pages=10, page_size=24, total_results=240, source="api"),
+        ),
+        ExtractionResult(
+            vehicles=[
+                VehicleListing(
+                    year=2024,
+                    make="Chevrolet",
+                    model="Blazer",
+                    price=32002,
+                    listing_url="https://dealeron-example.test/vdp/2",
+                )
+            ],
+            next_page_url="https://dealeron-example.test/inventory?page=3",
+            pagination=PaginationInfo(current_page=2, total_pages=10, page_size=24, total_results=240, source="api"),
+        ),
+        ExtractionResult(
+            vehicles=[
+                VehicleListing(
+                    year=2024,
+                    make="Chevrolet",
+                    model="Blazer",
+                    price=32003,
+                    listing_url="https://dealeron-example.test/vdp/3",
+                )
+            ],
+            next_page_url="https://dealeron-example.test/inventory?page=4",
+            pagination=PaginationInfo(current_page=3, total_pages=10, page_size=24, total_results=240, source="api"),
+        ),
+    ]
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch("app.services.orchestrator.detect_or_lookup_provider", return_value=route),
+        patch(
+            "app.services.orchestrator.resolve_inventory_url_for_provider",
+            return_value="https://dealeron-example.test/inventory?page=1",
+        ),
+        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            side_effect=structured_results,
+        ) as mock_structured,
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+        ) as mock_llm,
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "Detroit",
+            "Chevrolet",
+            "Blazer",
+            max_dealerships=1,
+            max_pages_per_dealer=10,
+        ):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert mock_structured.call_count == 3
+    assert mock_llm.await_count == 0
+    assert tail.count("https://dealeron-example.test/vdp/") == 3
     assert '"listings_found": 3' in tail
     assert '"pages_scraped": 3' in tail
 

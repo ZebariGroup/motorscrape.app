@@ -327,6 +327,11 @@ def _effective_max_pages_for_route(
     """
     if requested_pages <= 0:
         return 1
+    if route is not None and route.platform_id in {"dealer_on", "dealer_inspire"}:
+        # These SRPs are often render-heavy in production. Let them go a little
+        # deeper than page 1, but cap them well below user-requested deep crawls
+        # so a handful of slow dealers do not consume the full worker budget.
+        return min(requested_pages, 3)
     return requested_pages
 
 
@@ -1259,8 +1264,11 @@ async def stream_search(
             # 2. Pagination loop
             current_url = inv_url
             pages_scraped = 0
+            route_page_cap = _effective_max_pages_for_route(requested_pages, route)
             absolute_page_cap = max(1, settings.search_max_pages_per_dealer_cap)
-            page_budget = min(_effective_max_pages_for_route(requested_pages, route), absolute_page_cap)
+            if route_page_cap < requested_pages:
+                absolute_page_cap = min(absolute_page_cap, route_page_cap)
+            page_budget = min(route_page_cap, absolute_page_cap)
             total_vehicles = 0
             skip_info: str | None = None
             latest_pagination: PaginationInfo | None = None
