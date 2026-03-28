@@ -570,16 +570,41 @@ def _dealer_spike_inventory_path_score(url: str, condition: str) -> int:
     parts = urlsplit(url)
     path = parts.path.lower().rstrip("/")
     query = parts.query.lower()
+    query_map = {k.lower(): v.lower() for k, v in parse_qsl(parts.query, keep_blank_values=True)}
     score = 0
 
     if "manufacturer-models" in path or "model-list" in path:
         return -120
 
+    if path.startswith("/search/inventory"):
+        usage = query_map.get("usage", "").strip().lower()
+        if not usage:
+            if "/usage/new" in path:
+                usage = "new"
+            elif "/usage/used" in path:
+                usage = "used"
+        if condition == "new":
+            score += 140 if usage == "new" else (15 if not usage else -90)
+        elif condition == "used":
+            score += 140 if usage == "used" else (15 if not usage else -90)
+        else:
+            score += 130 if not usage else 30
+
     if path.endswith("/inventory/all-inventory-in-stock") or "page=xallinventory" in query:
         score += 130 if condition == "all" else 35
+    if path.endswith("/inventory/all-inventory"):
+        score += 120 if condition == "all" else 25
     if path.endswith("/inventory/new-inventory-in-stock") or "page=xnewinventory" in query:
         score += 130 if condition == "new" else (-40 if condition == "used" else 80)
-    if path.endswith("/inventory/used-inventory") or path.endswith("/inventory/used-inventory-in-stock") or "page=xpreownedinventory" in query:
+    if path.endswith("/inventory/new-inventory"):
+        score += 120 if condition == "new" else (-35 if condition == "used" else 70)
+    if (
+        path.endswith("/inventory/used-inventory")
+        or path.endswith("/inventory/used-inventory-in-stock")
+        or path.endswith("/inventory/pre-owned-inventory")
+        or path.endswith("/inventory/pre-owned-inventory-in-stock")
+        or "page=xpreownedinventory" in query
+    ):
         score += 130 if condition == "used" else (-80 if condition == "new" else -20)
     if "in-stock" in path:
         score += 25

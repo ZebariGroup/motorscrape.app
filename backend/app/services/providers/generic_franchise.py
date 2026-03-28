@@ -12,12 +12,14 @@ def extract_inventory(
     html: str,
     make_filter: str,
     model_filter: str,
+    vehicle_category: str = "car",
 ) -> ExtractionResult | None:
     return try_extract_vehicles_without_llm(
         page_url=page_url,
         html=html,
         make_filter=make_filter,
         model_filter=model_filter,
+        vehicle_category=vehicle_category,
     )
 
 
@@ -30,12 +32,14 @@ def extract_inventory_for_platform(platform_id: str):
         html: str,
         make_filter: str,
         model_filter: str,
+        vehicle_category: str = "car",
     ) -> ExtractionResult | None:
         return try_extract_vehicles_without_llm(
             page_url=page_url,
             html=html,
             make_filter=make_filter,
             model_filter=model_filter,
+            vehicle_category=vehicle_category,
             platform_id=platform_id,
         )
 

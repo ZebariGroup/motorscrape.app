@@ -7,6 +7,14 @@ describe("vehicleCatalog", () => {
     expect(getMakesForCategory("motorcycle")).toContain("Honda");
     expect(getMakesForCategory("motorcycle")).toContain("Harley-Davidson");
     expect(getMakesForCategory("motorcycle")).toContain("BMW Motorrad");
+    expect(getMakesForCategory("motorcycle")).toContain("Ski-Doo");
+    expect(getMakesForCategory("motorcycle")).toContain("Slingshot");
+  });
+
+  it("includes off-road and powersports Honda model coverage", () => {
+    expect(getModelsForMake("motorcycle", "Honda")).toContain("FourTrax Foreman");
+    expect(getModelsForMake("motorcycle", "Honda")).toContain("Pioneer 1000");
+    expect(getModelsForMake("motorcycle", "Honda")).toContain("Talon 1000");
   });
 
   it("exposes a broader set of major boat makes", () => {

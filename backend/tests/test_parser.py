@@ -444,6 +444,75 @@ def test_try_extract_dealer_spike_featured_vehicle_tile() -> None:
     assert "InventoryDetail" in (v.listing_url or "")
 
 
+def test_try_extract_dealer_spike_endeavor_item_payload() -> None:
+    html = """
+    <html><body>
+      <div>
+        {"item":"2025 Rebel 500 - Honda","name":"2025 Rebel 500","locationName":"Southgate Honda Powersports",
+         "itemUrl":"//dealer.example/inventory/2025-honda-rebel-500-detroit-mi-48195-123i","itemYear":2025,
+         "itemMake":"Honda","itemModel":"Rebel 500","itemPrice":6499.0,
+         "itemThumbNailUrl":"//images.example.com/rebel.jpg","usageStatus":"Used","stockNumber":"25H123",
+         "vin":"MLHPC5601P1234567"}
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/inventory/new-inventory-in-stock",
+        html=html,
+        make_filter="Honda",
+        model_filter="Rebel 500",
+        vehicle_category="motorcycle",
+        platform_id="dealer_spike",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.year == 2025
+    assert v.make == "Honda"
+    assert v.model == "Rebel 500"
+    assert v.price == 6499
+    assert v.vehicle_condition == "used"
+    assert v.inventory_location == "Southgate Honda Powersports"
+    assert v.image_url == "https://images.example.com/rebel.jpg"
+    assert v.listing_url == "https://dealer.example/inventory/2025-honda-rebel-500-detroit-mi-48195-123i"
+
+
+def test_try_extract_skips_dealer_spike_homepage_featured_tiles_for_model_filter() -> None:
+    html = """
+    <html><body>
+      <ul>
+        <li class="featuredVehicle" data-unitid="16641599">
+          <a class="featured-content" href="--xInventoryDetail?id=16641599">
+            <div class="vehicle-container">
+              <div class="image-container">
+                <div class="image-container-image" role="img"
+                  style="background-image:url(https://cdn.example.com/rebel.jpg);"></div>
+              </div>
+              <div class="data">
+                <ul>
+                  <li class="featuredVehicleAttr price"><span class="value">$6,999.00</span></li>
+                  <li class="featuredVehicleAttr year"><span class="value">2025</span></li>
+                  <li class="featuredVehicleAttr manuf"><span class="value">Honda</span></li>
+                  <li class="featuredVehicleAttr model"><span class="value">Rebel 500</span></li>
+                </ul>
+              </div>
+            </div>
+          </a>
+        </li>
+      </ul>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/",
+        html=html,
+        make_filter="Honda",
+        model_filter="Rebel 500",
+        vehicle_category="motorcycle",
+        platform_id="dealer_spike",
+    )
+    assert result is None
+
+
 def test_try_extract_team_velocity_vehicle_card() -> None:
     html = """
     <html><body>

@@ -15,6 +15,7 @@ def test_inventory_listings_cache_key_stable() -> None:
         domain="dealer.example",
         make="Honda",
         model="Accord",
+        vehicle_category="car",
         vehicle_condition="new",
         inventory_scope="all",
         max_pages=3,
@@ -24,6 +25,7 @@ def test_inventory_listings_cache_key_stable() -> None:
         domain="dealer.example",
         make="honda",
         model="ACCORD",
+        vehicle_category="car",
         vehicle_condition="new",
         inventory_scope="all",
         max_pages=3,
@@ -37,6 +39,7 @@ def test_inventory_listings_cache_key_bumps_harley_namespace() -> None:
         domain="dealer.example",
         make="Honda",
         model="",
+        vehicle_category="car",
         vehicle_condition="all",
         inventory_scope="all",
         max_pages=3,
@@ -46,11 +49,36 @@ def test_inventory_listings_cache_key_bumps_harley_namespace() -> None:
         domain="dealer.example",
         make="Harley-Davidson",
         model="",
+        vehicle_category="motorcycle",
         vehicle_condition="all",
         inventory_scope="all",
         max_pages=3,
     )
     assert generic != harley
+
+
+def test_inventory_listings_cache_key_varies_by_vehicle_category() -> None:
+    motorcycle = inventory_cache.inventory_listings_cache_key(
+        website="https://dealer.example/inventory",
+        domain="dealer.example",
+        make="Honda",
+        model="Rebel 500",
+        vehicle_category="motorcycle",
+        vehicle_condition="all",
+        inventory_scope="all",
+        max_pages=3,
+    )
+    boat = inventory_cache.inventory_listings_cache_key(
+        website="https://dealer.example/inventory",
+        domain="dealer.example",
+        make="Honda",
+        model="Rebel 500",
+        vehicle_category="boat",
+        vehicle_condition="all",
+        inventory_scope="all",
+        max_pages=3,
+    )
+    assert motorcycle != boat
 
 
 def test_inventory_cache_roundtrip(
@@ -72,6 +100,7 @@ def test_inventory_cache_roundtrip(
         domain="dealer.example",
         make="Honda",
         model="Accord",
+        vehicle_category="car",
         vehicle_condition="all",
         inventory_scope="all",
         max_pages=3,
@@ -104,6 +133,7 @@ def test_inventory_cache_expires(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
         domain="x.example",
         make="",
         model="",
+        vehicle_category="car",
         vehicle_condition="all",
         inventory_scope="all",
         max_pages=1,

@@ -25,14 +25,15 @@ def inventory_listings_cache_key(
     domain: str,
     make: str,
     model: str,
+    vehicle_category: str,
     vehicle_condition: str,
     inventory_scope: str,
     max_pages: int,
 ) -> str:
     make_norm = (make or "").strip().lower()
-    # Harley dealer routing changed to avoid featured-VPD entry points; bump just this make-family
-    # namespace so stale nine-row cache entries are naturally skipped without flushing everything.
-    namespace = "harley_v2" if "harley" in make_norm else "v1"
+    category_norm = (vehicle_category or "car").strip().lower() or "car"
+    # v2 includes vehicle_category in the key to prevent cross-category stale payload reuse.
+    namespace = "harley_v3" if "harley" in make_norm else "v2"
     payload = json.dumps(
         {
             "namespace": namespace,
@@ -40,6 +41,7 @@ def inventory_listings_cache_key(
             "domain": (domain or "").strip().lower(),
             "make": make_norm,
             "model": (model or "").strip().lower(),
+            "vehicle_category": category_norm,
             "vehicle_condition": (vehicle_condition or "all").strip().lower(),
             "inventory_scope": (inventory_scope or "all").strip().lower(),
             "max_pages": int(max_pages),

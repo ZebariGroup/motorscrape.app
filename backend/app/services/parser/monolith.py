@@ -90,12 +90,18 @@ Extraction rules:
 _INVENTORY_KEYS = {
     "make",
     "manuf",  # Dealer Spike Marine uses "manuf" for manufacturer/make
+    "itemmake",  # Dealer Spike / Endeavor inventory payloads
     "model",
+    "itemmodel",  # Dealer Spike / Endeavor inventory payloads
     "vin",
     "hin",
     "stock",
     "stockno",
     "stock_no",
+    "stocknumber",
+    "itemurl",  # Dealer Spike / Endeavor inventory payloads
+    "itemprice",  # Dealer Spike / Endeavor inventory payloads
+    "itemyear",  # Dealer Spike / Endeavor inventory payloads
     "bodystyle",
     "bodytype",
     "enginehours",
@@ -162,6 +168,11 @@ _SPACE_VEHICLES_JSON_RE = re.compile(
 # GA4 / ASC datalayer used by Sonic / LaFontaine / similar DMS: var ga4ASCDataLayerVehicle = '[{...}]';
 _GA4_ASC_DATALAYER_RE = re.compile(
     r"var\s+ga4ASCDataLayerVehicle\s*=\s*'(?P<body>\[.*?\])'\s*;",
+    re.S,
+)
+# Dealer Spike / Endeavor Suite embeds one JSON object per card directly in the HTML body.
+_ENDEAVOR_ITEM_OBJECT_RE = re.compile(
+    r"\{[^{}]*\"itemUrl\"\s*:\s*\"[^\"]+\"[^{}]*\}",
     re.S,
 )
 # Generic JS array var patterns: var resultCount = '42'; sonicDataLayerVehicleImpressions = '...'
@@ -325,6 +336,9 @@ def _extract_json_inventory(html: str, soup: BeautifulSoup) -> list[dict]:
         if any(normalized.values()):
             json_records.append({k: v for k, v in normalized.items() if v not in (None, "", [], {})})
 
+    # Dealer Spike / Endeavor pages may embed one JSON object per inventory card directly in body HTML.
+    json_records.extend(_extract_endeavor_inventory_objects(html))
+
     regex_records = _extract_vehicles_regex(html)
 
     if len(regex_records) > len(json_records):
@@ -445,6 +459,30 @@ def _extract_vehicles_regex(html: str) -> list[dict]:
 
     if records:
         logger.info("Regex fallback extracted %d vehicle records from HTML", len(records))
+    return records
+
+
+def _extract_endeavor_inventory_objects(html: str) -> list[dict[str, Any]]:
+    """Extract Dealer Spike / Endeavor inventory card JSON blobs embedded in body HTML."""
+    records: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for match in _ENDEAVOR_ITEM_OBJECT_RE.finditer(html):
+        raw = match.group(0).strip()
+        if not raw:
+            continue
+        try:
+            parsed = json.loads(raw, strict=False)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        if not parsed.get("itemUrl"):
+            continue
+        dedupe_key = str(parsed.get("productId") or parsed.get("productGuid") or parsed.get("itemUrl")).strip()
+        if not dedupe_key or dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        records.append(parsed)
     return records
 
 
@@ -718,6 +756,7 @@ def _pick_vehicle_identifier(
         d.get("stockNo"),
         d.get("stock_no"),
         d.get("stockNumber"),
+        d.get("stocknumber"),
         d.get("stock_number"),
         d.get("identifier"),
     ]
@@ -819,6 +858,8 @@ def _pick_price_from_dict(d: dict[str, Any]) -> float | None:
         "askingPrice",
         "retailPrice",
         "retailValue",
+        "itemPrice",
+        "unitPrice",
         "msrp",
     ):
         p = _coerce_float(d.get(key))
@@ -1083,7 +1124,7 @@ def _pick_price_from_pricelib(raw: Any) -> float | None:
 
 
 def _pick_year(d: dict[str, Any]) -> int | None:
-    y = d.get("year") or d.get("vehicleModelDate") or d.get("modelYear")
+    y = d.get("year") or d.get("vehicleModelDate") or d.get("modelYear") or d.get("itemYear")
     return _coerce_int(y)
 
 
@@ -1134,6 +1175,7 @@ def _pick_vehicle_condition(
         "inventoryType",
         "inventory_type",
         "itemCondition",
+        "usageStatus",
     ):
         normalized = normalize_vehicle_condition(d.get(key))
         if normalized:
@@ -1268,14 +1310,20 @@ def dict_to_vehicle_listing(
     vehicle_category: str = "car",
 ) -> VehicleListing | None:
     """Map a loose inventory/schema dict to VehicleListing; returns None if not vehicle-like."""
-    make = d.get("make") or d.get("manufacturer") or d.get("brand") or d.get("manuf")
-    model = d.get("model")
+    make = (
+        d.get("make")
+        or d.get("manufacturer")
+        or d.get("brand")
+        or d.get("manuf")
+        or d.get("itemMake")
+    )
+    model = d.get("model") or d.get("itemModel")
     vin = d.get("vin") or d.get("vehicleIdentificationNumber") or d.get("vehicle_identification_number")
     if isinstance(make, dict):
         make = make.get("name")
     if isinstance(model, dict):
         model = model.get("name")
-    title_hint = d.get("title") or d.get("name") or d.get("vehicleTitle")
+    title_hint = d.get("title") or d.get("name") or d.get("vehicleTitle") or d.get("item")
     if isinstance(title_hint, list):
         raw_title = " ".join(str(x).strip() for x in title_hint if str(x).strip()) or None
     else:
@@ -1302,6 +1350,7 @@ def dict_to_vehicle_listing(
         or d.get("vdp_url")
         or d.get("listing_url")
         or d.get("url")
+        or d.get("itemUrl")
         or d.get("sameAs")
         or d.get("link")
     )
@@ -1315,6 +1364,7 @@ def dict_to_vehicle_listing(
         d.get("image_url")
         or d.get("imageUrl")
         or d.get("image")
+        or d.get("itemThumbNailUrl")
         or d.get("primaryImageUrl")
         or d.get("sharePhoto")
     )
@@ -1336,6 +1386,8 @@ def dict_to_vehicle_listing(
         or d.get("bodytype")
         or d.get("bodyType")
         or d.get("bodystyle")
+        or d.get("itemType")
+        or d.get("itemSubtype")
     )
     if isinstance(body_style, dict):
         body_style = body_style.get("name")
@@ -1464,7 +1516,12 @@ def _vehicle_record_key(d: dict[str, Any]) -> str:
     identifier = _pick_vehicle_identifier(d, vehicle_category=vehicle_category)
     vin = str(d.get("vin") or d.get("vehicleIdentificationNumber") or "").strip()
     url = str(
-        d.get("vdpUrl") or d.get("vdp_url") or d.get("url") or d.get("listing_url") or ""
+        d.get("vdpUrl")
+        or d.get("vdp_url")
+        or d.get("url")
+        or d.get("listing_url")
+        or d.get("itemUrl")
+        or ""
     ).strip()
     if identifier:
         return f"id:{identifier}"
@@ -1500,6 +1557,31 @@ def collect_structured_vehicle_dicts(html: str, page_url: str) -> list[dict[str,
                     idx = by_key[k]
                     merged[idx] = _merge_vehicle_dicts(merged[idx], nd)
     return merged
+
+
+def _page_looks_like_inventory_results(page_url: str, html: str) -> bool:
+    lower_url = (page_url or "").lower()
+    if any(
+        token in lower_url
+        for token in (
+            "/inventory",
+            "/search/inventory",
+            "searchnew",
+            "searchused",
+            "--inventory",
+            "page=xallinventory",
+            "page=xnewinventory",
+            "page=xpreownedinventory",
+            "all-inventory",
+            "new-inventory",
+            "used-inventory",
+        )
+    ):
+        return True
+    lower_html = (html or "").lower()
+    if re.search(r"\b\d{1,5}\s*(?:-|to|–|—)\s*\d{1,5}\s+of\s+\d{1,7}\s+results?\b", lower_html):
+        return True
+    return "search inventory" in lower_html and "sort by" in lower_html and "results" in lower_html
 
 
 def _text_or_none(node: Any) -> str | None:
@@ -1799,6 +1881,7 @@ def extract_dom_vehicle_cards(
     page_url: str,
     *,
     vehicle_category: str = "car",
+    model_filter: str = "",
 ) -> list[VehicleListing]:
     """
     Pull listings from rendered SRP cards, primarily for DealerOn-style pages that
@@ -1807,6 +1890,7 @@ def extract_dom_vehicle_cards(
     soup = BeautifulSoup(html, "lxml")
     vehicles: list[VehicleListing] = []
     seen: set[str] = set()
+    inventory_context = _page_looks_like_inventory_results(page_url, html)
 
     selectors = (
         ".vehicle-card",
@@ -1838,7 +1922,10 @@ def extract_dom_vehicle_cards(
     )
     for card in soup.select(", ".join(selectors)):
         classes = set(card.get("class") or [])
-        if "skeleton" in classes:
+        classes_lower = {str(cls).lower() for cls in classes}
+        if "skeleton" in classes_lower:
+            continue
+        if "featuredvehicle" in classes_lower and model_filter.strip() and not inventory_context:
             continue
 
         payload = _parse_dom_vehicle_payload(card)
@@ -2110,6 +2197,13 @@ def extract_dom_vehicle_cards(
 
         anchor = card if getattr(card, "name", None) == "a" else card.select_one("a[href]")
         listing_url = urljoin(page_url, anchor["href"]) if anchor and anchor.get("href") else None
+        if (
+            model_filter.strip()
+            and listing_url
+            and "xinventorydetail" in listing_url.lower()
+            and not inventory_context
+        ):
+            continue
 
         image_url = _pick_dom_vehicle_image(card, page_url)
 
@@ -2782,7 +2876,12 @@ def try_extract_vehicles_without_llm(
             key = _vehicle_merge_key(v)
             by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
-    for v in extract_dom_vehicle_cards(html, page_url, vehicle_category=vehicle_category):
+    for v in extract_dom_vehicle_cards(
+        html,
+        page_url,
+        vehicle_category=vehicle_category,
+        model_filter=model_filter,
+    ):
         key = _vehicle_merge_key(v)
         by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
 
@@ -2886,7 +2985,14 @@ async def extract_vehicles_from_html(
     )
     fallback_page_size = max(
         len(parsed.vehicles),
-        len(extract_dom_vehicle_cards(html, page_url, vehicle_category=vehicle_category)),
+        len(
+            extract_dom_vehicle_cards(
+                html,
+                page_url,
+                vehicle_category=vehicle_category,
+                model_filter=model_filter,
+            )
+        ),
         len(_extract_search_result_card_vehicles(html, page_url, vehicle_category=vehicle_category)),
     )
     pagination = infer_inventory_pagination(

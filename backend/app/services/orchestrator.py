@@ -879,6 +879,7 @@ async def stream_search(
             domain=domain,
             make=make,
             model=model,
+            vehicle_category=vehicle_category,
             vehicle_condition=vehicle_condition,
             inventory_scope=inventory_scope,
             max_pages=requested_pages,
@@ -1625,6 +1626,7 @@ async def stream_search(
                     html=current_html,
                     make_filter=make,
                     model_filter=model,
+                    vehicle_category=vehicle_category,
                 )
                 if ext_result is not None:
                     extraction_mode = f"provider:{route.platform_id}" if route else "provider"

@@ -193,7 +193,36 @@ const MOTORCYCLE_CATALOG = [
   },
   {
     make: "Honda",
-    models: ["Africa Twin", "CB500F", "CB650R", "CBR500R", "CBR650R", "CRF300L", "Gold Wing", "Rebel 500", "Rebel 1100", "Shadow Phantom", "Transalp"],
+    models: [
+      "Africa Twin",
+      "CB500F",
+      "CB650R",
+      "CBR500R",
+      "CBR650R",
+      "CRF110F",
+      "CRF300L",
+      "FourTrax Foreman",
+      "FourTrax Rancher",
+      "FourTrax Recon",
+      "FourTrax Rubicon",
+      "Gold Wing",
+      "Pioneer 520",
+      "Pioneer 700",
+      "Pioneer 1000",
+      "Rebel 500",
+      "Rebel 1100",
+      "Shadow Phantom",
+      "Talon 1000",
+      "Transalp",
+    ],
+  },
+  {
+    make: "Arctic Cat",
+    models: ["Alterra 600", "Alterra 700", "Blast M", "M 858", "Riot 600", "ZR 600", "Wildcat XX"],
+  },
+  {
+    make: "CFMOTO",
+    models: ["CForce 500", "CForce 600", "CForce 1000", "Ibex 450", "Ibex 800", "UForce 1000", "ZForce 950"],
   },
   {
     make: "Indian Motorcycle",
@@ -206,6 +235,22 @@ const MOTORCYCLE_CATALOG = [
   {
     make: "KTM",
     models: ["1290 Super Duke R EVO", "250 Duke", "390 Adventure", "390 Duke", "690 Enduro R", "790 Duke", "890 Adventure", "890 Duke R", "RC 390", "Super Adventure S", "Supermoto R"],
+  },
+  {
+    make: "Polaris",
+    models: ["General 1000", "Ranger 1000", "Ranger XP 1000", "RZR Pro XP", "RZR Turbo R", "Sportsman 570", "Sportsman XP 1000", "Xpedition ADV"],
+  },
+  {
+    make: "Sea-Doo",
+    models: ["FishPro Sport", "GTI 130", "GTI SE 170", "GTR 230", "RXP-X 325", "Spark Trixx", "Wake 170"],
+  },
+  {
+    make: "Ski-Doo",
+    models: ["Backcountry", "Expedition", "MXZ Adrenaline", "Renegade Adrenaline", "Summit Adrenaline", "Summit X", "Tundra LE"],
+  },
+  {
+    make: "Slingshot",
+    models: ["Slingshot S", "Slingshot SL", "Slingshot R"],
   },
   {
     make: "Suzuki",

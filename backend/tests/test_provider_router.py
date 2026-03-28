@@ -117,6 +117,35 @@ def test_resolve_inventory_url_for_provider_rewrites_dealer_spike_inventory_v1_t
     assert url == "https://www.riverraisinpowersports.com/default.asp?page=xallinventory&make=can-am"
 
 
+def test_resolve_inventory_url_for_provider_prefers_dealer_spike_search_inventory_usage_routes() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_spike",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("search/inventory",),
+        inventory_url_hint=None,
+    )
+    html = """
+    <html><body>
+      <a href="/Brands/Manufacturer-Models/Model-List/Honda">Honda Models</a>
+      <a href="/search/inventory/usage/New">Search New Inventory</a>
+      <a href="/search/inventory/usage/Used">Search Used Inventory</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.examplepowersports.com/",
+        route,
+        fallback_url="https://www.examplepowersports.com/",
+        make="Honda",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.examplepowersports.com/search/inventory/usage/New"
+
+
 def test_resolve_inventory_url_for_provider_avoids_harley_featured_detail_links() -> None:
     route = ProviderRoute(
         platform_id="shift_digital",
