@@ -50,6 +50,8 @@ class MockEventSource {
 }
 
 describe("useSearchStream", () => {
+  let rafQueue: FrameRequestCallback[] = [];
+
   beforeEach(() => {
     vi.stubGlobal("EventSource", MockEventSource);
     vi.stubGlobal(
@@ -59,6 +61,17 @@ describe("useSearchStream", () => {
         json: async () => ({}),
       })),
     );
+    vi.stubGlobal("requestAnimationFrame", vi.fn((cb: FrameRequestCallback) => {
+      rafQueue.push(cb);
+      return rafQueue.length;
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn((handle: number) => {
+      const idx = handle - 1;
+      if (idx >= 0 && idx < rafQueue.length) {
+        rafQueue[idx] = () => 0;
+      }
+    }));
+    rafQueue = [];
     MockEventSource.clear();
   });
 
@@ -169,5 +182,40 @@ describe("useSearchStream", () => {
         credentials: "include",
       }),
     );
+  });
+
+  it("should batch vehicle events until the scheduled flush runs", () => {
+    const { result } = renderHook(() => useSearchStream());
+
+    act(() => {
+      result.current.form.setLocation("Seattle");
+      result.current.search.startSearch();
+    });
+
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.emit("vehicles", {
+        dealership: "Ford Seattle",
+        website: "https://ford.example",
+        listings: [{ model: "F-150", year: 2024 }],
+      });
+      es.emit("vehicles", {
+        dealership: "Ford Seattle",
+        website: "https://ford.example",
+        listings: [{ model: "Bronco", year: 2025 }],
+      });
+    });
+
+    expect(result.current.listings.listings).toHaveLength(0);
+
+    act(() => {
+      const callbacks = [...rafQueue];
+      rafQueue = [];
+      for (const cb of callbacks) cb(performance.now());
+    });
+
+    expect(result.current.listings.listings).toHaveLength(2);
+    expect(result.current.listings.listings.map((listing) => listing.model)).toEqual(["F-150", "Bronco"]);
   });
 });

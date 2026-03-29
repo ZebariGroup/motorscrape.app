@@ -16,7 +16,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
-from app.schemas import DealershipFound, PaginationInfo, VehicleListing
+from app.schemas import DealershipFound, ExtractionResult, PaginationInfo, VehicleListing
 from app.services.dealer_platforms import detect_platform_profile
 from app.services.dealer_score_store import NO_SCORE_DEFAULT, get_scores, record_scrape_outcome
 from app.services.economics import build_search_economics, log_economics_line
@@ -60,7 +60,7 @@ from app.services.scraper import PageKind, _looks_like_block_page, fetch_page_ht
 from app.sse import sse_pack
 
 logger = logging.getLogger(__name__)
-_STREAM_LISTING_BATCH_SIZE = 8
+_STREAM_LISTING_BATCH_SIZE = 24
 
 # Inventory-page family stacks that should override generic website platforms (DealerOn / Inspire / DDC).
 _INVENTORY_FAMILY_PLATFORM_IDS = frozenset(
@@ -899,13 +899,11 @@ async def _enrich_vehicle_from_vdp(
         return v
     try:
         html, _ = await fetch_page_html(v.listing_url, page_kind="inventory", prefer_render=False)
-        detail_overlay = _room58_detail_overlay(v, html) if prefer_detail_overlay else None
-        ext = try_extract_vehicles_without_llm(
-            page_url=v.listing_url,
+        detail_overlay, ext = await asyncio.to_thread(
+            _extract_vdp_overlay_and_listings,
+            vehicle=v,
             html=html,
-            make_filter=v.make or "",
-            model_filter="",
-            vehicle_category=v.vehicle_category or "car",
+            prefer_detail_overlay=prefer_detail_overlay,
         )
     except Exception:
         return v
@@ -935,6 +933,67 @@ async def _enrich_vehicle_from_vdp(
     if candidates:
         return _merge_vehicle_detail(v, candidates[0])
     return v
+
+
+def _extract_vdp_overlay_and_listings(
+    *,
+    vehicle: VehicleListing,
+    html: str,
+    prefer_detail_overlay: bool,
+) -> tuple[VehicleListing | None, ExtractionResult | None]:
+    detail_overlay = _room58_detail_overlay(vehicle, html) if prefer_detail_overlay else None
+    ext = try_extract_vehicles_without_llm(
+        page_url=vehicle.listing_url or "",
+        html=html,
+        make_filter=vehicle.make or "",
+        model_filter="",
+        vehicle_category=vehicle.vehicle_category or "car",
+    )
+    return detail_overlay, ext
+
+
+def _extract_canonical_homepage_url(html: str) -> str | None:
+    try:
+        soup = BeautifulSoup(html, "lxml")
+        canonical = soup.find("link", rel="canonical")
+        if canonical and canonical.get("href"):
+            canonical_href = canonical["href"].strip()
+            if canonical_href.startswith("http"):
+                return canonical_href
+    except Exception:
+        return None
+    return None
+
+
+def _extract_inventory_page_sync(
+    *,
+    page_url: str,
+    html: str,
+    make_filter: str,
+    model_filter: str,
+    vehicle_category: str,
+    platform_id: str | None,
+) -> tuple[ExtractionResult | None, str | None]:
+    ext_result = extract_with_provider(
+        platform_id,
+        page_url=page_url,
+        html=html,
+        make_filter=make_filter,
+        model_filter=model_filter,
+        vehicle_category=vehicle_category,
+    )
+    if ext_result is not None:
+        return ext_result, f"provider:{platform_id}" if platform_id else "provider"
+
+    ext_result = try_extract_vehicles_without_llm(
+        page_url=page_url,
+        html=html,
+        make_filter=make_filter,
+        model_filter=model_filter,
+        vehicle_category=vehicle_category,
+        platform_id=platform_id,
+    )
+    return ext_result, "structured" if ext_result is not None else None
 
 
 def _chunk_listings(rows: list[dict[str, Any]], size: int = _STREAM_LISTING_BATCH_SIZE) -> list[list[dict[str, Any]]]:
@@ -1129,6 +1188,39 @@ async def stream_search(
     parse_timeout = min(settings.openai_timeout + 5.0, max(20.0, dealer_timeout * 0.35))
     metrics_lock = asyncio.Lock()
     inv_url_cache: dict[str, str] = {}
+    warmed_inventory_cache: dict[str, dict[str, Any] | None] = {}
+
+    if settings.inventory_cache_enabled and dealers:
+        cache_warm_pairs: list[tuple[str, str]] = []
+        seen_cache_keys: set[str] = set()
+        for d in dealers:
+            website = prefer_https_website_url((d.website or "").strip())
+            domain = normalize_dealer_domain(website)
+            inv_cache_key = inventory_listings_cache_key(
+                website=website,
+                domain=domain,
+                make=make,
+                model=model,
+                vehicle_category=vehicle_category,
+                vehicle_condition=vehicle_condition,
+                inventory_scope=inventory_scope,
+                max_pages=requested_pages,
+            )
+            if inv_cache_key in seen_cache_keys:
+                continue
+            seen_cache_keys.add(inv_cache_key)
+            cache_warm_pairs.append((inv_cache_key, website))
+        if cache_warm_pairs:
+            cache_warm_results = await asyncio.gather(
+                *[
+                    asyncio.to_thread(get_cached_inventory_listings, cache_key)
+                    for cache_key, _website in cache_warm_pairs
+                ]
+            )
+            warmed_inventory_cache = {
+                cache_key: cached
+                for (cache_key, _website), cached in zip(cache_warm_pairs, cache_warm_results, strict=False)
+            }
 
     async def process_one(index: int, d: DealershipFound) -> list[str]:
         chunks: list[str] = []
@@ -1319,7 +1411,10 @@ async def stream_search(
             )
         )
         if True:
-            cached_inv = await asyncio.to_thread(get_cached_inventory_listings, inv_cache_key)
+            if inv_cache_key in warmed_inventory_cache:
+                cached_inv = warmed_inventory_cache[inv_cache_key]
+            else:
+                cached_inv = await asyncio.to_thread(get_cached_inventory_listings, inv_cache_key)
             if cached_inv and cached_inv.get("listings"):
                 fetch_methods_used.append("inventory_cache")
                 cached_listings = cached_inv["listings"]
@@ -1395,16 +1490,10 @@ async def stream_search(
 
                 # If the homepage has a canonical link, it likely redirected to a different domain.
                 # Use the canonical URL as the new base website to ensure inventory links resolve correctly.
-                try:
-                    soup = BeautifulSoup(homepage_html, "lxml")
-                    canonical = soup.find("link", rel="canonical")
-                    if canonical and canonical.get("href"):
-                        canonical_href = canonical["href"].strip()
-                        if canonical_href.startswith("http"):
-                            domain = normalize_dealer_domain(canonical_href)
-                            base_url = canonical_href
-                except Exception:
-                    pass
+                canonical_href = await asyncio.to_thread(_extract_canonical_homepage_url, homepage_html)
+                if canonical_href:
+                    domain = normalize_dealer_domain(canonical_href)
+                    base_url = canonical_href
             except asyncio.TimeoutError:
                 logger.warning(f"{cid_log}Scrape timed out for %s", website)
                 homepage_timed_out_msg = f"Timed out while fetching pages after ~{int(fetch_timeout)}s."
@@ -1999,31 +2088,24 @@ async def stream_search(
                         logger.warning("Pagination scrape failed for %s: %s", current_url, e)
                         break
 
-                ext_result = extract_with_provider(
-                    route.platform_id if route else None,
+                ext_result, extraction_mode = await asyncio.to_thread(
+                    _extract_inventory_page_sync,
                     page_url=current_url,
                     html=current_html,
                     make_filter=make,
                     model_filter=model,
                     vehicle_category=vehicle_category,
+                    platform_id=route.platform_id if route else None,
                 )
-                if ext_result is not None:
-                    extraction_mode = f"provider:{route.platform_id}" if route else "provider"
+                if extraction_mode and extraction_mode.startswith("provider:"):
                     async with metrics_lock:
                         extraction_metrics["pages_provider"] += 1
-                else:
-                    ext_result = try_extract_vehicles_without_llm(
-                        page_url=current_url,
-                        html=current_html,
-                        make_filter=make,
-                        model_filter=model,
-                        vehicle_category=vehicle_category,
-                        platform_id=route.platform_id if route else None,
-                    )
-                    extraction_mode = "structured" if ext_result is not None else None
-                    if ext_result is not None:
-                        async with metrics_lock:
-                            extraction_metrics["pages_structured"] += 1
+                elif extraction_mode == "provider":
+                    async with metrics_lock:
+                        extraction_metrics["pages_provider"] += 1
+                elif extraction_mode == "structured":
+                    async with metrics_lock:
+                        extraction_metrics["pages_structured"] += 1
 
                 if ext_result is None:
                     is_family_inventory_route = bool(

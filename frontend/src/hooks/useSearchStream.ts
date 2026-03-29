@@ -113,6 +113,22 @@ export type UseSearchStreamOptions = {
   onStreamFinished?: () => void;
 };
 
+function scheduleNextPaint(callback: FrameRequestCallback): number {
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    return window.requestAnimationFrame(callback);
+  }
+  return window.setTimeout(() => callback(Date.now()), 16);
+}
+
+function cancelScheduledPaint(handle: number | null) {
+  if (handle == null) return;
+  if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
+    window.cancelAnimationFrame(handle);
+    return;
+  }
+  window.clearTimeout(handle);
+}
+
 export function useSearchStream(options?: UseSearchStreamOptions) {
   const onFinishedRef = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {
@@ -144,6 +160,8 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const esRef = useRef<EventSource | null>(null);
   const streamSessionRef = useRef(0);
   const correlationIdRef = useRef<string | null>(null);
+  const pendingListingsRef = useRef<AggregatedListing[]>([]);
+  const listingFlushHandleRef = useRef<number | null>(null);
 
   const dealerList = useMemo(
     () => Object.values(dealers).sort((a, b) => a.index - b.index),
@@ -365,16 +383,43 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     return () => window.clearInterval(id);
   }, [running]);
 
+  const flushPendingListings = useCallback(() => {
+    cancelScheduledPaint(listingFlushHandleRef.current);
+    listingFlushHandleRef.current = null;
+    if (pendingListingsRef.current.length === 0) return;
+    const pending = pendingListingsRef.current;
+    pendingListingsRef.current = [];
+    setListings((prev) => [...prev, ...pending]);
+  }, []);
+
+  const scheduleListingFlush = useCallback(() => {
+    if (listingFlushHandleRef.current != null) return;
+    listingFlushHandleRef.current = scheduleNextPaint(() => {
+      listingFlushHandleRef.current = null;
+      flushPendingListings();
+    });
+  }, [flushPendingListings]);
+
+  useEffect(() => {
+    return () => {
+      pendingListingsRef.current = [];
+      cancelScheduledPaint(listingFlushHandleRef.current);
+      listingFlushHandleRef.current = null;
+    };
+  }, []);
+
   const closeStream = useCallback(() => {
+    flushPendingListings();
     streamSessionRef.current += 1;
     esRef.current?.close();
     esRef.current = null;
     correlationIdRef.current = null;
     setRunning(false);
     setReconnecting(false);
-  }, []);
+  }, [flushPendingListings]);
 
   const stopStream = useCallback(async () => {
+    flushPendingListings();
     const es = esRef.current;
     const correlationId = correlationIdRef.current;
     streamSessionRef.current += 1;
@@ -397,11 +442,14 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     if (correlationIdRef.current === correlationId) {
       correlationIdRef.current = null;
     }
-  }, []);
+  }, [flushPendingListings]);
 
   const startSearch = useCallback(() => {
     if (running) return; // Prevent double-submit
     void stopStream();
+    pendingListingsRef.current = [];
+    cancelScheduledPaint(listingFlushHandleRef.current);
+    listingFlushHandleRef.current = null;
     setErrors([]);
     setListings([]);
     setDealers({});
@@ -471,14 +519,14 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
         const dealerName = data.dealership ?? "Unknown";
         const dealerSite = data.website ?? "";
         const batch = data.listings ?? [];
-        setListings((prev) => [
-          ...prev,
+        pendingListingsRef.current.push(
           ...batch.map((v) => ({
             ...v,
             dealership: dealerName,
             dealership_website: dealerSite,
           })),
-        ]);
+        );
+        scheduleListingFlush();
       } catch {
         /* ignore */
       }
@@ -518,6 +566,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       } catch {
         setStatus((s) => s ?? "Search finished.");
       }
+      flushPendingListings();
       closeStream();
       onFinishedRef.current?.();
     };
@@ -554,7 +603,9 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     stopStream,
     vehicleCategory,
     vehicleCondition,
+    flushPendingListings,
     running,
+    scheduleListingFlush,
   ]);
 
   return {
