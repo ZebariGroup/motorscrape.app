@@ -57,7 +57,8 @@ class Settings(BaseSettings):
     )
     openai_api_key: str = ""
     # LLM model used for extraction; keep this fast for stream responsiveness.
-    openai_extraction_model: str = "gpt-4o-mini"
+    # Override with OPENAI_EXTRACTION_MODEL (e.g. gpt-5.4-nano for lowest latency/cost).
+    openai_extraction_model: str = "gpt-5.4-mini"
     # Seconds; bounds slow/hung LLM calls so the search stream can finish.
     openai_timeout: float = 75.0
     # Cap concurrent OpenAI extraction calls across dealerships (rate limits / tail latency).

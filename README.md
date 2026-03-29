@@ -14,7 +14,7 @@ This repo is set up for **[Vercel Services](https://vercel.com/docs/services)**:
    | Name | Required | Notes |
    |------|----------|--------|
    | `GOOGLE_PLACES_API_KEY` | Yes | Same key as in Google Cloud; you can also use `GOOGLE_MAPS_API_KEY`. Enable **[Places API](https://console.cloud.google.com/apis/library/places.googleapis.com)** (New) for Text Search + Place Details ([docs](https://developers.google.com/maps/documentation/places/web-service/text-search)) |
-   | `OPENAI_API_KEY` | Yes | Used for `gpt-4o-mini` extraction |
+   | `OPENAI_API_KEY` | Yes | Used for inventory LLM extraction (default model `gpt-5.4-mini`; set `OPENAI_EXTRACTION_MODEL` to override) |
    | `ZENROWS_API_KEY` | No | Managed fetch / anti-bot ([ZenRows](https://docs.zenrows.com/)); used after direct fetch fails or HTML lacks inventory signals |
    | `SCRAPINGBEE_API_KEY` | No | Alternative managed fetch ([ScrapingBee](https://www.scrapingbee.com/documentation/)) |
 
