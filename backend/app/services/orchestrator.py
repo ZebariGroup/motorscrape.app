@@ -1895,7 +1895,17 @@ async def stream_search(
                             extraction_metrics["pages_structured"] += 1
 
                 if ext_result is None:
-                    if make.strip() and not html_mentions_make(current_html, make):
+                    is_family_inventory_route = bool(
+                        route
+                        and route.platform_id
+                        in {
+                            "ford_family_inventory",
+                            "gm_family_inventory",
+                            "honda_acura_inventory",
+                            "toyota_lexus_oem_inventory",
+                        }
+                    )
+                    if make.strip() and not html_mentions_make(current_html, make) and not is_family_inventory_route:
                         logger.info(
                             "Skipping extraction for %s: no make mention (%r) in HTML",
                             current_url,
@@ -1906,7 +1916,11 @@ async def stream_search(
                         )
                         break
 
-                    if model.strip() and not html_mentions_model(current_html, model):
+                    if (
+                        model.strip()
+                        and not html_mentions_model(current_html, model)
+                        and not is_family_inventory_route
+                    ):
                         logger.info(
                             "Skipping extraction for %s: no model mention (%r) in HTML",
                             current_url,

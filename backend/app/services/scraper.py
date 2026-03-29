@@ -1068,6 +1068,9 @@ def _sanitize_inventory_query_url(url: str) -> str:
             if lower in keep_explicit:
                 out_pairs.append((key, value))
                 continue
+            if lower.startswith("paymenttype") or lower == "payment":
+                dropped = True
+                continue
             if lower.startswith("_dfr[") or "[" in key or "]" in key:
                 dropped = True
                 continue

@@ -140,6 +140,19 @@ async def test_fetch_page_html_inventory_strips_dfr_query_on_direct_retry(clear_
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_inventory_strips_paymenttype_query_on_direct_retry(clear_scraper_keys: None) -> None:
+    noisy = "https://dealer.example/inventory/new?paymenttype=cash&page=1"
+    sanitized = "https://dealer.example/inventory/new?page=1"
+    respx.get(noisy).mock(return_value=Response(403, text="denied"))
+    respx.get(sanitized).mock(return_value=Response(200, text=_inventory_html()))
+
+    html, method = await fetch_page_html(noisy, page_kind="inventory")
+    assert method == "direct"
+    assert "vehicle-card" in html
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_enriches_dealer_spike_generic_vehinv_cache(clear_scraper_keys: None) -> None:
     page_url = "https://dealer.example/default.asp?page=xAllInventory&make=ski-doo"
     cache_url = "https://dealer.example/imglib/Inventory/cache/3392/VehInv.js?v=8767850"

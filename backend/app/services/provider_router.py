@@ -253,12 +253,47 @@ def _slugify_model_path(text: str) -> str:
 def _build_family_inventory_path(base_url: str, make: str, model: str) -> str:
     parts = urlsplit(base_url)
     path = parts.path.rstrip("/")
-    if path.endswith("/inventory/new") or path.endswith("/inventory/used"):
-        model_slug = _slugify_model_path(model)
-        make_slug = _slugify_model_path(make)
-        if model_slug and make_slug:
-            path = f"{path}/{make_slug}-{model_slug}"
-            return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+    model_slug = _slugify_model_path(model)
+    make_slug = _slugify_model_path(make)
+    if not model_slug or not make_slug:
+        return base_url
+
+    normalized_path = path.lower()
+
+    # Preserve already-targeted hyphenated model URLs like /inventory/new/ford-bronco.
+    if normalized_path.endswith(f"/{make_slug}-{model_slug}"):
+        return base_url
+
+    # Keep /inventory/new/{make}/{model} family landings aligned to the requested model.
+    if normalized_path.endswith(f"/inventory/new/{make_slug}") or normalized_path.endswith(
+        f"/inventory/used/{make_slug}"
+    ):
+        return urlunsplit(
+            (parts.scheme, parts.netloc, f"{path}/{model_slug}", parts.query, parts.fragment)
+        )
+
+    segments = [segment for segment in normalized_path.split("/") if segment]
+    if (
+        len(segments) >= 3
+        and segments[0] == "inventory"
+        and segments[1] in {"new", "used"}
+        and segments[2] == make_slug
+    ):
+        if len(segments) == 3 or (len(segments) > 3 and segments[3] == model_slug):
+            return base_url
+        return urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                f"/inventory/{segments[1]}/{make_slug}/{model_slug}",
+                parts.query,
+                parts.fragment,
+            )
+        )
+
+    if normalized_path.endswith("/inventory/new") or normalized_path.endswith("/inventory/used"):
+        path = f"{path}/{make_slug}-{model_slug}"
+        return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
     return base_url
 
 
