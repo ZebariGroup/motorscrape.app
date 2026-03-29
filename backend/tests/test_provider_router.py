@@ -897,7 +897,8 @@ def test_resolve_inventory_url_for_provider_prefers_model_scoped_path_without_pl
         model="Bronco",
         vehicle_condition="new",
     )
-    assert url == "https://www.mossyford.com/inventory/new/ford-bronco"
+    # Slash-style SRP reliably returns Ford inventory; hyphen variant returns 0 results on some dealers.
+    assert url == "https://www.mossyford.com/inventory/new/ford/bronco"
 
 
 def test_resolve_inventory_url_for_provider_prefers_ford_family_model_scoped_path() -> None:
@@ -920,7 +921,7 @@ def test_resolve_inventory_url_for_provider_prefers_ford_family_model_scoped_pat
         model="Bronco",
         vehicle_condition="new",
     )
-    assert url == "https://www.mossyford.com/inventory/new/ford-bronco"
+    assert url == "https://www.mossyford.com/inventory/new/ford/bronco"
 
 
 def test_resolve_inventory_url_for_provider_normalizes_stale_ford_model_hint() -> None:
@@ -943,7 +944,7 @@ def test_resolve_inventory_url_for_provider_normalizes_stale_ford_model_hint() -
         model="Bronco",
         vehicle_condition="new",
     )
-    assert url == "https://www.elcajonford.com/inventory/new/ford-bronco"
+    assert url == "https://www.elcajonford.com/inventory/new/ford/bronco"
 
 
 def test_resolve_inventory_url_for_provider_ford_family_constructs_srp_from_homepage() -> None:
@@ -966,7 +967,7 @@ def test_resolve_inventory_url_for_provider_ford_family_constructs_srp_from_home
         model="Bronco",
         vehicle_condition="new",
     )
-    assert url == "https://www.chulavistaford.com/inventory/new/ford-bronco"
+    assert url == "https://www.chulavistaford.com/inventory/new/ford/bronco"
 
 
 def test_detect_or_lookup_provider_normalizes_cached_dealer_on_render_flag() -> None:

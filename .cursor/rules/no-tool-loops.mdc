@@ -1,0 +1,16 @@
+# No Repeated Tool Calls / Infinite Loops
+
+**CRITICAL — Every repeated tool call costs real money. Never do any of the following:**
+
+- Do NOT call the same Shell command (or any tool) more than once if the output was already received and clear.
+- Do NOT retry a failing HTTP request, shell command, or file check in a loop. Run it once, read the result, and move on.
+- Do NOT repeat the same diagnostic check (e.g. checking inventory markers on the same URL) more than 2 times total. If the answer doesn't change, stop and report it.
+- Do NOT put any tool call inside a `while True` or implicit retry loop without a hard exit condition.
+
+**What to do instead:**
+
+- If one check is enough to answer the question, answer it and stop.
+- If you need to check multiple URLs, batch them in a single message — not one after another in a loop.
+- If a command keeps failing, report the failure and ask the user what to do next.
+
+**Enforcement:** If you find yourself writing the same tool call description as one you already made in this conversation, STOP. Do not make the call.

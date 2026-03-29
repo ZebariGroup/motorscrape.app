@@ -307,15 +307,18 @@ def _build_family_inventory_path(
         )
 
     if normalized_path.endswith("/inventory/new") or normalized_path.endswith("/inventory/used"):
-        path = f"{path}/{make_slug}-{model_slug}"
-        return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+        # Prefer slash-style /inventory/new/{make}/{model} — it reliably returns results
+        # on Ford-family sites where the hyphen variant (/inventory/new/ford-bronco) can
+        # return zero results even though the slash variant works.
+        path = f"{path}/{make_slug}/{model_slug}"
+        return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
     # Base URL has no /inventory path at all (homepage or unrecognized page).
-    # Construct a canonical family inventory SRP with the model slug appended.
+    # Construct a canonical family inventory SRP using slash-style make/model segments.
     cond = (condition or "new").strip().lower()
     inv_path = "/inventory/used" if cond == "used" else "/inventory/new"
     return urlunsplit(
-        (parts.scheme, parts.netloc, f"{inv_path}/{make_slug}-{model_slug}", "", "")
+        (parts.scheme, parts.netloc, f"{inv_path}/{make_slug}/{model_slug}", "", "")
     )
 
 
@@ -338,14 +341,9 @@ def _build_family_inventory_path_variants(
     hyphen_url = _build_family_inventory_path(base_url, make, model, condition=condition)
     slash_url = urlunsplit((parts.scheme, parts.netloc, f"{inv_path}/{make_slug}/{model_slug}", "", ""))
     ordered: list[str] = []
-    if normalized_path.endswith(f"/{make_slug}-{model_slug}"):
-        ordered.extend([slash_url, hyphen_url])
-    elif normalized_path.endswith(f"/inventory/{cond}/{make_slug}/{model_slug}") or normalized_path.endswith(
-        f"/inventory/{cond}/{make_slug}"
-    ):
-        ordered.extend([slash_url, hyphen_url])
-    else:
-        ordered.extend([hyphen_url, slash_url])
+    # Always try the slash variant first — Ford-family sites reliably return inventory
+    # on /inventory/new/{make}/{model} while the hyphen variant can return 0 results.
+    ordered.extend([slash_url, hyphen_url])
     seen: set[str] = set()
     out: list[str] = []
     for candidate in ordered:

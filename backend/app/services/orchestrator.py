@@ -647,11 +647,15 @@ def _effective_max_pages_for_route(
     """
     if requested_pages <= 0:
         return 1
-    if route is not None and route.platform_id in {"dealer_on", "dealer_inspire"}:
-        # These SRPs are often render-heavy in production. Let them go a little
-        # deeper than page 1, but cap them well below user-requested deep crawls
-        # so a handful of slow dealers do not consume the full worker budget.
+    if route is not None and route.platform_id == "dealer_on":
+        # DealerOn SRPs are render-heavy. Cap initial depth so slow dealers
+        # don't consume the full worker budget.
         return min(requested_pages, 3)
+    if route is not None and route.platform_id == "dealer_inspire":
+        # Dealer Inspire consumes 7 ZenRows rendered calls per dealer on broad Ford searches
+        # (45-page result sets), starving later dealers in the queue. Cap initial depth to
+        # 2 pages — pagination auto-expansion still runs if the first pages succeed quickly.
+        return min(requested_pages, 2)
     return requested_pages
 
 

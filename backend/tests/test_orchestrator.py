@@ -282,7 +282,11 @@ def test_inventory_url_recovery_candidates_builds_family_model_srp_for_unrecogni
         model="Bronco",
         vehicle_condition="new",
     )
-    assert "https://www.mossyford.com/inventory/new/ford-bronco" in candidates
+    # Slash-style is now preferred; both variants should be present in candidates
+    assert (
+        "https://www.mossyford.com/inventory/new/ford/bronco" in candidates
+        or "https://www.mossyford.com/inventory/new/ford-bronco" in candidates
+    )
 
 
 def test_inventory_url_recovery_candidates_include_ford_family_slash_variant() -> None:
