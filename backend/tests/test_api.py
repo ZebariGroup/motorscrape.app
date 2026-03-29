@@ -43,19 +43,21 @@ def test_search_stream_no_dealers_mocked() -> None:
 
 
 def test_search_stream_accepts_vehicle_category() -> None:
-    with patch(
-        "app.services.orchestrator.find_dealerships",
-        new_callable=AsyncMock,
-        return_value=[],
-    ) as mocked_find:
-        with client.stream(
-            "GET",
-            "/search/stream",
-            params={"location": "XX", "vehicle_category": "boat"},
-        ) as r:
-            assert r.status_code == 200
-            _ = b"".join(r.iter_bytes())
-    assert mocked_find.await_args.kwargs["vehicle_category"] == "boat"
+    # Feature flag defaults to car-only in CI; this test covers param wiring, not gating.
+    with patch("app.main.vehicle_category_enabled", return_value=True):
+        with patch(
+            "app.services.orchestrator.find_dealerships",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mocked_find:
+            with client.stream(
+                "GET",
+                "/search/stream",
+                params={"location": "XX", "vehicle_category": "boat"},
+            ) as r:
+                assert r.status_code == 200
+                _ = b"".join(r.iter_bytes())
+        assert mocked_find.await_args.kwargs["vehicle_category"] == "boat"
 
 
 def test_search_logs_endpoint_returns_run_and_events() -> None:
