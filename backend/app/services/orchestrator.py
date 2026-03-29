@@ -46,6 +46,7 @@ from app.services.parser import extract_vehicles_from_html, try_extract_vehicles
 from app.services.places import find_car_dealerships, find_dealerships
 from app.services.platform_store import normalize_dealer_domain
 from app.services.provider_router import (
+    _build_family_inventory_path_variants,
     ProviderRoute,
     detect_or_lookup_provider,
     record_provider_failure,
@@ -116,6 +117,23 @@ def _inventory_url_uses_scoped_filters(url: str | None, *, make: str, model: str
         if token and token in haystack:
             return True
     return False
+
+
+def _looks_like_zero_inventory_results_page(html: str, current_url: str | None) -> bool:
+    if not html or not current_url:
+        return False
+    lower = html.lower()
+    if "vehicle_results_label" in lower and re.search(r"results:\s*0\s+vehicles\b", lower, re.I):
+        return True
+    return any(
+        marker in lower
+        for marker in (
+            "results: 0 vehicles",
+            "0 vehicles",
+            "0 results",
+            "we apologize that we cannot find what you are looking for",
+        )
+    )
 
 
 def _requested_model_values(raw: str) -> list[str]:
@@ -787,12 +805,21 @@ def _inventory_url_recovery_candidates(
     }:
         inv_path = "/inventory/used" if condition == "used" else "/inventory/new"
         broad_srp = urlunsplit((parsed_base.scheme, parsed_base.netloc, inv_path, "", ""))
-        add(broad_srp)
         if model_values and make_norm:
             for m in model_values[:2]:
                 model_norm = re.sub(r"[^a-z0-9]+", "-", m.strip().lower()).strip("-")
                 if model_norm:
-                    add(urlunsplit((parsed_base.scheme, parsed_base.netloc, f"{inv_path}/{make_norm}-{model_norm}", "", "")))
+                    if route.platform_id == "ford_family_inventory":
+                        for candidate in _build_family_inventory_path_variants(
+                            urlunsplit((parsed_base.scheme, parsed_base.netloc, inv_path, "", "")),
+                            make,
+                            m,
+                            condition=condition,
+                        ):
+                            add(candidate)
+                    else:
+                        add(urlunsplit((parsed_base.scheme, parsed_base.netloc, f"{inv_path}/{make_norm}-{model_norm}", "", "")))
+        add(broad_srp)
     elif not route:
         canonical = guess_franchise_inventory_srp_url(base_url, condition) or ""
         if canonical:
@@ -1098,6 +1125,7 @@ async def stream_search(
             )
         domain = normalize_dealer_domain(website)
         fetch_methods_used: list[str] = []
+        ford_recovery_urls: list[str] = []
         inv_cache_key = inventory_listings_cache_key(
             website=website,
             domain=domain,
@@ -2205,6 +2233,29 @@ async def stream_search(
                             pass
                 if (
                     route
+                    and route.platform_id == "ford_family_inventory"
+                    and scoped_inventory_url
+                    and current_url
+                    and not vdicts
+                    and _looks_like_zero_inventory_results_page(current_html, current_url)
+                ):
+                    recovery_candidates = _inventory_url_recovery_candidates(
+                        inv_url=current_url,
+                        base_url=base_url,
+                        route=route,
+                        make=make,
+                        model=model,
+                        vehicle_condition=vehicle_condition,
+                    )
+                    for retry_url in recovery_candidates:
+                        if retry_url.rstrip("/") == current_url.rstrip("/") or retry_url in queued_urls:
+                            continue
+                        queued_urls.add(retry_url)
+                        pending_urls.append(retry_url)
+                        ford_recovery_urls.append(retry_url)
+                    next_url = None
+                if (
+                    route
                     and route.platform_id == "dealer_inspire"
                     and not model.strip()
                     and vehicle_condition == "new"
@@ -2302,6 +2353,19 @@ async def stream_search(
                 "strategy_used": route.extraction_mode if 'route' in locals() and route else None,
                 **_pagination_progress_payload(latest_pagination, pages_scraped=pages_scraped),
             }
+            active_route = route if 'route' in locals() else None
+            if ford_recovery_urls:
+                done_payload["ford_recovery_urls"] = ford_recovery_urls
+            suspicious_zero_results = bool(
+                active_route
+                and active_route.platform_id == "ford_family_inventory"
+                and total_vehicles == 0
+                and scoped_inventory_url
+            )
+            if suspicious_zero_results:
+                done_payload["zero_results_warning"] = "ford_family_scoped_url_empty"
+                if domain:
+                    record_provider_failure(domain)
             if skip_info:
                 done_payload["info"] = skip_info
             if (
@@ -2325,7 +2389,7 @@ async def stream_search(
                 recorder.event(
                     event_type="dealer_done",
                     phase="scrape",
-                    level="info",
+                    level="warning" if suspicious_zero_results else "info",
                     message=f"Finished dealership scrape for {d.name}.",
                     dealership_name=d.name,
                     dealership_website=website,

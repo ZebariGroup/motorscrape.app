@@ -574,6 +574,47 @@ async def test_fetch_page_html_passes_dealer_inspire_playwright_instructions(mon
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_passes_ford_family_playwright_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ZENROWS_API_KEY", "zr-test-key")
+    monkeypatch.setenv("PLAYWRIGHT_ENABLED", "true")
+    _fresh_settings(monkeypatch)
+    captured: dict[str, str | None] = {}
+
+    async def fake_pw(url: str, js_instructions: str | None = None) -> str:
+        captured["url"] = url
+        captured["js_instructions"] = js_instructions
+        return _inventory_html()
+
+    monkeypatch.setattr(
+        "app.services.playwright_fetch.fetch_html_via_playwright",
+        fake_pw,
+    )
+
+    shell_html = """
+    <html><body>
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"Vehicle","name":"Ford Bronco"}</script>
+      <div>Inventory shell</div>
+    </body></html>
+    """
+    respx.get("https://www.chulavistaford.com/inventory/new/ford-bronco").mock(return_value=Response(200, text=shell_html))
+    respx.get("https://api.zenrows.com/v1/").mock(return_value=Response(500, text="unused"))
+
+    html, method = await fetch_page_html(
+        "https://www.chulavistaford.com/inventory/new/ford-bronco",
+        page_kind="inventory",
+        prefer_render=True,
+        platform_id="ford_family_inventory",
+    )
+
+    assert method == "playwright"
+    assert "vehicle-card" in html
+    assert captured["url"] == "https://www.chulavistaford.com/inventory/new/ford-bronco"
+    assert captured["js_instructions"] is not None
+    assert "vehicle_results_label" in captured["js_instructions"]
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_playwright_insufficient_then_zenrows_rendered(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ZENROWS_API_KEY", "zr-test-key")
     monkeypatch.setenv("PLAYWRIGHT_ENABLED", "true")

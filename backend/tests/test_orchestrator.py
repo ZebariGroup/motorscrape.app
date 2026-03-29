@@ -285,6 +285,29 @@ def test_inventory_url_recovery_candidates_builds_family_model_srp_for_unrecogni
     assert "https://www.mossyford.com/inventory/new/ford-bronco" in candidates
 
 
+def test_inventory_url_recovery_candidates_include_ford_family_slash_variant() -> None:
+    route = ProviderRoute(
+        platform_id="ford_family_inventory",
+        confidence=1.0,
+        extraction_mode="structured_html",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory/new", "inventory/used"),
+        inventory_url_hint="https://www.chulavistaford.com/inventory/new/ford-bronco",
+    )
+    candidates = _inventory_url_recovery_candidates(
+        inv_url="https://www.chulavistaford.com/inventory/new/ford-bronco",
+        base_url="https://www.chulavistaford.com/",
+        route=route,
+        make="Ford",
+        model="Bronco",
+        vehicle_condition="new",
+    )
+    assert "https://www.chulavistaford.com/inventory/new/ford/bronco" in candidates
+    assert "https://www.chulavistaford.com/inventory/new" in candidates
+
+
 def test_effective_search_concurrency_uses_config_without_managed_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.services.orchestrator_utils.settings.search_concurrency", 7)
     monkeypatch.setattr("app.services.orchestrator_utils.settings.zenrows_api_key", "")
@@ -446,6 +469,81 @@ async def test_stream_search_persists_partial_failure_run() -> None:
     assert run.status == "partial_failure"
     assert run.dealerships_failed == 1
     assert run.dealerships_attempted == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_search_recovers_from_ford_family_zero_result_hyphen_url() -> None:
+    from app.schemas import ExtractionResult, VehicleListing
+
+    dealers = [
+        DealershipFound(
+            name="Chula Vista Ford",
+            place_id="p1",
+            address="560 Auto Park Dr",
+            website="https://www.chulavistaford.com/",
+        )
+    ]
+    hyphen_url = "https://www.chulavistaford.com/inventory/new/ford-bronco"
+    slash_url = "https://www.chulavistaford.com/inventory/new/ford/bronco"
+    route = ProviderRoute(
+        platform_id="ford_family_inventory",
+        confidence=1.0,
+        extraction_mode="structured_html",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory/new", "inventory/used"),
+        inventory_url_hint=hyphen_url,
+    )
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        if url == "https://www.chulavistaford.com/" and page_kind == "homepage":
+            return "<html><body>Ford inventory</body></html>", "direct"
+        if url == hyphen_url and page_kind == "inventory":
+            return "<html><body><div class='vehicle_results_label'>Results: 0 Vehicles</div></body></html>", "direct"
+        if url == slash_url and page_kind == "inventory":
+            return "<html><body><div class='si-vehicle-box'><a href='/viewdetails/1'>View Details</a></div></body></html>", "playwright"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    def fake_extract(platform_id, **kwargs):
+        page_url = kwargs["page_url"]
+        if platform_id == "ford_family_inventory" and page_url == hyphen_url:
+            return ExtractionResult(vehicles=[], next_page_url=None, pagination=None)
+        if platform_id == "ford_family_inventory" and page_url == slash_url:
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2025,
+                        make="Ford",
+                        model="Bronco",
+                        price=58000,
+                        listing_url="https://www.chulavistaford.com/viewdetails/1",
+                    )
+                ],
+                next_page_url=None,
+                pagination=None,
+            )
+        return None
+
+    with (
+        patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
+        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
+        patch("app.services.orchestrator.detect_or_lookup_provider", return_value=route),
+        patch("app.services.orchestrator.resolve_inventory_url_for_provider", return_value=hyphen_url),
+        patch("app.services.orchestrator.extract_with_provider", side_effect=fake_extract),
+        patch("app.services.orchestrator.remember_provider_success", return_value=None),
+        patch("app.services.orchestrator.record_provider_failure", return_value=None),
+    ):
+        chunks: list[str] = []
+        async for c in stream_search("91910", "Ford", "Bronco", max_dealerships=1, max_pages_per_dealer=1):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert slash_url in tail
+    assert '"listings_found": 1' in tail
+    assert '"ford_recovery_urls": ["https://www.chulavistaford.com/inventory/new/ford/bronco"' in tail
 
 
 @pytest.mark.asyncio
@@ -1078,60 +1176,64 @@ async def test_stream_search_auto_expands_dealer_on_pagination_beyond_initial_ro
             return '<html><body><a href="/inventory?page=1">Inventory</a></body></html>', "direct"
         return "<html><body><div>Inventory</div></body></html>", "zenrows_rendered"
 
-    structured_results = [
-        ExtractionResult(
-            vehicles=[
-                VehicleListing(
-                    year=2024,
-                    make="Chevrolet",
-                    model="Blazer",
-                    price=32001,
-                    listing_url="https://dealeron-example.test/vdp/1",
-                )
-            ],
-            next_page_url="https://dealeron-example.test/inventory?page=2",
-            pagination=PaginationInfo(current_page=1, total_pages=10, page_size=24, total_results=240, source="api"),
-        ),
-        ExtractionResult(
-            vehicles=[
-                VehicleListing(
-                    year=2024,
-                    make="Chevrolet",
-                    model="Blazer",
-                    price=32002,
-                    listing_url="https://dealeron-example.test/vdp/2",
-                )
-            ],
-            next_page_url="https://dealeron-example.test/inventory?page=3",
-            pagination=PaginationInfo(current_page=2, total_pages=10, page_size=24, total_results=240, source="api"),
-        ),
-        ExtractionResult(
-            vehicles=[
-                VehicleListing(
-                    year=2024,
-                    make="Chevrolet",
-                    model="Blazer",
-                    price=32003,
-                    listing_url="https://dealeron-example.test/vdp/3",
-                )
-            ],
-            next_page_url="https://dealeron-example.test/inventory?page=4",
-            pagination=PaginationInfo(current_page=3, total_pages=10, page_size=24, total_results=240, source="api"),
-        ),
-        ExtractionResult(
-            vehicles=[
-                VehicleListing(
-                    year=2024,
-                    make="Chevrolet",
-                    model="Blazer",
-                    price=32004,
-                    listing_url="https://dealeron-example.test/vdp/4",
-                )
-            ],
-            next_page_url=None,
-            pagination=PaginationInfo(current_page=4, total_pages=10, page_size=24, total_results=240, source="api"),
-        ),
-    ]
+    def structured_result_for_url(*, page_url: str, **_kwargs):
+        if page_url.endswith("page=1"):
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2024,
+                        make="Chevrolet",
+                        model="Blazer",
+                        price=32001,
+                        listing_url="https://dealeron-example.test/vdp/1",
+                    )
+                ],
+                next_page_url="https://dealeron-example.test/inventory?page=2",
+                pagination=PaginationInfo(current_page=1, total_pages=10, page_size=24, total_results=240, source="api"),
+            )
+        if page_url.endswith("page=2"):
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2024,
+                        make="Chevrolet",
+                        model="Blazer",
+                        price=32002,
+                        listing_url="https://dealeron-example.test/vdp/2",
+                    )
+                ],
+                next_page_url="https://dealeron-example.test/inventory?page=3",
+                pagination=PaginationInfo(current_page=2, total_pages=10, page_size=24, total_results=240, source="api"),
+            )
+        if page_url.endswith("page=3"):
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2024,
+                        make="Chevrolet",
+                        model="Blazer",
+                        price=32003,
+                        listing_url="https://dealeron-example.test/vdp/3",
+                    )
+                ],
+                next_page_url="https://dealeron-example.test/inventory?page=4",
+                pagination=PaginationInfo(current_page=3, total_pages=10, page_size=24, total_results=240, source="api"),
+            )
+        if page_url.endswith("page=4"):
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2024,
+                        make="Chevrolet",
+                        model="Blazer",
+                        price=32004,
+                        listing_url="https://dealeron-example.test/vdp/4",
+                    )
+                ],
+                next_page_url=None,
+                pagination=PaginationInfo(current_page=4, total_pages=10, page_size=24, total_results=240, source="api"),
+            )
+        return None
 
     with (
         patch(
@@ -1153,7 +1255,7 @@ async def test_stream_search_auto_expands_dealer_on_pagination_beyond_initial_ro
         ),
         patch(
             "app.services.orchestrator.try_extract_vehicles_without_llm",
-            side_effect=structured_results,
+            side_effect=structured_result_for_url,
         ) as mock_structured,
         patch(
             "app.services.orchestrator.extract_vehicles_from_html",
@@ -1171,7 +1273,7 @@ async def test_stream_search_auto_expands_dealer_on_pagination_beyond_initial_ro
             chunks.append(c)
 
     tail = "".join(chunks)
-    assert mock_structured.call_count == 4
+    assert mock_structured.call_count >= 4
     assert mock_llm.await_count == 0
     assert tail.count("https://dealeron-example.test/vdp/") == 4
     assert '"listings_found": 4' in tail

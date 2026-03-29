@@ -327,7 +327,7 @@ async def _playwright_pass(
         )
         if marker in lower
     )
-    html_sufficient = _direct_html_sufficient(html, page_kind=page_kind)
+    html_sufficient = _direct_html_sufficient(html, page_kind=page_kind, platform_id=platform_id)
     logger.info(
         "Playwright fetched %s (platform=%s steps=%s targeted_waits=%s html_chars=%s inventory_signals=%s sufficient=%s)",
         url,
@@ -460,7 +460,7 @@ async def fetch_page_html(
         try:
             html = await _direct_get_with_express_www_fallback(direct_url, timeout)
             html = await _maybe_append_inventory_api_data(direct_url, html, timeout)
-            if _direct_html_sufficient(html, page_kind=page_kind):
+            if _direct_html_sufficient(html, page_kind=page_kind, platform_id=platform_id):
                 if idx > 0:
                     logger.info("Direct fetch recovered via sanitized URL: %s -> %s", url, direct_url)
                 _m("direct_ok")
@@ -561,7 +561,7 @@ async def fetch_page_html(
         try:
             html = await _scrapingbee_fetch(effective_url, timeout, render_js=False)
             html = await _maybe_append_inventory_api_data(effective_url, html, timeout)
-            if _direct_html_sufficient(html, page_kind=page_kind):
+            if _direct_html_sufficient(html, page_kind=page_kind, platform_id=platform_id):
                 _m("scrapingbee_static_ok")
                 return html, "scrapingbee_static"
         except Exception as e:
@@ -579,7 +579,7 @@ async def fetch_page_html(
                         wait_ms=wait_ms,
                     )
                     html = await _maybe_append_inventory_api_data(effective_url, html, timeout)
-                    if _direct_html_sufficient(html, page_kind=page_kind):
+                    if _direct_html_sufficient(html, page_kind=page_kind, platform_id=platform_id):
                         _m("scrapingbee_rendered_ok")
                         return html, "scrapingbee_rendered"
                     _m("scrapingbee_rendered_insufficient")
@@ -760,20 +760,42 @@ def _looks_like_sonic_teamvelocity_spa(html: str) -> bool:
     )
 
 
-def _direct_html_sufficient(html: str, *, page_kind: PageKind) -> bool:
+def _count_structured_vehicle_signals(html: str) -> int:
+    lower = html.lower()
+    return sum(
+        lower.count(marker)
+        for marker in (
+            '"@type":"vehicle"',
+            '"@type": "vehicle"',
+            '"vehicleidentificationnumber"',
+            '"/viewdetails/',
+        )
+    )
+
+
+def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str | None = None) -> bool:
     if _looks_like_block_page(html):
         return False
     # Sonic/TeamVelocity SPA pages put a small JSON-LD snippet for SEO but load
     # the real inventory via Vue.js — treat them as render-required always.
     if page_kind == "inventory" and _looks_like_sonic_teamvelocity_spa(html):
         return False
-    if _has_structured_inventory_hint(html):
+    if page_kind == "inventory" and platform_id == "ford_family_inventory":
+        if _looks_like_placeholder_inventory(html):
+            return False
+        if _looks_like_empty_inventory_shell(html):
+            return False
+        if _html_looks_inventory_ready(html, platform_id=platform_id):
+            return True
+        if _has_structured_inventory_hint(html) and _count_structured_vehicle_signals(html) >= 3:
+            return True
+    elif _has_structured_inventory_hint(html):
         return True
     if page_kind == "inventory" and _looks_like_placeholder_inventory(html):
         return False
     if page_kind == "inventory" and _looks_like_empty_inventory_shell(html):
         return False
-    if _html_looks_inventory_ready(html):
+    if _html_looks_inventory_ready(html, platform_id=platform_id):
         return True
     lower = html.lower()
     if page_kind == "homepage":
@@ -918,8 +940,17 @@ async def _scrapingbee_fetch(
             return r.text
 
 
-def _html_looks_inventory_ready(html: str) -> bool:
+def _html_looks_inventory_ready(html: str, *, platform_id: str | None = None) -> bool:
     lower = html.lower()
+    if platform_id == "ford_family_inventory":
+        return (
+            "vehicle_results_label" in lower
+            or "inventory_listing" in lower
+            or "si-vehicle-box" in lower
+            or "/viewdetails/" in lower
+            or any(marker in lower for marker in _INVENTORY_HINTS)
+            or _has_dom_inventory_result_tiles(html)
+        )
     return (
         any(marker in lower for marker in _INVENTORY_HINTS)
         or _has_dom_inventory_result_tiles(html)

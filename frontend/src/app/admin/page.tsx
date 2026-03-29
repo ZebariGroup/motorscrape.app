@@ -10,6 +10,7 @@ import {
   type AdminAlertRun,
   type AdminAlertSubscription,
   type AdminAuditLog,
+  type DealerOutcome,
   type OverviewResponse,
   type RunDetailResponse,
   type RunsResponse,
@@ -27,6 +28,29 @@ type UserDraft = {
 const TIERS = ["free", "standard", "premium", "enterprise", "custom"] as const;
 const USERS_PAGE_SIZE = 12;
 const RUNS_PAGE_SIZE = 10;
+
+function formatOutcomeLabel(outcome: DealerOutcome): string {
+  if (outcome.zero_results_warning === "ford_family_scoped_url_empty") return "Ford scoped URL empty";
+  if (outcome.classification === "fetch_failure") return "Fetch failure";
+  if (outcome.classification === "parse_failure") return "Parse failure";
+  if (outcome.classification === "timeout") return "Timeout";
+  if (outcome.classification === "zero_results") return "Zero listings";
+  if (outcome.classification === "success") return "Success";
+  return outcome.classification.replaceAll("_", " ");
+}
+
+function outcomeToneClasses(status: string): string {
+  if (status === "success") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300";
+  }
+  if (status === "warning") {
+    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300";
+  }
+  if (status === "failed") {
+    return "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300";
+  }
+  return "border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300";
+}
 
 export default function AdminPage() {
   const { access, loading: accessLoading, refresh: refreshAccess } = useAccessSummary();
@@ -470,6 +494,7 @@ export default function AdminPage() {
                 >
                   <option value="all">All</option>
                   <option value="success">Success</option>
+                  <option value="partial_failure">Partial failure</option>
                   <option value="failed">Failed</option>
                   <option value="quota_blocked">Quota blocked</option>
                 </select>
@@ -637,6 +662,54 @@ export default function AdminPage() {
                     {selectedRunPrettyEconomics}
                   </pre>
                 </div>
+                <div>
+                  <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">Dealer Outcome Matrix</p>
+                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    dealers {selectedRun.dealer_summary.total_dealers} · ford family {selectedRun.dealer_summary.ford_family_dealers} · zero-result warnings{" "}
+                    {selectedRun.dealer_summary.zero_results_warnings}
+                  </p>
+                  <div className="mt-3 space-y-3">
+                    {selectedRun.dealer_outcomes.map((outcome) => (
+                      <div key={`${outcome.dealership_website ?? outcome.dealership_name ?? "dealer"}-${outcome.final_url ?? outcome.classification}`} className="rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                              {outcome.dealership_name ?? outcome.dealership_website ?? "Unknown dealer"}
+                            </p>
+                            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                              {outcome.dealership_website ?? "n/a"}
+                            </p>
+                          </div>
+                          <span className={`rounded-full border px-2 py-1 text-xs font-medium capitalize ${outcomeToneClasses(outcome.status)}`}>
+                            {formatOutcomeLabel(outcome)}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+                          listings {outcome.listings_found} · platform {outcome.platform_id ?? "n/a"} · source {outcome.platform_source ?? "n/a"}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                          strategy {outcome.strategy_used ?? "n/a"} · fetch {outcome.fetch_methods.join(", ") || "n/a"}
+                        </p>
+                        {outcome.final_url ? (
+                          <p className="mt-1 break-all text-xs text-zinc-600 dark:text-zinc-400">{outcome.final_url}</p>
+                        ) : null}
+                        {outcome.ford_recovery_urls.length > 0 ? (
+                          <p className="mt-1 break-all text-xs text-zinc-600 dark:text-zinc-400">
+                            recovery {outcome.ford_recovery_urls.join(" | ")}
+                          </p>
+                        ) : null}
+                        {outcome.error_message ? (
+                          <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                            {outcome.error_phase ?? "scrape"}: {outcome.error_message}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                    {selectedRun.dealer_outcomes.length === 0 ? (
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400">No dealer outcome rows were derived from this run yet.</p>
+                    ) : null}
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -656,6 +729,11 @@ export default function AdminPage() {
                       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                         {event.phase ?? "n/a"} · {formatDateTime(event.created_at)}
                       </p>
+                      {event.dealership_name || event.dealership_website ? (
+                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          {event.dealership_name ?? "Unknown dealer"} · {event.dealership_website ?? "n/a"}
+                        </p>
+                      ) : null}
                       {Object.keys(event.payload).length > 0 ? (
                         <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-950 p-3 text-xs text-zinc-100">
                           {JSON.stringify(event.payload, null, 2)}

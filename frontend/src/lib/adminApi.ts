@@ -54,6 +54,31 @@ export type AdminEvent = {
   created_at: string | null;
 };
 
+export type DealerOutcome = {
+  dealership_name: string | null;
+  dealership_website: string | null;
+  status: string;
+  classification: string;
+  platform_id: string | null;
+  platform_source: string | null;
+  strategy_used: string | null;
+  listings_found: number;
+  final_url: string | null;
+  fetch_methods: string[];
+  ford_recovery_urls: string[];
+  zero_results_warning: string | null;
+  error_phase: string | null;
+  error_message: string | null;
+};
+
+export type DealerOutcomeSummary = {
+  total_dealers: number;
+  status_counts: Record<string, number>;
+  classification_counts: Record<string, number>;
+  zero_results_warnings: number;
+  ford_family_dealers: number;
+};
+
 export type AdminAlertSubscription = {
   id: string;
   user_id: string;
@@ -122,6 +147,8 @@ export type OverviewResponse = {
 export type RunDetailResponse = {
   run: AdminRun;
   events: AdminEvent[];
+  dealer_outcomes: DealerOutcome[];
+  dealer_summary: DealerOutcomeSummary;
 };
 
 export type UsersResponse = {

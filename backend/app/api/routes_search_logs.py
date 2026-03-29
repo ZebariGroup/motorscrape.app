@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import AccessContext, get_access_context
 from app.config import settings
 from app.db.account_store import ScrapeEventRecord, ScrapeRunRecord, get_account_store
+from app.services.search_log_summary import build_dealer_outcomes, summarize_dealer_outcomes
 
 router = APIRouter(prefix="/search/logs", tags=["search-logs"])
 
@@ -90,7 +91,10 @@ def get_search_log(
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Search log not found.")
     events = store.list_scrape_events(run.id)
+    dealer_outcomes = build_dealer_outcomes(events)
     return {
         "run": _serialize_run(run),
         "events": [_serialize_event(record) for record in events],
+        "dealer_outcomes": dealer_outcomes,
+        "dealer_summary": summarize_dealer_outcomes(dealer_outcomes),
     }

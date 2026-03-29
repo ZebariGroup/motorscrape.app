@@ -20,6 +20,7 @@ from app.db.account_store import (
     UserRecord,
     get_account_store,
 )
+from app.services.search_log_summary import build_dealer_outcomes, summarize_dealer_outcomes
 from app.tiers import TierId, limits_for_tier
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -335,9 +336,12 @@ def admin_get_search_run(
         user = store.get_user_by_id(run.user_id)
         user_email = user.email if user else None
     events = store.list_scrape_events(run.id)
+    dealer_outcomes = build_dealer_outcomes(events)
     return {
         "run": _serialize_run(run, user_email=user_email),
         "events": [_serialize_event(record) for record in events],
+        "dealer_outcomes": dealer_outcomes,
+        "dealer_summary": summarize_dealer_outcomes(dealer_outcomes),
     }
 
 

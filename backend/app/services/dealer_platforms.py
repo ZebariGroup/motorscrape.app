@@ -31,6 +31,15 @@ _DEALER_SPIKE_STRONG_MARKERS: tuple[str, ...] = (
     "/search/inventory",
     "--xallinventory",
 )
+_FORD_FAMILY_STRONG_MARKERS: tuple[str, ...] = (
+    "ford",
+    "lincoln",
+    "vehicle_results_label",
+    "si-vehicle-box",
+    "unlockctadiscountdata",
+    "/viewdetails/",
+    "inventory_listing",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +171,22 @@ def _dealer_inspire_playwright_instructions(scroll_rounds: int = 3) -> str:
     return _compact_instruction_payload(steps)
 
 
+def _ford_family_playwright_instructions(scroll_rounds: int = 4) -> str:
+    ford_selector = ".vehicle_results_label,.si-vehicle-box,.inventory_listing,[href*='/viewdetails/']"
+    steps: list[dict[str, Any]] = [
+        {"wait_for_selector": ford_selector, "timeout_ms": 6000},
+    ]
+    for _ in range(max(1, scroll_rounds)):
+        steps.extend(
+            [
+                {"scroll": "bottom"},
+                {"wait": 1200},
+                {"wait_for_selector": ford_selector, "timeout_ms": 3000},
+            ]
+        )
+    return _compact_instruction_payload(steps)
+
+
 def _team_velocity_playwright_instructions(scroll_rounds: int = 3) -> str:
     tv_selector = ".v7list-results__item,.v7list-vehicle,.vehicle-heading__link,.vehicle-price--current"
     steps: list[dict[str, Any]] = [
@@ -191,6 +216,7 @@ _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS = _oneaudi_falcon_inventory_js_instruc
 _ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS = _oneaudi_falcon_playwright_instructions()
 _DEALER_ON_PLAYWRIGHT_INSTRUCTIONS = _dealer_on_playwright_instructions()
 _DEALER_INSPIRE_PLAYWRIGHT_INSTRUCTIONS = _dealer_inspire_playwright_instructions()
+_FORD_FAMILY_PLAYWRIGHT_INSTRUCTIONS = _ford_family_playwright_instructions()
 _TEAM_VELOCITY_PLAYWRIGHT_INSTRUCTIONS = _team_velocity_playwright_instructions()
 _RENDER_REQUIRED_PLAYWRIGHT_INSTRUCTIONS = _inventory_ready_playwright_instructions()
 
@@ -237,11 +263,13 @@ _MARINEMAX_BOATS_SRP_ZENROWS_JS = _compact_instruction_payload(
 
 _FORD_FAMILY_INVENTORY_ZENROWS_JS = _compact_instruction_payload(
     [
-        {"wait": 3500},
-        {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 6000));"},
-        {"wait": 3000},
+        {"wait": 2500},
+        {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 5000));"},
+        {"wait": 1800},
+        {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 9000));"},
+        {"wait": 1800},
         {"evaluate": "window.scrollTo(0, document.body.scrollHeight);"},
-        {"wait": 3000},
+        {"wait": 2200},
     ]
 )
 
@@ -278,6 +306,8 @@ def playwright_inventory_instructions_for_url(url: str, platform_id: str | None 
     """Return Playwright-specific interaction steps for inventory URLs, if any."""
     if platform_id == "oneaudi_falcon":
         return _ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS.strip()
+    if platform_id == "ford_family_inventory":
+        return _FORD_FAMILY_PLAYWRIGHT_INSTRUCTIONS.strip()
     if platform_id == "dealer_on":
         return _DEALER_ON_PLAYWRIGHT_INSTRUCTIONS.strip()
     if platform_id == "dealer_inspire":
@@ -594,8 +624,7 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
 )
 
 
-def _family_stack_allowed_for_url(platform_id: str, page_url: str) -> bool:
-    target = page_url.lower()
+def _family_stack_allowed_for_target(platform_id: str, target: str, page_url: str) -> bool:
     host = urlsplit(page_url).netloc.lower()
     if platform_id == "nissan_infiniti_inventory":
         return any(token in host or token in target for token in ("nissan", "infiniti"))
@@ -631,6 +660,10 @@ def _platform_tie_break_priority(definition: PlatformDefinition, target: str) ->
         return 5 if "__next_data__" in target else 0
     if definition.platform_id == "dealer_spike":
         return 35 if any(marker in target for marker in _DEALER_SPIKE_STRONG_MARKERS) else 0
+    if definition.platform_id == "ford_family_inventory":
+        return 25 if all(marker in target for marker in ("ford", "vehicle_results_label")) else (
+            18 if sum(1 for marker in _FORD_FAMILY_STRONG_MARKERS if marker in target) >= 4 else 0
+        )
     if definition.platform_id == "dealer_dot_com":
         return 15 if "inventoryapiurl" in target or "ddc.widgetdata" in target else 0
     return 0
@@ -641,7 +674,7 @@ def _best_platform_definition(html: str, page_url: str = "") -> PlatformDefiniti
     target = lower + " " + page_url.lower()
     best: tuple[int, int, PlatformDefinition] | None = None
     for definition in _PLATFORM_REGISTRY:
-        if not _family_stack_allowed_for_url(definition.platform_id, page_url):
+        if not _family_stack_allowed_for_target(definition.platform_id, target, page_url):
             continue
         score = sum(1 for marker in definition.markers if marker in target)
         if score <= 0:

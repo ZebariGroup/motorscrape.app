@@ -109,6 +109,33 @@ def test_playwright_inventory_instructions_include_team_velocity_selectors() -> 
     assert any(step.get("scroll") == "bottom" for step in steps)
 
 
+def test_playwright_inventory_instructions_include_ford_family_selectors() -> None:
+    instructions = playwright_inventory_instructions_for_url(
+        "https://www.chulavistaford.com/inventory/new/ford/bronco",
+        platform_id="ford_family_inventory",
+    )
+    assert instructions is not None
+    steps = json.loads(instructions)
+    assert any(step.get("wait_for_selector") == ".vehicle_results_label,.si-vehicle-box,.inventory_listing,[href*='/viewdetails/']" for step in steps)
+    assert any(step.get("scroll") == "bottom" for step in steps)
+
+
+def test_detect_platform_profile_matches_ford_family_on_group_host() -> None:
+    html = """
+    <html><body>
+      <h1>New Ford Bronco for Sale</h1>
+      <div class="vehicle_results_label">Results: 24 Vehicles</div>
+      <div class="si-vehicle-box"></div>
+      <a href="/inventory/new/ford/bronco/viewdetails/1">View Details</a>
+      <script>var unlockCTADiscountData = {};</script>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.mossyauto.com/san-diego/bronco-search")
+    assert profile is not None
+    assert profile.platform_id == "ford_family_inventory"
+    assert profile.requires_render is True
+
+
 def test_detect_platform_profile_matches_d2c_media_homepage_markers() -> None:
     html = """
     <html><body>

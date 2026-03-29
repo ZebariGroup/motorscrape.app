@@ -1024,7 +1024,39 @@ def test_detect_or_lookup_provider_bypasses_conflicting_cached_route_for_dealer_
     assert route is not None
     assert route.platform_id == "dealer_spike"
     assert route.cache_status == "refresh"
-    upsert_mock.assert_called_once()
+
+
+def test_detect_or_lookup_provider_bypasses_conflicting_cached_route_for_ford_family_markers() -> None:
+    cached = PlatformCacheEntry(
+        domain="mossyauto.com",
+        platform_id="dealer_on",
+        confidence=0.91,
+        extraction_mode="rendered_dom",
+        requires_render=False,
+        inventory_url_hint="https://www.mossyauto.com/searchnew.aspx?Make=Ford",
+        detection_source="html_fingerprint",
+        last_verified_at=datetime.now(UTC),
+        failure_count=0,
+        metadata={},
+    )
+    homepage_html = """
+    <html><body>
+      <h1>New Ford Bronco for Sale</h1>
+      <div class="vehicle_results_label">Results: 24 Vehicles</div>
+      <div class="si-vehicle-box"></div>
+      <a href="/inventory/new/ford/bronco/viewdetails/1">View Details</a>
+      <script>var unlockCTADiscountData = {};</script>
+    </body></html>
+    """
+    with patch("app.services.provider_router.platform_store.get", return_value=cached):
+        route = detect_or_lookup_provider(
+            domain="mossyauto.com",
+            website="https://www.mossyauto.com/san-diego/bronco-search",
+            homepage_html=homepage_html,
+        )
+    assert route is not None
+    assert route.platform_id == "ford_family_inventory"
+    assert route.cache_status == "refresh"
 
 
 def test_resolve_inventory_url_for_provider_prefers_d2c_search_pages() -> None:

@@ -18,6 +18,15 @@ from app.services.inventory_filters import make_filter_normalized_variants, norm
 from app.services.platform_store import PlatformCacheEntry, platform_store
 
 logger = logging.getLogger(__name__)
+_FORD_FAMILY_CACHE_CONFLICT_MARKERS: tuple[str, ...] = (
+    "ford",
+    "lincoln",
+    "vehicle_results_label",
+    "si-vehicle-box",
+    "unlockctadiscountdata",
+    "/viewdetails/",
+    "inventory_listing",
+)
 
 _KNOWN_BRAND_TOKENS: frozenset[str] = frozenset(
     {
@@ -308,6 +317,43 @@ def _build_family_inventory_path(
     return urlunsplit(
         (parts.scheme, parts.netloc, f"{inv_path}/{make_slug}-{model_slug}", "", "")
     )
+
+
+def _build_family_inventory_path_variants(
+    base_url: str,
+    make: str,
+    model: str,
+    *,
+    condition: str = "new",
+) -> tuple[str, ...]:
+    parts = urlsplit(base_url)
+    path = parts.path.rstrip("/")
+    normalized_path = path.lower()
+    model_slug = _slugify_model_path(model)
+    make_slug = _slugify_model_path(make)
+    if not model_slug or not make_slug:
+        return ()
+    cond = (condition or "new").strip().lower()
+    inv_path = "/inventory/used" if cond == "used" else "/inventory/new"
+    hyphen_url = _build_family_inventory_path(base_url, make, model, condition=condition)
+    slash_url = urlunsplit((parts.scheme, parts.netloc, f"{inv_path}/{make_slug}/{model_slug}", "", ""))
+    ordered: list[str] = []
+    if normalized_path.endswith(f"/{make_slug}-{model_slug}"):
+        ordered.extend([slash_url, hyphen_url])
+    elif normalized_path.endswith(f"/inventory/{cond}/{make_slug}/{model_slug}") or normalized_path.endswith(
+        f"/inventory/{cond}/{make_slug}"
+    ):
+        ordered.extend([slash_url, hyphen_url])
+    else:
+        ordered.extend([hyphen_url, slash_url])
+    seen: set[str] = set()
+    out: list[str] = []
+    for candidate in ordered:
+        norm = candidate.rstrip("/")
+        if norm and norm not in seen:
+            seen.add(norm)
+            out.append(candidate)
+    return tuple(out)
 
 
 def _looks_like_exact_bmw_inventory_path(url: str, model: str) -> bool:
@@ -900,6 +946,10 @@ def _homepage_conflicts_with_cached_route(
     )
     if entry.platform_id != "dealer_spike" and any(marker in target for marker in dealer_spike_markers):
         return True
+    if entry.platform_id != "ford_family_inventory":
+        ford_marker_hits = sum(1 for marker in _FORD_FAMILY_CACHE_CONFLICT_MARKERS if marker in target)
+        if ford_marker_hits >= 4 and any(token in target for token in ("ford", "lincoln")):
+            return True
     return False
 
 
