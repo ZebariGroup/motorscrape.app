@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Motorcycle } from "./Motorcycle";
 import { RaceCar } from "./RaceCar";
 import { Boat } from "./Boat";
@@ -17,147 +25,495 @@ const CHARACTERS: Record<CharacterType, React.FC> = {
 
 const OBSTACLES = ["🚧", "🕳️", "🛑", "🪨", "🪵"];
 
+const HIGH_SCORE_KEY = "motorscrape-minigame-highscore";
+const MS_PER_FRAME_60 = 1000 / 60;
+const GRAVITY = 0.62;
+const JUMP_STRENGTH = -12.2;
+const GROUND_Y = 0;
+const PLAYER_WIDTH = 60;
+const PLAYER_HEIGHT = 40;
+const PLAYER_HIT_INSET = 6;
+const PLAYER_LEFT = 20;
+const JUMP_BUFFER_FRAMES = 8;
+const SEARCH_DONE_PHRASE = ["YOUR", "SEARCH", "IS", "DONE"] as const;
+const WORD_SPAWN_GAP_MS = 400;
+
+type GameObstacle = {
+  x: number;
+  width: number;
+  height: number;
+  emoji?: string;
+  text?: string;
+  accent?: boolean;
+};
+
+type PendingWord = { spawnAt: number; text: string };
+
 interface Props {
   onClose: () => void;
+  /** Increments each time a scrape run finishes (running → idle). Drives the in-game “search done” word lane. */
+  searchCompletedTick: number;
 }
 
-export function ScrapeMiniGame({ onClose }: Props) {
-  const canvasRef = useRef<HTMLDivElement>(null);
+function useDarkModeClass(): boolean {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const el = document.documentElement;
+    const read = () => setDark(el.classList.contains("dark"));
+    read();
+    const obs = new MutationObserver(read);
+    obs.observe(el, { attributes: true, attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
+  return dark;
+}
+
+function resizeCanvas(canvas: HTMLCanvasElement, container: HTMLElement) {
+  const dpr = Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 2);
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  if (w <= 0 || h <= 0) return;
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+}
+
+function drawScene(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  obstacles: GameObstacle[],
+  roadPhase: number,
+  parallaxPhase: number,
+  scanPhase: number,
+  palette: {
+    skyTop: string;
+    skyBot: string;
+    skyline: string;
+    road: string;
+    roadEdge: string;
+    dash: string;
+    emojiGround: string;
+    accent: string;
+    accentGlow: string;
+  },
+) {
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, palette.skyTop);
+  g.addColorStop(1, palette.skyBot);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = palette.skyline;
+  for (let x = -((parallaxPhase * 0.4) % 100); x < w + 100; x += 72) {
+    const seed = Math.abs(Math.sin(x * 0.09)) * 40;
+    ctx.fillRect(x, h - 52 - seed, 20, 52 + seed);
+  }
+  ctx.restore();
+
+  ctx.fillStyle = palette.road;
+  ctx.fillRect(0, h - 16, w, 16);
+  ctx.fillStyle = palette.roadEdge;
+  ctx.fillRect(0, h - 18, w, 2);
+
+  ctx.fillStyle = palette.dash;
+  const period = 28;
+  const off = roadPhase % period;
+  for (let x = -off; x < w + period; x += period) {
+    ctx.fillRect(x, h - 26, 14, 3);
+  }
+
+  ctx.save();
+  ctx.globalAlpha = 0.06;
+  ctx.strokeStyle = palette.accent;
+  ctx.lineWidth = 1;
+  const scanY = (scanPhase * 0.8) % (h + 40);
+  ctx.beginPath();
+  ctx.moveTo(0, scanY);
+  ctx.lineTo(w, scanY + 8);
+  ctx.stroke();
+  ctx.restore();
+
+  const groundY = h - 16;
+  for (const obs of obstacles) {
+    const bottom = groundY;
+    const top = bottom - obs.height;
+    const left = obs.x;
+
+    if (obs.text) {
+      ctx.save();
+      ctx.font = "bold 18px ui-sans-serif, system-ui, sans-serif";
+      ctx.textBaseline = "bottom";
+      if (obs.accent) {
+        ctx.shadowColor = palette.accentGlow;
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = palette.accent;
+      } else {
+        ctx.fillStyle = palette.emojiGround;
+      }
+      ctx.fillText(obs.text, left + 10, bottom - 6);
+      ctx.restore();
+      ctx.save();
+      ctx.strokeStyle = obs.accent ? palette.accent : palette.roadEdge;
+      ctx.globalAlpha = obs.accent ? 0.45 : 0.25;
+      ctx.strokeRect(left + 4, top + 2, obs.width - 8, obs.height - 4);
+      ctx.restore();
+    } else if (obs.emoji) {
+      ctx.font = "26px system-ui, sans-serif";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(obs.emoji, left + 4, bottom - 2);
+    }
+  }
+}
+
+export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const playerRef = useRef<HTMLDivElement>(null);
+  const isDark = useDarkModeClass();
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
   const [character, setCharacter] = useState<CharacterType>("motorcycle");
+  const [doneBanner, setDoneBanner] = useState(false);
 
-  // Game state refs (to avoid re-renders during loop)
+  const palette = useMemo(
+    () =>
+      isDark
+        ? {
+            skyTop: "#0c1220",
+            skyBot: "#1a1f2e",
+            skyline: "#0f172a",
+            road: "#18181b",
+            roadEdge: "#3f3f46",
+            dash: "#52525b",
+            emojiGround: "#e4e4e7",
+            accent: "#34d399",
+            accentGlow: "rgba(52, 211, 153, 0.5)",
+          }
+        : {
+            skyTop: "#ecfdf5",
+            skyBot: "#d1fae5",
+            skyline: "#a7f3d0",
+            road: "#e4e4e7",
+            roadEdge: "#a1a1aa",
+            dash: "#d4d4d8",
+            emojiGround: "#27272a",
+            accent: "#059669",
+            accentGlow: "rgba(5, 150, 105, 0.35)",
+          },
+    [isDark],
+  );
+
+  const playingRef = useRef(false);
+  const gameOverRef = useRef(false);
+  const paletteRef = useRef(palette);
+
+  useLayoutEffect(() => {
+    paletteRef.current = palette;
+  }, [palette]);
+
+  useEffect(() => {
+    playingRef.current = isPlaying;
+    gameOverRef.current = isGameOver;
+  }, [isPlaying, isGameOver]);
+
+  const pendingWordsRef = useRef<PendingWord[]>([]);
+  const lastProcessedTickRef = useRef(0);
+
   const stateRef = useRef({
     playerY: 0,
     playerVelocity: 0,
-    isJumping: false,
-    obstacles: [] as { x: number; type: string; width: number; height: number }[],
+    jumpBufferFrames: 0,
+    obstacles: [] as GameObstacle[],
     speed: 5,
     score: 0,
     lastObstacleTime: 0,
+    lastFrameTime: 0,
     animationFrameId: 0,
+    roadPhase: 0,
+    parallaxPhase: 0,
+    scanPhase: 0,
   });
 
-  const GRAVITY = 0.6;
-  const JUMP_STRENGTH = -12;
-  const GROUND_Y = 0; // 0 means on the ground
-  const PLAYER_WIDTH = 60;
-  const PLAYER_HEIGHT = 40;
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(HIGH_SCORE_KEY);
+      const n = raw != null ? Number.parseInt(raw, 10) : 0;
+      if (Number.isFinite(n) && n >= 0) {
+        startTransition(() => setHighScore(n));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
-  const startGame = () => {
-    setIsPlaying(true);
-    setIsGameOver(false);
-    setScore(0);
-    
-    stateRef.current = {
-      playerY: 0,
-      playerVelocity: 0,
-      isJumping: false,
-      obstacles: [],
-      speed: 5,
-      score: 0,
-      lastObstacleTime: Date.now(),
-      animationFrameId: 0,
-    };
+  const scheduleSearchDoneWords = useCallback(() => {
+    const base = performance.now() + 500;
+    const batch = SEARCH_DONE_PHRASE.map((text, i) => ({
+      spawnAt: base + i * WORD_SPAWN_GAP_MS,
+      text,
+    }));
+    pendingWordsRef.current.push(...batch);
+    pendingWordsRef.current.sort((a, b) => a.spawnAt - b.spawnAt);
+    setDoneBanner(true);
+    window.setTimeout(() => setDoneBanner(false), 9000);
+  }, []);
 
-    gameLoop();
+  useEffect(() => {
+    if (searchCompletedTick <= 0 || searchCompletedTick === lastProcessedTickRef.current) return;
+    lastProcessedTickRef.current = searchCompletedTick;
+    startTransition(() => {
+      scheduleSearchDoneWords();
+    });
+  }, [searchCompletedTick, scheduleSearchDoneWords]);
+
+  const spawnEmojiObstacle = (canvasW: number) => {
+    stateRef.current.obstacles.push({
+      x: canvasW,
+      width: 36,
+      height: 32,
+      emoji: OBSTACLES[Math.floor(Math.random() * OBSTACLES.length)],
+    });
   };
 
-  const jump = () => {
-    if (!stateRef.current.isJumping && isPlaying && !isGameOver) {
-      stateRef.current.playerVelocity = JUMP_STRENGTH;
-      stateRef.current.isJumping = true;
-    } else if (!isPlaying || isGameOver) {
-      startGame();
+  const spawnWordObstacle = (canvas: HTMLCanvasElement, text: string) => {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.font = "bold 18px ui-sans-serif, system-ui, sans-serif";
+    const w = Math.ceil(ctx.measureText(text).width) + 20;
+    stateRef.current.obstacles.push({
+      x: canvas.clientWidth,
+      width: w,
+      height: 30,
+      text,
+      accent: true,
+    });
+  };
+
+  const flushPendingWords = (canvas: HTMLCanvasElement) => {
+    const now = performance.now();
+    const q = pendingWordsRef.current;
+    while (q.length > 0 && q[0].spawnAt + 12_000 < now) {
+      q.shift();
+    }
+    while (q.length > 0 && now >= q[0].spawnAt) {
+      const next = q.shift()!;
+      spawnWordObstacle(canvas, next.text);
     }
   };
 
-  const gameLoop = () => {
-    if (!canvasRef.current) return;
-    const canvasWidth = canvasRef.current.clientWidth;
-    const now = Date.now();
+  const gameLoopRef = useRef<() => void>(() => {});
+
+  const doJumpImpulse = useCallback(() => {
+    const s = stateRef.current;
+    s.playerVelocity = JUMP_STRENGTH;
+    s.jumpBufferFrames = 0;
+  }, []);
+
+  const gameLoop = useCallback(() => {
+    if (!playingRef.current || gameOverRef.current) return;
+
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+
+    if (document.visibilityState === "hidden") {
+      stateRef.current.lastFrameTime = performance.now();
+      stateRef.current.animationFrameId = requestAnimationFrame(() => gameLoopRef.current());
+      return;
+    }
+
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx || w <= 0 || h <= 0) return;
+
+    const frameNow = performance.now();
+    const nowMs = Date.now();
     const state = stateRef.current;
+    const rawDt = (frameNow - state.lastFrameTime) / MS_PER_FRAME_60;
+    const dt = Math.min(Math.max(rawDt, 0), 3);
+    state.lastFrameTime = frameNow;
 
-    // Physics
-    state.playerVelocity += GRAVITY;
-    state.playerY += state.playerVelocity;
+    state.roadPhase += state.speed * dt;
+    state.parallaxPhase += state.speed * 0.22 * dt;
+    state.scanPhase += dt;
 
-    if (state.playerY >= GROUND_Y) {
+    state.playerVelocity += GRAVITY * dt;
+    state.playerY += state.playerVelocity * dt;
+
+    const onGround = state.playerY >= GROUND_Y;
+    if (onGround) {
       state.playerY = GROUND_Y;
       state.playerVelocity = 0;
-      state.isJumping = false;
+      if (state.jumpBufferFrames > 0) {
+        doJumpImpulse();
+      }
+    } else if (state.jumpBufferFrames > 0) {
+      state.jumpBufferFrames = Math.max(0, state.jumpBufferFrames - dt);
     }
 
-    // Spawn obstacles
-    if (now - state.lastObstacleTime > 1500 + Math.random() * 1500) {
-      state.obstacles.push({
-        x: canvasWidth,
-        type: OBSTACLES[Math.floor(Math.random() * OBSTACLES.length)],
-        width: 30,
-        height: 30,
-      });
-      state.lastObstacleTime = now;
-      // Slightly increase speed over time
-      state.speed += 0.1;
+    flushPendingWords(canvas);
+
+    if (nowMs - state.lastObstacleTime > 1400 + Math.random() * 1200) {
+      spawnEmojiObstacle(w);
+      state.lastObstacleTime = nowMs;
+      state.speed = Math.min(state.speed + 0.08, 14);
     }
 
-    // Move obstacles and check collisions
     let collision = false;
-    state.obstacles = state.obstacles.filter((obs) => {
-      obs.x -= state.speed;
+    const inset = PLAYER_HIT_INSET;
+    const px = PLAYER_LEFT + inset;
+    const pw = PLAYER_WIDTH - inset * 2;
+    const ph = PLAYER_HEIGHT - inset * 2;
+    const groundCanvasY = h - 16;
+    const playerBottomCanvas = groundCanvasY - state.playerY;
+    const playerTopCanvas = playerBottomCanvas - ph;
+    const playerLeft = px;
+    const playerRight = px + pw;
 
-      // Collision detection (AABB)
-      // Player rect: x: 20, y: canvasHeight - 40 - playerY, w: 60, h: 40
-      // Obstacle rect: x: obs.x, y: canvasHeight - 30, w: 30, h: 30
-      const playerRect = { left: 20, right: 20 + PLAYER_WIDTH, top: -state.playerY - PLAYER_HEIGHT, bottom: -state.playerY };
-      const obsRect = { left: obs.x, right: obs.x + obs.width, top: -obs.height, bottom: 0 };
+    state.obstacles = state.obstacles.filter((obs) => {
+      obs.x -= state.speed * dt;
+      const obsLeft = obs.x;
+      const obsRight = obs.x + obs.width;
+      const obsBottom = groundCanvasY;
+      const obsTop = groundCanvasY - obs.height;
 
       if (
-        playerRect.left < obsRect.right &&
-        playerRect.right > obsRect.left &&
-        playerRect.top < obsRect.bottom &&
-        playerRect.bottom > obsRect.top
+        playerLeft < obsRight &&
+        playerRight > obsLeft &&
+        playerTopCanvas < obsBottom &&
+        playerBottomCanvas > obsTop
       ) {
         collision = true;
       }
-
-      return obs.x + obs.width > 0;
+      return obs.x + obs.width > -40;
     });
 
     if (collision) {
+      playingRef.current = false;
+      gameOverRef.current = true;
+      const finalScore = Math.floor(state.score);
       setIsGameOver(true);
       setIsPlaying(false);
-      setHighScore((prev) => Math.max(prev, Math.floor(state.score)));
-      return; // Stop loop
+      setHighScore((prev) => {
+        const next = Math.max(prev, finalScore);
+        try {
+          localStorage.setItem(HIGH_SCORE_KEY, String(next));
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+      drawScene(
+        ctx,
+        w,
+        h,
+        state.obstacles,
+        state.roadPhase,
+        state.parallaxPhase,
+        state.scanPhase,
+        paletteRef.current,
+      );
+      return;
     }
 
-    // Update score
-    state.score += 0.1;
-    if (Math.floor(state.score) > score) {
-      setScore(Math.floor(state.score));
-    }
+    state.score += 0.1 * dt;
+    const displayScore = Math.floor(state.score);
+    setScore((prev) => (displayScore > prev ? displayScore : prev));
 
-    // Apply visual updates directly to DOM for performance
-    const playerEl = document.getElementById("game-player");
+    drawScene(
+      ctx,
+      w,
+      h,
+      state.obstacles,
+      state.roadPhase,
+      state.parallaxPhase,
+      state.scanPhase,
+      paletteRef.current,
+    );
+
+    const playerEl = playerRef.current;
     if (playerEl) {
       playerEl.style.transform = `translateY(${state.playerY}px)`;
     }
 
-    const obstaclesContainer = document.getElementById("game-obstacles");
-    if (obstaclesContainer) {
-      obstaclesContainer.innerHTML = state.obstacles
-        .map(
-          (obs) =>
-            `<div style="position: absolute; left: ${obs.x}px; bottom: 0; font-size: 24px; line-height: 1;">${obs.type}</div>`
-        )
-        .join("");
-    }
+    state.animationFrameId = requestAnimationFrame(() => gameLoopRef.current());
+  }, [doJumpImpulse]); // eslint-disable-line react-hooks/exhaustive-deps -- spawn helpers use refs only
 
-    state.animationFrameId = requestAnimationFrame(gameLoop);
-  };
+  useLayoutEffect(() => {
+    gameLoopRef.current = gameLoop;
+  }, [gameLoop]);
+
+  const startGame = useCallback(() => {
+    playingRef.current = true;
+    gameOverRef.current = false;
+    setIsPlaying(true);
+    setIsGameOver(false);
+    setScore(0);
+    const now = performance.now();
+    stateRef.current = {
+      playerY: 0,
+      playerVelocity: 0,
+      jumpBufferFrames: 0,
+      obstacles: [],
+      speed: 5,
+      score: 0,
+      lastObstacleTime: Date.now(),
+      lastFrameTime: now,
+      animationFrameId: 0,
+      roadPhase: 0,
+      parallaxPhase: 0,
+      scanPhase: 0,
+    };
+    gameLoop();
+  }, [gameLoop]);
+
+  const jump = useCallback(() => {
+    if (!playingRef.current || gameOverRef.current) {
+      startGame();
+      return;
+    }
+    const s = stateRef.current;
+    const onGroundForJump = s.playerY >= GROUND_Y && s.playerVelocity >= 0;
+    if (onGroundForJump) {
+      doJumpImpulse();
+      return;
+    }
+    s.jumpBufferFrames = JUMP_BUFFER_FRAMES;
+  }, [startGame, doJumpImpulse]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+
+    const paintStatic = () => {
+      resizeCanvas(canvas, container);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const cw = container.clientWidth;
+      const ch = container.clientHeight;
+      if (cw <= 0 || ch <= 0) return;
+      const s = stateRef.current;
+      drawScene(ctx, cw, ch, [], s.roadPhase, s.parallaxPhase, s.scanPhase, paletteRef.current);
+    };
+
+    const ro = new ResizeObserver(paintStatic);
+    ro.observe(container);
+    paintStatic();
+    return () => ro.disconnect();
+  }, [palette]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -167,29 +523,72 @@ export function ScrapeMiniGame({ onClose }: Props) {
       }
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      cancelAnimationFrame(stateRef.current.animationFrameId);
-    };
-  }, [isPlaying, isGameOver]);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [jump]);
+
+  useEffect(() => {
+    return () => cancelAnimationFrame(stateRef.current.animationFrameId);
+  }, []);
 
   const CharacterComponent = CHARACTERS[character];
 
   return (
-    <div className="relative w-full h-48 bg-zinc-50 dark:bg-zinc-900 rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800 flex flex-col select-none" onClick={jump}>
-      {/* Header */}
-      <div className="absolute top-0 left-0 right-0 p-3 flex justify-between items-center z-10">
-        <div className="flex gap-2">
+    <div
+      className="relative w-full min-h-[220px] h-56 flex flex-col select-none rounded-xl overflow-hidden border border-emerald-200/60 bg-zinc-50 dark:border-emerald-900/40 dark:bg-zinc-950 shadow-sm"
+      onClick={jump}
+      onKeyDown={(e) => {
+        if (e.key === " " || e.key === "ArrowUp") {
+          e.preventDefault();
+          jump();
+        }
+      }}
+      role="application"
+      aria-label="MotorScrape Run mini-game"
+      tabIndex={0}
+    >
+      <div className="absolute inset-x-0 top-0 z-20 h-px bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent" aria-hidden />
+
+      <div className="relative z-10 flex flex-col gap-1 border-b border-zinc-200/80 bg-white/90 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/90">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate text-[11px] font-semibold uppercase tracking-widest text-emerald-700 dark:text-emerald-400">
+              MotorScrape Run
+            </span>
+            <span className="truncate text-[10px] text-zinc-500 dark:text-zinc-400">
+              Dodge paywalls · jump the scrape lane · HI score saves locally
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="text-xs font-mono font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
+              HI {highScore.toString().padStart(5, "0")} · {score.toString().padStart(5, "0")}
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              className="rounded-md p-1 text-zinc-400 transition hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              aria-label="Close mini-game"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
           {(Object.keys(CHARACTERS) as CharacterType[]).map((c) => (
             <button
               key={c}
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 setCharacter(c);
               }}
-              className={`px-2 py-1 text-xs rounded-md font-medium capitalize transition-colors ${
+              className={`rounded-md px-2 py-0.5 text-[10px] font-semibold capitalize transition ${
                 character === c
-                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
+                  ? "bg-emerald-600 text-white shadow-sm dark:bg-emerald-500"
                   : "bg-zinc-200 text-zinc-600 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
               }`}
             >
@@ -197,57 +596,48 @@ export function ScrapeMiniGame({ onClose }: Props) {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-sm font-mono font-semibold text-zinc-600 dark:text-zinc-400">
-            HI {highScore.toString().padStart(5, "0")} | {score.toString().padStart(5, "0")}
-          </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose();
-            }}
-            className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-            </svg>
-          </button>
-        </div>
+        {doneBanner ? (
+          <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+            Search finished — inventory is ready below. Keep running for a new HI score.
+          </p>
+        ) : null}
       </div>
 
-      {/* Game Area */}
-      <div ref={canvasRef} className="relative flex-1 w-full overflow-hidden mt-10 border-b-2 border-zinc-300 dark:border-zinc-700">
+      <div ref={containerRef} className="relative min-h-0 flex-1 w-full overflow-hidden">
         {!isPlaying && !isGameOver && (
-          <div className="absolute inset-0 flex items-center justify-center z-20">
-            <span className="text-zinc-500 dark:text-zinc-400 font-medium animate-pulse">
-              Press Space or Tap to Start
-            </span>
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-zinc-50/85 px-4 text-center backdrop-blur-[2px] dark:bg-zinc-950/80">
+            <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">Ready to scrape the road</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">Space, ↑, or tap to jump · double-tap scrape button opens this lane</span>
           </div>
         )}
-        
+
         {isGameOver && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center z-20 bg-zinc-50/80 dark:bg-zinc-900/80 backdrop-blur-sm">
-            <span className="text-xl font-bold text-zinc-800 dark:text-zinc-200 mb-2">Game Over</span>
-            <span className="text-zinc-500 dark:text-zinc-400 font-medium animate-pulse">
-              Press Space or Tap to Restart
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-zinc-50/90 px-4 backdrop-blur-sm dark:bg-zinc-950/85">
+            <span className="text-lg font-bold text-zinc-900 dark:text-zinc-50">Wiped out</span>
+            <span className="text-center text-xs text-zinc-600 dark:text-zinc-400">
+              Space or tap to respawn — listings are still in the results panel.
             </span>
           </div>
         )}
 
-        {/* Player */}
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 block h-full w-full touch-manipulation"
+          aria-hidden
+        />
+
         <div
-          id="game-player"
-          className="absolute left-5 bottom-0 w-[60px] h-[40px] will-change-transform"
+          ref={playerRef}
+          className="pointer-events-none absolute bottom-4 left-5 z-20 h-10 w-[60px] will-change-transform"
+          style={{ marginBottom: 0 }}
         >
           <CharacterComponent />
         </div>
-
-        {/* Obstacles */}
-        <div id="game-obstacles" className="absolute inset-0 pointer-events-none" />
       </div>
-      
-      {/* Ground decoration */}
-      <div className="h-4 bg-zinc-100 dark:bg-zinc-800/50 w-full" />
+
+      <div className="relative z-10 flex h-3 items-center justify-center border-t border-zinc-200 bg-gradient-to-r from-emerald-500/10 via-transparent to-teal-500/10 dark:border-zinc-800" aria-hidden>
+        <div className="h-0.5 w-24 rounded-full bg-emerald-500/30 dark:bg-emerald-500/20" />
+      </div>
     </div>
   );
 }

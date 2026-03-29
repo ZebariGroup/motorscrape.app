@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef, startTransition } from "react";
 import {
   getMakesForCategory,
   vehicleCategoryLabel,
@@ -97,12 +97,16 @@ export function SearchFormSection({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isFormExpanded, setIsFormExpanded] = useState(true);
   const [isGameActive, setIsGameActive] = useState(false);
+  const [searchCompletedTick, setSearchCompletedTick] = useState(0);
+  const prevRunningRef = useRef(running);
 
-  // Auto-close game if scraping stops
   useEffect(() => {
-    if (!running) {
-      setIsGameActive(false);
+    if (prevRunningRef.current && !running) {
+      startTransition(() => {
+        setSearchCompletedTick((n) => n + 1);
+      });
     }
+    prevRunningRef.current = running;
   }, [running]);
 
   const radiusOptions = useMemo(
@@ -128,7 +132,10 @@ export function SearchFormSection({
       }`}
     >
       {isGameActive ? (
-        <ScrapeMiniGame onClose={() => setIsGameActive(false)} />
+        <ScrapeMiniGame
+          onClose={() => setIsGameActive(false)}
+          searchCompletedTick={searchCompletedTick}
+        />
       ) : !isFormExpanded ? (
         <div className="flex items-center justify-between">
           <div className="flex flex-col">
@@ -353,7 +360,7 @@ export function SearchFormSection({
           <div className="mt-4 flex flex-col justify-end gap-2 sm:flex-row">
             <button
               type="button"
-              className={`relative inline-flex min-h-[2.75rem] flex-1 flex-col items-center justify-center overflow-hidden rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 ${
+              className={`relative inline-flex min-h-[2.75rem] flex-1 flex-col items-center justify-center overflow-hidden rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-emerald-950 shadow-sm transition hover:bg-emerald-500 hover:text-emerald-950 ${
                 !running && !canSearch ? "cursor-not-allowed opacity-50" : ""
               }`}
               disabled={!running && !canSearch}
@@ -389,11 +396,11 @@ export function SearchFormSection({
                   </div>
                   <span className="relative z-10 flex flex-col items-center gap-0.5 pb-1.5">
                     <span>{reconnecting ? "Reconnecting…" : "Scraping…"}</span>
-                    <span className="max-w-full truncate px-1 text-center text-[11px] font-normal text-white/90">
+                    <span className="max-w-full truncate px-1 text-center text-[11px] font-normal text-emerald-950/90">
                       {`${dealerListLength}/${targetDealerCount} found · ${doneDealerCount}/${targetDealerCount} done · ${listingsCount} vehicles`}
                     </span>
                     {!isGameActive && (
-                      <span className="text-[9px] font-medium text-emerald-100/80 uppercase tracking-wider animate-pulse mt-0.5">
+                      <span className="text-[9px] font-medium text-emerald-950/75 uppercase tracking-wider animate-pulse mt-0.5">
                         Double-click to play
                       </span>
                     )}
