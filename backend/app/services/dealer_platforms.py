@@ -48,6 +48,19 @@ _NISSAN_INFINITI_SONIC_MARKERS: tuple[str, ...] = (
     "/viewdetails/",
     "inventory_listing",
 )
+# Embedded Dealer.com widget bootstrap — definitive fingerprint for DDC inventory URLs
+# (/new-inventory/index.htm, etc.), even when GM/Ford/Honda brand tokens outscore raw marker counts.
+_DDC_DOMINANT_MARKERS: frozenset[str] = frozenset({"ddc.widgetdata", "inventoryapiurl"})
+# OEM "family" stacks that build /inventory/new/{make}/{model} paths; those 404 on pure DDC sites.
+_PLATFORMS_SUBSUMED_BY_DDC_WHEN_DOMINANT: frozenset[str] = frozenset(
+    {
+        "ford_family_inventory",
+        "gm_family_inventory",
+        "honda_acura_inventory",
+        "nissan_infiniti_inventory",
+        "kia_inventory",
+    }
+)
 
 _FORD_LINCOLN_BODY_RE = re.compile(r"(?<![a-z0-9])ford(?![a-z0-9])", re.I)
 _LINCOLN_BODY_RE = re.compile(r"(?<![a-z0-9])lincoln(?![a-z0-9])", re.I)
@@ -715,6 +728,28 @@ def _platform_tie_break_priority(
     return 0
 
 
+def _dealer_dot_com_definition() -> PlatformDefinition:
+    for definition in _PLATFORM_REGISTRY:
+        if definition.platform_id == "dealer_dot_com":
+            return definition
+    raise RuntimeError("dealer_dot_com platform definition missing from registry")
+
+
+def _dealer_dot_com_score_for_target(target: str, page_url: str) -> tuple[int, int]:
+    ddc_def = _dealer_dot_com_definition()
+    score = sum(1 for marker in ddc_def.markers if marker in target)
+    priority = _platform_tie_break_priority(ddc_def, target, page_url=page_url)
+    return score, priority
+
+
+def _ddc_fingerprint_dominates_family_stack(target: str, ddc_score: int) -> bool:
+    if ddc_score <= 0:
+        return False
+    if "inventoryapiurl" in target:
+        return True
+    return "ddc.widgetdata" in target and ddc_score >= 2
+
+
 def _best_platform_definition(html: str, page_url: str = "") -> PlatformDefinition | None:
     lower = html.lower()
     target = lower + " " + page_url.lower()
@@ -728,7 +763,19 @@ def _best_platform_definition(html: str, page_url: str = "") -> PlatformDefiniti
         priority = _platform_tie_break_priority(definition, target, page_url=page_url)
         if not best or score > best[0] or (score == best[0] and priority > best[1]):
             best = (score, priority, definition)
-    return best[2] if best else None
+    if not best:
+        return None
+    chosen = best[2]
+    if (
+        chosen.platform_id in _PLATFORMS_SUBSUMED_BY_DDC_WHEN_DOMINANT
+        and any(m in target for m in _DDC_DOMINANT_MARKERS)
+    ):
+        ddc_def = _dealer_dot_com_definition()
+        if _family_stack_allowed_for_target(ddc_def.platform_id, lower, page_url):
+            ddc_score, ddc_priority = _dealer_dot_com_score_for_target(target, page_url)
+            if _ddc_fingerprint_dominates_family_stack(target, ddc_score):
+                return ddc_def
+    return chosen
 
 
 def detect_platform_profile(html: str, page_url: str = "") -> PlatformProfile | None:

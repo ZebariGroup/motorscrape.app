@@ -251,6 +251,21 @@ def test_detect_platform_profile_prefers_dealer_spike_over_generic_dealer_dot_co
     assert profile.platform_id == "dealer_spike"
 
 
+def test_detect_platform_profile_prefers_dealer_dot_com_over_gm_family_when_ddc_widget_present() -> None:
+    """GM/Buick dealers on Dealer.com embed brand tokens + inventory_listing but use DDC SRPs, not /inventory/new/..."""
+    html = """
+    <html><body>
+      <script>window.DDC=window.DDC||{};window.DDC.WidgetData=window.DDC.WidgetData||{};</script>
+      <script>DealerDotCom.config = true;</script>
+      <span>gmc</span><span>buick</span><span>cadillac</span>
+      <div class="inventory_listing"></div>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.foxbuickgmc.com/")
+    assert profile is not None
+    assert profile.platform_id == "dealer_dot_com"
+
+
 def test_detect_platform_profile_matches_marinemax_markers() -> None:
     html = """
     <html><body>
