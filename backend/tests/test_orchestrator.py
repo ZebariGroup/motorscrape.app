@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -473,6 +474,80 @@ async def test_stream_search_persists_partial_failure_run() -> None:
     assert run.status == "partial_failure"
     assert run.dealerships_failed == 1
     assert run.dealerships_attempted == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_search_cancellation_persists_canceled_run() -> None:
+    dealers = [
+        DealershipFound(
+            name="Slow Motors",
+            place_id="p1",
+            address="1 Main St",
+            website="https://slow-motors.example",
+        )
+    ]
+    store = get_account_store(settings.accounts_db_path)
+    correlation_id = "test-canceled-run"
+    recorder = create_scrape_run_recorder(
+        store=store,
+        correlation_id=correlation_id,
+        trigger_source="test",
+        location="Detroit",
+        make="Ford",
+        model="",
+        vehicle_category="car",
+        vehicle_condition="all",
+        inventory_scope="all",
+        radius_miles=25,
+        requested_max_dealerships=1,
+        requested_max_pages_per_dealer=1,
+        anon_key="test-anon-key",
+    )
+    fetch_started = asyncio.Event()
+
+    async def fake_fetch(*_args, **_kwargs):
+        fetch_started.set()
+        await asyncio.sleep(3600)
+        raise AssertionError("unreachable")
+
+    async def consume() -> None:
+        async for _ in stream_search(
+            "Detroit",
+            "Ford",
+            "",
+            max_dealerships=1,
+            max_pages_per_dealer=1,
+            correlation_id=correlation_id,
+            recorder=recorder,
+        ):
+            pass
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+    ):
+        task = asyncio.create_task(consume())
+        await fetch_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    run = store.get_scrape_run(correlation_id, anon_key="test-anon-key")
+    assert run is not None
+    assert run.status == "canceled"
+    assert run.completed_at is not None
 
 
 @pytest.mark.asyncio
@@ -1382,4 +1457,104 @@ async def test_stream_search_retries_empty_dealer_dot_com_make_query_with_generi
     assert mock_provider_extract.call_count == 2
     assert mock_llm.await_count == 0
     assert "https://www.alfaromeoofbirmingham.com/vdp/giulia-1" in tail
+    assert '"listings_found": 1' in tail
+
+
+@pytest.mark.asyncio
+async def test_stream_search_oneaudi_bypasses_raw_html_make_model_gate() -> None:
+    from app.schemas import ExtractionResult, VehicleListing
+
+    dealers = [
+        DealershipFound(
+            name="Audi Example",
+            place_id="p1",
+            address="100 Main St",
+            website="https://www.audidealer.example/",
+        )
+    ]
+    route = ProviderRoute(
+        platform_id="oneaudi_falcon",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("en/inventory/new",),
+        inventory_url_hint="https://www.audidealer.example/en/inventory/new/",
+    )
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        if url == "https://www.audidealer.example/" and page_kind == "homepage":
+            return '<html><body><a href="/en/inventory/new/">Inventory</a></body></html>', "direct"
+        if url == "https://www.audidealer.example/en/inventory/new/" and page_kind == "inventory":
+            return '<html><body><div id="inventory-app"></div><script>window.__STATE__={"vehicles":[{"id":1}]}</script></body></html>', "zenrows_rendered"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.set_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch(
+            "app.services.orchestrator.detect_or_lookup_provider",
+            return_value=route,
+        ),
+        patch(
+            "app.services.orchestrator.resolve_inventory_url_for_provider",
+            return_value="https://www.audidealer.example/en/inventory/new/",
+        ),
+        patch(
+            "app.services.orchestrator.extract_with_provider",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+            return_value=ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2025,
+                        make="Audi",
+                        model="A5",
+                        price=52995,
+                        listing_url="https://www.audidealer.example/vdp/a5-1",
+                    )
+                ],
+                next_page_url=None,
+                pagination=None,
+            ),
+        ) as mock_llm,
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "San Diego, CA",
+            "Audi",
+            "A5",
+            vehicle_condition="new",
+            max_dealerships=1,
+            max_pages_per_dealer=1,
+        ):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert mock_llm.await_count == 1
+    assert "https://www.audidealer.example/vdp/a5-1" in tail
     assert '"listings_found": 1' in tail

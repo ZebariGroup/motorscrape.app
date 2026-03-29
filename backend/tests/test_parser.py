@@ -1452,3 +1452,36 @@ def test_try_extract_respects_make_filter() -> None:
         model_filter="",
     )
     assert result is None
+
+
+def test_try_extract_oneaudi_flattens_nested_offer_url() -> None:
+    html = """
+    <html><body>
+      <script type="application/json">
+        {
+          "inventory": [
+            {
+              "name": "2025 Audi A5 Sportback Premium Plus",
+              "brand": {"name": "Audi"},
+              "offers": {"price": "52995", "url": "/vdp/a5-1"},
+              "vehicleConfiguration": "Premium Plus"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.audidealer.example/en/inventory/new/",
+        html=html,
+        make_filter="Audi",
+        model_filter="A5",
+        platform_id="oneaudi_falcon",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "Audi"
+    assert vehicle.model == "A5"
+    assert vehicle.trim == "Premium Plus"
+    assert vehicle.listing_url == "https://www.audidealer.example/vdp/a5-1"

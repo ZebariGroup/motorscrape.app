@@ -323,6 +323,26 @@ async def test_fetch_page_html_oneaudi_uses_compact_zenrows_instructions(
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_oneaudi_shell_requires_render(
+    zenrows_key: None,
+) -> None:
+    url = "https://www.audidealer.example/en/inventory/new/"
+    respx.get(url).mock(return_value=Response(200, text=_generic_ld_json_html()))
+    respx.get("https://api.zenrows.com/v1/").mock(return_value=Response(200, text=_inventory_html()))
+
+    html, method = await fetch_page_html(
+        url,
+        page_kind="inventory",
+        prefer_render=True,
+        platform_id="oneaudi_falcon",
+    )
+
+    assert method == "zenrows_rendered"
+    assert "vehicle-card" in html
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_does_not_premium_retry_on_zenrows_concurrency_limit(
     zenrows_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

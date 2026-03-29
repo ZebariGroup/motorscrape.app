@@ -976,7 +976,7 @@ async def stream_search(
     fetch_metrics: dict[str, int] = defaultdict(int)
     extraction_metrics: dict[str, int] = defaultdict(int)
 
-    def finalize_done(base: dict[str, Any], *, ok: bool) -> dict[str, Any]:
+    def finalize_done(base: dict[str, Any], *, ok: bool, status: str | None = None) -> dict[str, Any]:
         duration_ms = int((time.perf_counter() - t0) * 1000)
         md = int(base.get("max_dealerships", requested_dealerships))
         mp = int(base.get("max_pages_per_dealer", requested_pages))
@@ -1013,6 +1013,7 @@ async def stream_search(
                 summary=payload,
                 economics=economics,
                 error_message=str(base.get("error_message")) if base.get("error_message") else None,
+                status=status,
             )
         return payload
 
@@ -1948,6 +1949,7 @@ async def stream_search(
                             "ford_family_inventory",
                             "gm_family_inventory",
                             "honda_acura_inventory",
+                            "oneaudi_falcon",
                             "toyota_lexus_oem_inventory",
                         }
                     )
@@ -2444,40 +2446,73 @@ async def stream_search(
         asyncio.create_task(process_one_with_timeout(i, d))
         for i, d in enumerate(dealers, start=1)
     ]
-    for t in asyncio.as_completed(tasks):
-        try:
-            parts = await t
-            for part in parts:
-                yield part
-        except Exception as e:
-            logger.exception(f"{cid_log}Worker failed")
-            if recorder is not None:
-                recorder.event(
-                    event_type="search_error",
-                    phase="worker",
-                    level="error",
-                    message=str(e),
-                    payload={"error": str(e)},
-                )
-            yield sse_pack("search_error", {"message": str(e), "phase": "worker"})
+    try:
+        for t in asyncio.as_completed(tasks):
+            try:
+                parts = await t
+                for part in parts:
+                    yield part
+            except Exception as e:
+                logger.exception(f"{cid_log}Worker failed")
+                if recorder is not None:
+                    recorder.event(
+                        event_type="search_error",
+                        phase="worker",
+                        level="error",
+                        message=str(e),
+                        payload={"error": str(e)},
+                    )
+                yield sse_pack("search_error", {"message": str(e), "phase": "worker"})
 
-    yield sse_pack(
-        "done",
-        finalize_done(
-            {
-                "ok": True,
-                "dealerships": len(dealers),
-                "dealer_discovery_count": raw_dealer_count,
-                "dealer_deduped_count": deduped_dealer_count,
-                "radius_miles": radius_miles,
-                "vehicle_condition": vehicle_condition,
-                "inventory_scope": inventory_scope,
-                "max_dealerships": requested_dealerships,
-                "max_pages_per_dealer": requested_pages,
-                "effective_search_concurrency": effective_concurrency,
-                "fetch_metrics": dict(fetch_metrics),
-                "extraction_metrics": dict(extraction_metrics),
-            },
-            ok=True,
-        ),
-    )
+        yield sse_pack(
+            "done",
+            finalize_done(
+                {
+                    "ok": True,
+                    "dealerships": len(dealers),
+                    "dealer_discovery_count": raw_dealer_count,
+                    "dealer_deduped_count": deduped_dealer_count,
+                    "radius_miles": radius_miles,
+                    "vehicle_condition": vehicle_condition,
+                    "inventory_scope": inventory_scope,
+                    "max_dealerships": requested_dealerships,
+                    "max_pages_per_dealer": requested_pages,
+                    "effective_search_concurrency": effective_concurrency,
+                    "fetch_metrics": dict(fetch_metrics),
+                    "extraction_metrics": dict(extraction_metrics),
+                },
+                ok=True,
+            ),
+        )
+    except asyncio.CancelledError:
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if recorder is not None and not recorder.finalized:
+            recorder.event(
+                event_type="search_canceled",
+                phase="search",
+                level="warning",
+                message="Search canceled by user.",
+                payload={"correlation_id": correlation_id},
+            )
+            finalize_done(
+                {
+                    "ok": False,
+                    "status": "canceled",
+                    "error_message": "Search canceled by user.",
+                    "dealerships": len(dealers),
+                    "radius_miles": radius_miles,
+                    "vehicle_condition": vehicle_condition,
+                    "inventory_scope": inventory_scope,
+                    "max_dealerships": requested_dealerships,
+                    "max_pages_per_dealer": requested_pages,
+                    "fetch_metrics": dict(fetch_metrics),
+                    "extraction_metrics": dict(extraction_metrics),
+                },
+                ok=False,
+                status="canceled",
+            )
+        logger.info("%sSearch canceled.", cid_log)
+        raise

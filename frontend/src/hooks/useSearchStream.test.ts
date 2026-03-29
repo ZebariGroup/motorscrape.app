@@ -52,6 +52,13 @@ class MockEventSource {
 describe("useSearchStream", () => {
   beforeEach(() => {
     vi.stubGlobal("EventSource", MockEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({}),
+      })),
+    );
     MockEventSource.clear();
   });
 
@@ -136,5 +143,31 @@ describe("useSearchStream", () => {
 
     expect(MockEventSource.instances.length).toBe(1);
     expect(MockEventSource.instances[0].url).toContain("vehicle_category=boat");
+  });
+
+  it("should stop the backend search by correlation id", async () => {
+    const { result } = renderHook(() => useSearchStream());
+
+    act(() => {
+      result.current.form.setLocation("Seattle");
+      result.current.search.startSearch();
+    });
+
+    const es = MockEventSource.instances[0];
+    const cid = new URL(es.url).searchParams.get("correlation_id");
+    expect(cid).toMatch(/^srch-/);
+
+    await act(async () => {
+      await result.current.search.stopStream();
+    });
+
+    expect(result.current.search.running).toBe(false);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining(`/search/stop/${cid}`),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+      }),
+    );
   });
 });

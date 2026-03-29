@@ -42,9 +42,35 @@ class DealerOnInventoryParser:
         return records
 
 
+class OneAudiFalconInventoryParser:
+    platform_id = "oneaudi_falcon"
+
+    def normalize_pricing_dicts(self, records: list[dict]) -> list[dict]:
+        normalized: list[dict] = []
+        for record in records:
+            item = dict(record)
+            brand = item.get("brand")
+            if isinstance(brand, dict) and brand.get("name") and not item.get("make"):
+                item["make"] = brand.get("name")
+            offers = item.get("offers")
+            if isinstance(offers, dict):
+                if offers.get("url") and not item.get("vdpUrl"):
+                    item["vdpUrl"] = offers.get("url")
+                if offers.get("price") not in (None, "") and not item.get("price"):
+                    item["price"] = offers.get("price")
+            if item.get("vehicleConfiguration") and not item.get("trim"):
+                item["trim"] = item.get("vehicleConfiguration")
+            if item.get("name") and not item.get("title"):
+                item["title"] = item.get("name")
+            normalized.append(item)
+        return normalized
+
+
 def inventory_parser_for_platform(platform_id: str | None) -> InventoryHtmlParser:
     if platform_id == "dealer_dot_com":
         return DealerDotComInventoryParser()
     if platform_id == "dealer_on":
         return DealerOnInventoryParser()
+    if platform_id == "oneaudi_falcon":
+        return OneAudiFalconInventoryParser()
     return GenericInventoryParser()

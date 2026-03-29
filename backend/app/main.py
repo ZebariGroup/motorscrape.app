@@ -1,5 +1,6 @@
 import logging
 import os
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
@@ -17,6 +18,7 @@ from app.api.routes_search_logs import router as search_logs_router
 from app.api.search_quota import evaluate_search_start, record_search_completed
 from app.config import settings, vehicle_category_enabled
 from app.db.account_store import get_account_store
+from app.services.active_searches import cancel_active_search, register_active_search, unregister_active_search
 from app.services.orchestrator import stream_search
 from app.services.scrape_logging import build_correlation_id, create_scrape_run_recorder
 from app.sse import sse_pack
@@ -45,6 +47,7 @@ async def search_stream(
     location: str = Query(..., min_length=2),
     make: str = Query(""),
     model: str = Query(""),
+    correlation_id: str | None = Query(default=None, min_length=6, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"),
     vehicle_category: Literal["car", "motorcycle", "boat", "other"] = Query("car"),
     vehicle_condition: Literal["all", "new", "used"] = Query("all"),
     radius_miles: int = Query(default=25, ge=5, le=250),
@@ -70,7 +73,7 @@ async def search_stream(
 
     outcome: dict = {}
     store = get_account_store(settings.accounts_db_path)
-    correlation_id = build_correlation_id()
+    correlation_id = correlation_id or build_correlation_id()
     recorder = create_scrape_run_recorder(
         store=store,
         correlation_id=correlation_id,
@@ -122,6 +125,9 @@ async def search_stream(
         )
 
     async def body() -> AsyncIterator[bytes]:
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            register_active_search(correlation_id, current_task)
         try:
             async for chunk in stream_search(
                 location=location,
@@ -138,7 +144,31 @@ async def search_stream(
                 recorder=recorder,
             ):
                 yield chunk.encode("utf-8")
+        except asyncio.CancelledError:
+            if not recorder.finalized:
+                recorder.event(
+                    event_type="search_canceled",
+                    phase="http",
+                    level="warning",
+                    message="Search canceled by user.",
+                    payload={"correlation_id": correlation_id},
+                )
+                recorder.finalize(
+                    ok=False,
+                    status="canceled",
+                    summary={
+                        "ok": False,
+                        "status": "canceled",
+                        "correlation_id": correlation_id,
+                        "error_message": "Search canceled by user.",
+                    },
+                    economics={},
+                    error_message="Search canceled by user.",
+                )
+            raise
         finally:
+            if current_task is not None:
+                unregister_active_search(correlation_id, current_task)
             if not recorder.finalized:
                 recorder.event(
                     event_type="stream_closed",
@@ -171,6 +201,22 @@ async def search_stream(
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
+
+
+@router.post("/search/stop/{correlation_id}")
+async def stop_search(
+    correlation_id: str,
+    ctx: Annotated[AccessContext, Depends(get_access_context)],
+) -> dict[str, object]:
+    store = get_account_store(settings.accounts_db_path)
+    run = store.get_scrape_run(correlation_id, user_id=ctx.user_id, anon_key=ctx.anon_key)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Search run not found.")
+    return {
+        "ok": True,
+        "correlation_id": correlation_id,
+        "stopped": cancel_active_search(correlation_id),
+    }
 
 
 @asynccontextmanager

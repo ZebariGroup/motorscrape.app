@@ -83,6 +83,27 @@ def test_search_logs_endpoint_returns_run_and_events() -> None:
     assert any(event["event_type"] == "search_finished" for event in detail["events"])
 
 
+def test_search_stop_endpoint_stops_owned_run() -> None:
+    with patch(
+        "app.services.orchestrator.find_car_dealerships",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        with client.stream("GET", "/search/stream", params={"location": "Detroit, MI"}) as r:
+            assert r.status_code == 200
+            _ = b"".join(r.iter_bytes())
+
+    runs_response = client.get("/search/logs")
+    correlation_id = runs_response.json()["runs"][0]["correlation_id"]
+
+    with patch("app.main.cancel_active_search", return_value=True) as mock_cancel:
+        response = client.post(f"/search/stop/{correlation_id}")
+
+    assert response.status_code == 200
+    assert response.json()["stopped"] is True
+    mock_cancel.assert_called_once_with(correlation_id)
+
+
 def test_admin_overview_requires_admin() -> None:
     local_client = TestClient(app)
     unauthorized = local_client.get("/admin/overview")

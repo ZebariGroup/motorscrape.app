@@ -18,6 +18,13 @@ export type ListingSortOrder =
   | "days_on_lot_asc"
   | "days_on_lot_desc";
 
+function buildClientSearchId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `srch-${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  }
+  return `srch-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
 function listingSortTieBreak(a: AggregatedListing, b: AggregatedListing) {
   const ka = `${a.vehicle_identifier ?? ""}|${a.vin ?? ""}|${a.listing_url ?? ""}|${a.raw_title ?? ""}|${a.dealership ?? ""}`;
   const kb = `${b.vehicle_identifier ?? ""}|${b.vin ?? ""}|${b.listing_url ?? ""}|${b.raw_title ?? ""}|${b.dealership ?? ""}`;
@@ -136,6 +143,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const esRef = useRef<EventSource | null>(null);
   const streamSessionRef = useRef(0);
+  const correlationIdRef = useRef<string | null>(null);
 
   const dealerList = useMemo(
     () => Object.values(dealers).sort((a, b) => a.index - b.index),
@@ -357,17 +365,43 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     return () => window.clearInterval(id);
   }, [running]);
 
-  const stopStream = useCallback(() => {
+  const closeStream = useCallback(() => {
     streamSessionRef.current += 1;
     esRef.current?.close();
     esRef.current = null;
+    correlationIdRef.current = null;
     setRunning(false);
     setReconnecting(false);
   }, []);
 
+  const stopStream = useCallback(async () => {
+    const es = esRef.current;
+    const correlationId = correlationIdRef.current;
+    streamSessionRef.current += 1;
+    setRunning(false);
+    setReconnecting(false);
+    if (correlationId) {
+      try {
+        await fetch(resolveApiUrl(`/search/stop/${correlationId}`), {
+          method: "POST",
+          credentials: "include",
+        });
+      } catch {
+        /* best-effort stop request */
+      }
+    }
+    if (esRef.current === es) {
+      es?.close();
+      esRef.current = null;
+    }
+    if (correlationIdRef.current === correlationId) {
+      correlationIdRef.current = null;
+    }
+  }, []);
+
   const startSearch = useCallback(() => {
     if (running) return; // Prevent double-submit
-    stopStream();
+    void stopStream();
     setErrors([]);
     setListings([]);
     setDealers({});
@@ -378,10 +412,13 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     setNowMs(startedAt);
 
     const streamUrl = resolveApiUrl("/search/stream");
+    const correlationId = buildClientSearchId();
+    correlationIdRef.current = correlationId;
     const params = new URLSearchParams({
       location: location.trim(),
       make: make.trim(),
       model: model.trim(),
+      correlation_id: correlationId,
       vehicle_category: vehicleCategory,
       vehicle_condition: vehicleCondition,
       radius_miles: radiusMiles,
@@ -481,7 +518,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       } catch {
         setStatus((s) => s ?? "Search finished.");
       }
-      stopStream();
+      closeStream();
       onFinishedRef.current?.();
     };
 
@@ -504,9 +541,10 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
         return;
       }
       setErrors((e) => [...e, "Connection to search stream lost or failed."]);
-      stopStream();
+      closeStream();
     };
   }, [
+    closeStream,
     inventoryScope,
     location,
     make,

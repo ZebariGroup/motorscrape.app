@@ -768,6 +768,7 @@ def _count_structured_vehicle_signals(html: str) -> int:
             '"@type":"vehicle"',
             '"@type": "vehicle"',
             '"vehicleidentificationnumber"',
+            '"vdpurl"',
             '"/viewdetails/',
         )
     )
@@ -787,6 +788,18 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str 
             return False
         if _html_looks_inventory_ready(html, platform_id=platform_id):
             return True
+        if _has_structured_inventory_hint(html) and _count_structured_vehicle_signals(html) >= 3:
+            return True
+    elif page_kind == "inventory" and platform_id == "oneaudi_falcon":
+        if _looks_like_placeholder_inventory(html):
+            return False
+        if _looks_like_empty_inventory_shell(html):
+            return False
+        if _html_looks_inventory_ready(html, platform_id=platform_id):
+            return True
+        # oneaudi shells often expose SEO JSON-LD or bootstrap blobs before the
+        # client-side inventory has hydrated. Require multiple vehicle-specific
+        # signals before trusting direct HTML as extraction-ready.
         if _has_structured_inventory_hint(html) and _count_structured_vehicle_signals(html) >= 3:
             return True
     elif _has_structured_inventory_hint(html):
