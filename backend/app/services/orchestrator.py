@@ -92,6 +92,44 @@ def _team_velocity_inventory_url_from_model_hub(
     return None
 
 
+def _oneaudi_all_inventory_urls(url: str | None) -> list[str]:
+    if not url:
+        return []
+    parts = urlsplit(url)
+    path = parts.path.rstrip("/")
+    path_lower = path.lower()
+    variants: list[str] = []
+    if "/inventory/new" in path_lower:
+        variants.extend(
+            [
+                urlunsplit((parts.scheme, parts.netloc, f"{path}/", parts.query, "")),
+                urlunsplit((parts.scheme, parts.netloc, f"{path[:-3]}used/", parts.query, "")),
+            ]
+        )
+    elif "/inventory/used" in path_lower:
+        variants.extend(
+            [
+                urlunsplit((parts.scheme, parts.netloc, f"{path}/", parts.query, "")),
+                urlunsplit((parts.scheme, parts.netloc, f"{path[:-4]}new/", parts.query, "")),
+            ]
+        )
+    elif path_lower.endswith("/inventory"):
+        variants.extend(
+            [
+                urlunsplit((parts.scheme, parts.netloc, f"{path}/new/", parts.query, "")),
+                urlunsplit((parts.scheme, parts.netloc, f"{path}/used/", parts.query, "")),
+            ]
+        )
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for candidate in variants:
+        normalized = candidate.rstrip("/")
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            ordered.append(candidate)
+    return ordered
+
+
 def _scope_filter_tokens(raw: str) -> set[str]:
     tokens: set[str] = set()
     for part in (raw or "").split(","):
@@ -1849,6 +1887,12 @@ async def stream_search(
                     scoped_inventory_url = True
                     async with metrics_lock:
                         fetch_metrics["inventory_url_scoped"] += 1
+            elif route and route.platform_id == "oneaudi_falcon" and vehicle_condition == "all" and current_url:
+                oneaudi_inventory_urls = _oneaudi_all_inventory_urls(current_url)
+                if oneaudi_inventory_urls:
+                    current_url = oneaudi_inventory_urls[0]
+                    queued_urls = {current_url}
+                    pending_urls = [u for u in oneaudi_inventory_urls[1:] if u not in queued_urls]
             emitted_listing_keys: set[str] = set()
             dealer_inspire_fallback_urls = (
                 _dealer_inspire_model_inventory_urls(
