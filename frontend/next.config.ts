@@ -1,9 +1,12 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+
+const workspaceRoot = path.resolve(process.cwd(), "..");
 
 const nextConfig: NextConfig = {
   // Pin Turbopack root when multiple lockfiles exist above this app in the filesystem.
   turbopack: {
-    root: process.cwd(),
+    root: workspaceRoot,
   },
   /**
    * Local dev: proxy `/server/*` to FastAPI so the browser stays same-origin with Next
