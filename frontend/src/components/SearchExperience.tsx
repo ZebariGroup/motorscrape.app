@@ -187,6 +187,8 @@ export function SearchExperience() {
     form.setModel("");
   };
 
+  const hasInventoryResults = listings.listings.length > 0;
+
   return (
     <>
       <SiteHeader access={access} />
@@ -197,7 +199,7 @@ export function SearchExperience() {
             <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 sm:text-4xl dark:text-zinc-50">
               Local motor vehicle inventory, one place
             </h1>
-            <div className="flex items-center gap-2 self-start rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex max-w-full flex-wrap items-center justify-center gap-1 self-start rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm sm:justify-start sm:gap-2 dark:border-zinc-800 dark:bg-zinc-950">
               {CATEGORY_BUTTONS.map((category) => {
                 const selected = form.vehicleCategory === category.value;
                 return (
@@ -205,7 +207,7 @@ export function SearchExperience() {
                     key={category.value}
                     type="button"
                     onClick={() => handleVehicleCategoryChange(category.value)}
-                    className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${
+                    className={`inline-flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-xs font-medium transition sm:gap-2 sm:px-3 sm:py-2 sm:text-sm ${
                       selected
                         ? "bg-emerald-600 text-white shadow-sm"
                         : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
@@ -260,7 +262,9 @@ export function SearchExperience() {
           allowAnyModel={access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom"}
         />
         <div className="grid gap-8 lg:grid-cols-3">
-          <section className="lg:col-span-1">
+          <section
+            className={`lg:col-span-1${hasInventoryResults ? " order-2 lg:order-none" : ""}`}
+          >
             <ResultFiltersPanel
               filtersExpanded={filters.filtersExpanded}
               setFiltersExpanded={filters.setFiltersExpanded}
@@ -307,6 +311,7 @@ export function SearchExperience() {
             activeDealerSummary={dealers.activeDealerSummary}
             activeDealerCount={dealers.activeDealerCount}
             queuedDealerCount={dealers.queuedDealerCount}
+            className={hasInventoryResults ? "order-1 lg:order-none" : undefined}
           />
         </div>
 

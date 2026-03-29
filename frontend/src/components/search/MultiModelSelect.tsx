@@ -17,13 +17,13 @@ export function MultiModelSelect({
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handlePointerDownOutside = (e: PointerEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("pointerdown", handlePointerDownOutside, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDownOutside, true);
   }, []);
 
   const toggleModel = (m: string) => {
@@ -48,7 +48,7 @@ export function MultiModelSelect({
         type="button"
         disabled={disabled || models.length === 0}
         onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+        className="flex min-h-11 w-full items-center justify-between rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-base text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
       >
         <span className="truncate">{models.length === 0 ? "Select make first" : displayText}</span>
         <svg
@@ -64,7 +64,7 @@ export function MultiModelSelect({
       {isOpen && models.length > 0 && (
         <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
           {allowAnyModel && (
-            <label className="flex cursor-pointer items-center px-3 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-700">
+            <label className="flex min-h-11 cursor-pointer items-center px-3 py-2 hover:bg-zinc-100 sm:min-h-0 dark:hover:bg-zinc-700">
               <input
                 type="checkbox"
                 className="rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
@@ -83,7 +83,7 @@ export function MultiModelSelect({
             return (
               <label
                 key={m}
-                className={`flex items-center px-3 py-2 ${
+                className={`flex min-h-11 items-center px-3 py-2 sm:min-h-0 ${
                   isDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700"
                 }`}
               >

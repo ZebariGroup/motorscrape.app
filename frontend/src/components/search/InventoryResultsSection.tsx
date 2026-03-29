@@ -40,6 +40,8 @@ type Props = {
   activeDealerSummary?: string | null;
   activeDealerCount?: number;
   queuedDealerCount?: number;
+  /** Merged onto the root section (e.g. grid order utilities). */
+  className?: string;
 };
 
 export function InventoryResultsSection({
@@ -54,6 +56,7 @@ export function InventoryResultsSection({
   activeDealerSummary = null,
   activeDealerCount = 0,
   queuedDealerCount = 0,
+  className = "",
 }: Props) {
   const [selectedListingIndex, setSelectedListingIndex] = useState<number | null>(null);
   const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
@@ -86,7 +89,7 @@ export function InventoryResultsSection({
   }, [canViewNext, canViewPrevious, effectiveSelectedListingIndex]);
 
   return (
-    <section className="lg:col-span-2">
+    <section className={`lg:col-span-2 ${className}`.trim()}>
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-baseline justify-between gap-4 sm:justify-start sm:gap-6">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Inventory</h2>
@@ -304,16 +307,16 @@ export function InventoryResultsSection({
       )}
 
       {selectedListing && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
-          <div 
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" 
-            onClick={() => setSelectedListingIndex(null)} 
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:p-6 sm:pt-[max(1.5rem,env(safe-area-inset-top))] sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))]">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+            onClick={() => setSelectedListingIndex(null)}
           />
           <button
             type="button"
             onClick={() => setSelectedListingIndex((current) => (current == null ? current : current - 1))}
             disabled={!canViewPrevious}
-            className="absolute left-2 top-1/2 z-[101] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:left-4"
+            className="absolute left-[max(0.5rem,env(safe-area-inset-left))] top-1/2 z-[101] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:left-[max(1rem,env(safe-area-inset-left))]"
             aria-label="View previous listing"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -324,14 +327,14 @@ export function InventoryResultsSection({
             type="button"
             onClick={() => setSelectedListingIndex((current) => (current == null ? current : current + 1))}
             disabled={!canViewNext}
-            className="absolute right-2 top-1/2 z-[101] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:right-4"
+            className="absolute right-[max(0.5rem,env(safe-area-inset-right))] top-1/2 z-[101] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:right-[max(1rem,env(safe-area-inset-right))]"
             aria-label="View next listing"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="m9 18 6-6-6-6" />
             </svg>
           </button>
-          <div className="relative flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-zinc-950 ring-1 ring-zinc-200 dark:ring-zinc-800">
+          <div className="relative flex max-h-[min(100dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-2rem))] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800 sm:max-h-[min(100dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-3rem))]">
             <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 truncate pr-4">
                 {selectedListing.raw_title ??
@@ -500,7 +503,7 @@ export function InventoryResultsSection({
             </div>
             
             {selectedListing.listing_url && (
-              <div className="border-t border-zinc-200 p-4 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30">
+              <div className="border-t border-zinc-200 bg-zinc-50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] dark:border-zinc-800 dark:bg-zinc-900/30 sm:pb-4">
                 <a
                   href={selectedListing.listing_url}
                   target="_blank"

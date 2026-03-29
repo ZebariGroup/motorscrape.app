@@ -100,7 +100,21 @@ export function SearchFormSection({
   const [isFormExpanded, setIsFormExpanded] = useState(true);
   const [isGameActive, setIsGameActive] = useState(false);
   const [searchCompletedTick, setSearchCompletedTick] = useState(0);
+  const [preferTapPlayHint, setPreferTapPlayHint] = useState(false);
   const prevRunningRef = useRef(running);
+
+  useEffect(() => {
+    const narrow = window.matchMedia("(max-width: 639px)");
+    const coarse = window.matchMedia("(pointer: coarse)");
+    const sync = () => setPreferTapPlayHint(narrow.matches || coarse.matches);
+    sync();
+    narrow.addEventListener("change", sync);
+    coarse.addEventListener("change", sync);
+    return () => {
+      narrow.removeEventListener("change", sync);
+      coarse.removeEventListener("change", sync);
+    };
+  }, []);
 
   useEffect(() => {
     if (prevRunningRef.current && !running) {
@@ -403,9 +417,21 @@ export function SearchFormSection({
                     </span>
                     {!isGameActive && (
                       <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/80 animate-pulse">
-                        Double-click to play
+                        {preferTapPlayHint ? "Tap Play to pass time" : "Double-click to play"}
                       </span>
                     )}
+                    {!isGameActive && preferTapPlayHint && running ? (
+                      <button
+                        type="button"
+                        className="relative z-20 mt-1 rounded-md bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-white backdrop-blur-sm transition hover:bg-white/30"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsGameActive(true);
+                        }}
+                      >
+                        Play
+                      </button>
+                    ) : null}
                   </span>
                 </>
               ) : (
