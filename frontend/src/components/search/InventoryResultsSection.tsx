@@ -42,6 +42,12 @@ type Props = {
   queuedDealerCount?: number;
   /** Merged onto the root section (e.g. grid order utilities). */
   className?: string;
+  /** Shown when the grid is populated from a past search snapshot (not a live stream). */
+  savedResultsNotice?: {
+    title: string;
+    body: string;
+    onDismiss: () => void;
+  } | null;
 };
 
 export function InventoryResultsSection({
@@ -57,6 +63,7 @@ export function InventoryResultsSection({
   activeDealerCount = 0,
   queuedDealerCount = 0,
   className = "",
+  savedResultsNotice = null,
 }: Props) {
   const [selectedListingIndex, setSelectedListingIndex] = useState<number | null>(null);
   const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
@@ -90,6 +97,23 @@ export function InventoryResultsSection({
 
   return (
     <section className={`lg:col-span-2 ${className}`.trim()}>
+      {savedResultsNotice ? (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/35 dark:text-amber-100">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="font-medium">{savedResultsNotice.title}</p>
+              <p className="mt-1 text-amber-900/90 dark:text-amber-200/90">{savedResultsNotice.body}</p>
+            </div>
+            <button
+              type="button"
+              onClick={savedResultsNotice.onDismiss}
+              className="shrink-0 rounded-lg border border-amber-300/80 bg-white/80 px-3 py-1.5 text-xs font-medium text-amber-950 hover:bg-white dark:border-amber-800 dark:bg-zinc-900 dark:text-amber-100 dark:hover:bg-zinc-800"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-baseline justify-between gap-4 sm:justify-start sm:gap-6">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Inventory</h2>

@@ -93,6 +93,7 @@ def _serialize_run(record: ScrapeRunRecord, *, user_email: str | None) -> dict[s
         "error_message": record.error_message,
         "summary": record.summary,
         "economics": record.economics,
+        "saved_listings_count": len(record.listings_snapshot) if record.listings_snapshot else 0,
         "started_at": _iso(record.started_at),
         "completed_at": _iso(record.completed_at),
     }

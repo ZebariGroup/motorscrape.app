@@ -8,6 +8,19 @@ import type { AggregatedListing } from "@/lib/inventoryFormat";
 import { categoryUsesCatalog, defaultVehicleCategory, getModelsForMake } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { DealershipProgress, VehicleListing } from "@/types/inventory";
+import type { SearchHistoryRunRow } from "@/types/searchHistory";
+
+export type SearchHistoryView = {
+  asOfIso: string;
+  savedCount: number;
+  correlationId: string;
+};
+
+function parseVehicleCategory(raw: string | undefined): VehicleCategory {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "car" || v === "motorcycle" || v === "boat" || v === "other") return v;
+  return defaultVehicleCategory();
+}
 
 /** Client-side result ordering (applied after filters). */
 export type ListingSortOrder =
@@ -156,6 +169,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const [errors, setErrors] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const [historyView, setHistoryView] = useState<SearchHistoryView | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const esRef = useRef<EventSource | null>(null);
   const streamSessionRef = useRef(0);
@@ -471,9 +485,78 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     }
   }, [flushPendingListings]);
 
+  const applyFormFromHistoryRun = useCallback((run: SearchHistoryRunRow) => {
+    setLocation(run.location ?? "");
+    setVehicleCategory(parseVehicleCategory(run.vehicle_category));
+    setMake((run.make ?? "").trim());
+    setModel((run.model ?? "").trim());
+    setVehicleCondition(run.vehicle_condition || "all");
+    setRadiusMiles(String(run.radius_miles ?? 25));
+    setInventoryScope(run.inventory_scope || "all");
+    if (run.requested_max_dealerships != null) {
+      setMaxDealerships(String(run.requested_max_dealerships));
+    }
+  }, []);
+
+  const applySavedSearchFromHistory = useCallback(
+    async (run: SearchHistoryRunRow, listings: AggregatedListing[]) => {
+      await stopStream();
+      pendingListingsRef.current = [];
+      cancelScheduledPaint(listingFlushHandleRef.current);
+      listingFlushHandleRef.current = null;
+      sawFirstVehicleBatchRef.current = false;
+      setErrors([]);
+      setDealers({});
+      setPinnedDealerWebsite(null);
+      setStatus(null);
+      setPriceFilterMin(null);
+      setPriceFilterMax(null);
+      setYearFilter("");
+      setBodyStyleFilter("");
+      setColorFilter("");
+      applyFormFromHistoryRun(run);
+      setListings(listings);
+      const asOf = run.started_at || run.completed_at || new Date().toISOString();
+      setHistoryView({
+        asOfIso: asOf,
+        savedCount: listings.length,
+        correlationId: run.correlation_id,
+      });
+    },
+    [applyFormFromHistoryRun, stopStream],
+  );
+
+  const applyHistoryCriteriaOnly = useCallback(
+    async (run: SearchHistoryRunRow) => {
+      await stopStream();
+      pendingListingsRef.current = [];
+      cancelScheduledPaint(listingFlushHandleRef.current);
+      listingFlushHandleRef.current = null;
+      sawFirstVehicleBatchRef.current = false;
+      setErrors([]);
+      setDealers({});
+      setPinnedDealerWebsite(null);
+      setStatus(null);
+      setListings([]);
+      setHistoryView(null);
+      setPriceFilterMin(null);
+      setPriceFilterMax(null);
+      setYearFilter("");
+      setBodyStyleFilter("");
+      setColorFilter("");
+      applyFormFromHistoryRun(run);
+    },
+    [applyFormFromHistoryRun, stopStream],
+  );
+
+  const clearHistoryView = useCallback(() => {
+    setHistoryView(null);
+  }, []);
+
   const startSearch = useCallback(() => {
     if (running) return; // Prevent double-submit
     void stopStream();
+    setHistoryView(null);
     pendingListingsRef.current = [];
     cancelScheduledPaint(listingFlushHandleRef.current);
     listingFlushHandleRef.current = null;
@@ -669,6 +752,10 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       stopStream,
       status,
       errors,
+      historyView,
+      applySavedSearchFromHistory,
+      applyHistoryCriteriaOnly,
+      clearHistoryView,
     },
     dealers: {
       dealerList,

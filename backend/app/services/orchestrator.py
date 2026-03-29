@@ -1529,6 +1529,9 @@ async def stream_search(
                     total_cached += len(listing_chunk)
                     if recorder is not None:
                         recorder.note_vehicle_batch(batch_size=len(listing_chunk), fetch_method="inventory_cache")
+                        recorder.capture_listing_batch(
+                            dealership=d.name, website=website, listings=listing_chunk
+                        )
                     await _emit(
                         sse_pack(
                             "vehicles",
@@ -2579,6 +2582,9 @@ async def stream_search(
                                 batch_size=len(listing_chunk),
                                 platform_id=route.platform_id if route else None,
                                 fetch_method=current_method,
+                            )
+                            recorder.capture_listing_batch(
+                                dealership=d.name, website=website, listings=listing_chunk
                             )
                         await _emit(
                             sse_pack(

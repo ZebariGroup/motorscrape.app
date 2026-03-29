@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import uuid
 from collections import defaultdict
@@ -10,6 +11,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 MAX_SCRAPE_EVENTS = 200
+MAX_LISTINGS_SNAPSHOT = 10_000
 
 
 def build_correlation_id(*, prefix: str = "srch") -> str:
@@ -39,6 +41,7 @@ class ScrapeRunRecorder:
     correlation_id: str
     trigger_source: str
     started_at: float
+    persist_listing_snapshot: bool = False
     max_events: int = MAX_SCRAPE_EVENTS
     sequence_no: int = 0
     error_count: int = 0
@@ -58,6 +61,8 @@ class ScrapeRunRecorder:
     timeout_counts_by_fetch_method: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     error_counts_by_platform: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     error_counts_by_fetch_method: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    _listings_snapshot: list[dict[str, Any]] = field(default_factory=list)
+    _listings_lock: threading.Lock = field(default_factory=threading.Lock)
 
     def _elapsed_ms(self) -> int:
         return max(0, int((time.time() - self.started_at) * 1000))
@@ -169,6 +174,24 @@ class ScrapeRunRecorder:
         if batch_size > 0:
             self._mark_first("first_vehicle_batch_ms")
 
+    def capture_listing_batch(self, *, dealership: str, website: str, listings: list[dict[str, Any]]) -> None:
+        if not self.persist_listing_snapshot or not listings:
+            return
+        with self._listings_lock:
+            room = MAX_LISTINGS_SNAPSHOT - len(self._listings_snapshot)
+            if room <= 0:
+                return
+            for raw in listings[:room]:
+                row = dict(raw)
+                if not (row.get("dealership") or "").strip():
+                    row["dealership"] = dealership
+                if not (row.get("dealership_website") or "").strip():
+                    row["dealership_website"] = website
+                self._listings_snapshot.append(row)
+                room -= 1
+                if room <= 0:
+                    break
+
     def note_dealer_issue(
         self,
         *,
@@ -217,6 +240,12 @@ class ScrapeRunRecorder:
             warning_count=self.warning_count,
         )
         self.latest_error_message = error_message or self.latest_error_message
+        with self._listings_lock:
+            listings_snapshot = (
+                list(self._listings_snapshot)
+                if self.persist_listing_snapshot and self._listings_snapshot
+                else None
+            )
         self.store.finalize_scrape_run(
             self.run_id,
             status=final_status,
@@ -232,6 +261,7 @@ class ScrapeRunRecorder:
             summary=summary,
             economics=economics,
             completed_at=time.time(),
+            listings_snapshot=listings_snapshot,
         )
 
 
@@ -276,4 +306,5 @@ def create_scrape_run_recorder(
         correlation_id=correlation_id,
         trigger_source=trigger_source,
         started_at=started_at,
+        persist_listing_snapshot=trigger_source == "interactive",
     )

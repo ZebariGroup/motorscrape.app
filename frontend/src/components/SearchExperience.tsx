@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useSearchStream } from "@/hooks/useSearchStream";
 import { useAccessSummary } from "@/hooks/useAccessSummary";
@@ -8,6 +8,7 @@ import { DealerProgressList } from "@/components/search/DealerProgressList";
 import { EmailAlertPanel } from "@/components/search/EmailAlertPanel";
 import { InventoryResultsSection } from "@/components/search/InventoryResultsSection";
 import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
+import { SearchHistorySection } from "@/components/search/SearchHistorySection";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
 import { resolveApiUrl } from "@/lib/apiBase";
@@ -189,6 +190,19 @@ export function SearchExperience() {
 
   const hasInventoryResults = listings.listings.length > 0;
 
+  const savedResultsNotice = useMemo(() => {
+    const hv = search.historyView;
+    if (!hv) return null;
+    const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
+      new Date(hv.asOfIso),
+    );
+    return {
+      title: "Saved search results",
+      body: `Showing ${hv.savedCount} vehicles from a search on ${when}. Dealers change inventory frequently—run a new search when you need the latest listings.`,
+      onDismiss: search.clearHistoryView,
+    };
+  }, [search.historyView, search.clearHistoryView]);
+
   return (
     <>
       <SiteHeader access={access} />
@@ -261,6 +275,10 @@ export function SearchExperience() {
           inventoryScopePremium={scopePremium}
           allowAnyModel={access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom"}
         />
+        <SearchHistorySection
+          applySavedSearchFromHistory={search.applySavedSearchFromHistory}
+          applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
+        />
         <div className="grid gap-8 lg:grid-cols-3">
           <section
             className={`lg:col-span-1${hasInventoryResults ? " order-2 lg:order-none" : ""}`}
@@ -311,6 +329,7 @@ export function SearchExperience() {
             activeDealerSummary={dealers.activeDealerSummary}
             activeDealerCount={dealers.activeDealerCount}
             queuedDealerCount={dealers.queuedDealerCount}
+            savedResultsNotice={savedResultsNotice}
             className={hasInventoryResults ? "order-1 lg:order-none" : undefined}
           />
         </div>

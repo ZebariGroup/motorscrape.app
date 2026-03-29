@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     error_message TEXT,
     summary_json TEXT NOT NULL DEFAULT '{}',
     economics_json TEXT NOT NULL DEFAULT '{}',
+    listings_snapshot_json TEXT,
     started_at REAL NOT NULL,
     completed_at REAL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -192,6 +193,9 @@ def init_db(path: str) -> None:
             columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(users)").fetchall()}
             if "is_admin" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+            scrape_cols = {str(row["name"]) for row in conn.execute("PRAGMA table_info(scrape_runs)").fetchall()}
+            if "listings_snapshot_json" not in scrape_cols:
+                conn.execute("ALTER TABLE scrape_runs ADD COLUMN listings_snapshot_json TEXT")
             conn.commit()
         finally:
             conn.close()
@@ -276,6 +280,7 @@ class ScrapeRunRecord:
     error_message: str | None
     summary: dict[str, Any]
     economics: dict[str, Any]
+    listings_snapshot: list[dict[str, Any]] | None
     started_at: float
     completed_at: float | None
 
@@ -1083,7 +1088,13 @@ class AccountStore:
         summary: dict[str, Any],
         economics: dict[str, Any],
         completed_at: float,
+        listings_snapshot: list[dict[str, Any]] | None = None,
     ) -> ScrapeRunRecord:
+        snapshot_json: str | None
+        if listings_snapshot:
+            snapshot_json = json.dumps(listings_snapshot, separators=(",", ":"))
+        else:
+            snapshot_json = None
         with self._conn() as c:
             c.execute(
                 """
@@ -1091,7 +1102,7 @@ class AccountStore:
                 SET status = ?, result_count = ?, dealer_discovery_count = ?, dealer_deduped_count = ?,
                     dealerships_attempted = ?, dealerships_succeeded = ?, dealerships_failed = ?,
                     error_count = ?, warning_count = ?, error_message = ?, summary_json = ?,
-                    economics_json = ?, completed_at = ?
+                    economics_json = ?, listings_snapshot_json = ?, completed_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -1107,6 +1118,7 @@ class AccountStore:
                     error_message,
                     json.dumps(summary, separators=(",", ":"), sort_keys=True),
                     json.dumps(economics, separators=(",", ":"), sort_keys=True),
+                    snapshot_json,
                     completed_at,
                     scrape_run_id,
                 ),
@@ -1411,9 +1423,23 @@ def _row_to_scrape_run(row: sqlite3.Row) -> ScrapeRunRecord:
         error_message=str(row["error_message"]) if row["error_message"] is not None else None,
         summary=_json_dict(row["summary_json"]),
         economics=_json_dict(row["economics_json"]),
+        listings_snapshot=_parse_listings_snapshot(row["listings_snapshot_json"]),
         started_at=float(row["started_at"]),
         completed_at=float(row["completed_at"]) if row["completed_at"] is not None else None,
     )
+
+
+def _parse_listings_snapshot(raw: str | None) -> list[dict[str, Any]] | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, list):
+        return None
+    out = [x for x in data if isinstance(x, dict)]
+    return out or None
 
 
 def _row_to_scrape_event(row: sqlite3.Row) -> ScrapeEventRecord:

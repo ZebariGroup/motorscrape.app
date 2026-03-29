@@ -20,6 +20,8 @@ def _iso(ts: float | None) -> str | None:
 
 
 def _serialize_run(record: ScrapeRunRecord) -> dict[str, Any]:
+    snap = record.listings_snapshot
+    saved_n = len(snap) if snap else 0
     return {
         "id": record.id,
         "correlation_id": record.correlation_id,
@@ -47,6 +49,8 @@ def _serialize_run(record: ScrapeRunRecord) -> dict[str, Any]:
         "economics": record.economics,
         "started_at": _iso(record.started_at),
         "completed_at": _iso(record.completed_at),
+        "has_saved_results": saved_n > 0,
+        "saved_listings_count": saved_n,
     }
 
 
@@ -77,24 +81,38 @@ def list_search_logs(
     limit: int = Query(default=20, ge=1, le=50),
 ) -> dict[str, Any]:
     store = get_account_store(settings.accounts_db_path)
-    runs = store.list_scrape_runs(limit=limit, **_actor_filter(ctx))
-    return {"runs": [_serialize_run(record) for record in runs]}
+    # Pull extra rows so scheduled alert runs do not crowd out interactive searches.
+    raw_limit = min(limit * 8, 200)
+    runs = store.list_scrape_runs(limit=raw_limit, **_actor_filter(ctx))
+    interactive = [r for r in runs if r.trigger_source == "interactive"][:limit]
+    return {"runs": [_serialize_run(record) for record in interactive]}
 
 
 @router.get("/{correlation_id}")
 def get_search_log(
     correlation_id: str,
     ctx: Annotated[AccessContext, Depends(get_access_context)],
+    include_events: bool = Query(default=True),
 ) -> dict[str, Any]:
     store = get_account_store(settings.accounts_db_path)
     run = store.get_scrape_run(correlation_id, **_actor_filter(ctx))
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Search log not found.")
-    events = store.list_scrape_events(run.id)
-    dealer_outcomes = build_dealer_outcomes(events)
+    listings = run.listings_snapshot if run.listings_snapshot else []
+    if include_events:
+        events = store.list_scrape_events(run.id)
+        dealer_outcomes = build_dealer_outcomes(events)
+        return {
+            "run": _serialize_run(run),
+            "events": [_serialize_event(record) for record in events],
+            "dealer_outcomes": dealer_outcomes,
+            "dealer_summary": summarize_dealer_outcomes(dealer_outcomes),
+            "listings": listings,
+        }
     return {
         "run": _serialize_run(run),
-        "events": [_serialize_event(record) for record in events],
-        "dealer_outcomes": dealer_outcomes,
-        "dealer_summary": summarize_dealer_outcomes(dealer_outcomes),
+        "events": [],
+        "dealer_outcomes": [],
+        "dealer_summary": summarize_dealer_outcomes([]),
+        "listings": listings,
     }

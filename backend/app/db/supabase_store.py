@@ -514,6 +514,7 @@ class SupabaseAccountStore:
         summary: dict[str, Any],
         economics: dict[str, Any],
         completed_at: float,
+        listings_snapshot: list[dict[str, Any]] | None = None,
     ) -> ScrapeRunRecord:
         updates = {
             "status": status,
@@ -528,6 +529,7 @@ class SupabaseAccountStore:
             "error_message": error_message,
             "summary_json": summary,
             "economics_json": economics,
+            "listings_snapshot_json": listings_snapshot if listings_snapshot else None,
             "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(completed_at)),
         }
         self.client.table("scrape_runs").update(updates).eq("id", scrape_run_id).execute()
@@ -785,6 +787,7 @@ def _row_to_scrape_run(row: dict[str, Any]) -> ScrapeRunRecord:
         error_message=str(row["error_message"]) if row.get("error_message") is not None else None,
         summary=dict(row.get("summary_json") or {}),
         economics=dict(row.get("economics_json") or {}),
+        listings_snapshot=_coerce_listings_snapshot(row.get("listings_snapshot_json")),
         started_at=_ts(row.get("started_at")),
         completed_at=_ts(row.get("completed_at")) if row.get("completed_at") is not None else None,
     )
@@ -819,6 +822,15 @@ def _row_to_admin_audit_log(row: dict[str, Any]) -> AdminAuditLogRecord:
         payload=dict(row.get("payload_json") or {}),
         created_at=_ts(row.get("created_at")),
     )
+
+
+def _coerce_listings_snapshot(value: Any) -> list[dict[str, Any]] | None:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        out = [x for x in value if isinstance(x, dict)]
+        return out or None
+    return None
 
 
 def _ts(value: Any) -> float:
