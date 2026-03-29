@@ -273,6 +273,18 @@ def test_inventory_url_recovery_candidates_builds_dealer_dot_com_canonical_path(
     assert any("make=GMC" in c for c in candidates)
 
 
+def test_inventory_url_recovery_candidates_builds_family_model_srp_for_unrecognized_route() -> None:
+    candidates = _inventory_url_recovery_candidates(
+        inv_url="https://www.mossyford.com",
+        base_url="https://www.mossyford.com/",
+        route=None,
+        make="Ford",
+        model="Bronco",
+        vehicle_condition="new",
+    )
+    assert "https://www.mossyford.com/inventory/new/ford-bronco" in candidates
+
+
 def test_effective_search_concurrency_uses_config_without_managed_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.services.orchestrator_utils.settings.search_concurrency", 7)
     monkeypatch.setattr("app.services.orchestrator_utils.settings.zenrows_api_key", "")

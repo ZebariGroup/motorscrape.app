@@ -741,6 +741,7 @@ def _inventory_url_recovery_candidates(
     if not parsed_base.scheme or not parsed_base.netloc:
         parsed_base = urlsplit(base_url)
     model_values = _requested_model_values(model)
+    make_norm = re.sub(r"[^a-z0-9]+", "-", make.strip().lower()).strip("-")
 
     if route and route.platform_id == "dealer_on":
         path = "/searchused.aspx" if condition == "used" else "/searchnew.aspx"
@@ -778,6 +779,17 @@ def _inventory_url_recovery_candidates(
             for m in model_values[:2]:
                 add(_with_query_params(canonical, {"make": make, "model": m}))
         add(_with_query_params(canonical, {"make": make}))
+    elif not route:
+        canonical = guess_franchise_inventory_srp_url(base_url, condition) or ""
+        if canonical:
+            parsed_canonical = urlsplit(canonical)
+            path = parsed_canonical.path.rstrip("/").lower()
+            if path in {"/inventory/new", "/inventory/used"}:
+                for m in model_values[:2]:
+                    model_norm = re.sub(r"[^a-z0-9]+", "-", m.strip().lower()).strip("-")
+                    if not make_norm or not model_norm:
+                        continue
+                    add(urlunsplit((parsed_canonical.scheme, parsed_canonical.netloc, f"{path}/{make_norm}-{model_norm}", "", "")))
 
     add(guess_franchise_inventory_srp_url(base_url, vehicle_condition))
     return candidates

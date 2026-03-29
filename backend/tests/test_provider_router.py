@@ -887,6 +887,19 @@ def test_resolve_inventory_url_for_provider_canonicalizes_buy_host_for_dealer_on
     assert query.get("Make") == ["Chevrolet"]
 
 
+def test_resolve_inventory_url_for_provider_prefers_model_scoped_path_without_platform() -> None:
+    url = resolve_inventory_url_for_provider(
+        "<html><body><a href='/inventory/new'>Inventory</a></body></html>",
+        "https://www.mossyford.com/",
+        None,
+        fallback_url="https://www.mossyford.com/inventory/new",
+        make="Ford",
+        model="Bronco",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.mossyford.com/inventory/new/ford-bronco"
+
+
 def test_detect_or_lookup_provider_normalizes_cached_dealer_on_render_flag() -> None:
     cached = PlatformCacheEntry(
         domain="mikesavoie.com",

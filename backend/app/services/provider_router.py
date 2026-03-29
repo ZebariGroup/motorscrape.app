@@ -1349,6 +1349,12 @@ def resolve_inventory_url_for_provider(
             if make_norm not in best_combined_norm:
                 best_url = fallback_norm
 
+    if not route and make_norm and model_norm:
+        base_for_family = _normalize_inventory_candidate_url(best_url if best_score > 0 else fallback_url)
+        candidate = _build_family_inventory_path(base_for_family, make=make, model=(model.split(",")[0].strip() if "," in model else model))
+        if candidate != base_for_family:
+            best_url = candidate
+
     if model_norm and route:
         generic_base = _normalize_inventory_candidate_url(
             (route.inventory_url_hint if route else None) or fallback_url
