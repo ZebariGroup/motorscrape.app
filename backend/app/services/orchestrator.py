@@ -1318,7 +1318,7 @@ async def stream_search(
                 },
             )
         )
-        async with sem:
+        if True:
             cached_inv = await asyncio.to_thread(get_cached_inventory_listings, inv_cache_key)
             if cached_inv and cached_inv.get("listings"):
                 fetch_methods_used.append("inventory_cache")
@@ -2489,42 +2489,43 @@ async def stream_search(
         return chunks
 
     async def process_one_with_timeout(index: int, d: DealershipFound) -> list[str]:
-        try:
-            return await asyncio.wait_for(
-                process_one(index, d),
-                timeout=dealer_timeout + 15.0,
-            )
-        except asyncio.TimeoutError:
-            website = d.website or ""
-            logger.warning(f"{cid_log}Dealership worker timed out for %s", website)
-            if recorder is not None:
-                recorder.note_dealer_failed()
-                recorder.event(
-                    event_type="dealer_timeout",
-                    phase="worker",
-                    level="warning",
-                    message="Timed out while processing this dealership. Skipping to keep search moving.",
-                    dealership_name=d.name,
-                    dealership_website=website,
-                    payload={"index": index},
+        async with sem:
+            try:
+                return await asyncio.wait_for(
+                    process_one(index, d),
+                    timeout=dealer_timeout + 15.0,
                 )
-            return [
-                sse_pack(
-                    "dealership",
-                    {
-                        "index": index,
-                        "total": len(dealers),
-                        "name": d.name,
-                        "website": website,
-                        "address": d.address,
-                        "status": "error",
-                        "error": (
-                            "Timed out while processing this dealership. "
-                            "Skipping to keep search moving."
-                        ),
-                    },
-                )
-            ]
+            except asyncio.TimeoutError:
+                website = d.website or ""
+                logger.warning(f"{cid_log}Dealership worker timed out for %s", website)
+                if recorder is not None:
+                    recorder.note_dealer_failed()
+                    recorder.event(
+                        event_type="dealer_timeout",
+                        phase="worker",
+                        level="warning",
+                        message="Timed out while processing this dealership. Skipping to keep search moving.",
+                        dealership_name=d.name,
+                        dealership_website=website,
+                        payload={"index": index},
+                    )
+                return [
+                    sse_pack(
+                        "dealership",
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": d.name,
+                            "website": website,
+                            "address": d.address,
+                            "status": "error",
+                            "error": (
+                                "Timed out while processing this dealership. "
+                                "Skipping to keep search moving."
+                            ),
+                        },
+                    )
+                ]
 
     tasks = [
         asyncio.create_task(process_one_with_timeout(i, d))

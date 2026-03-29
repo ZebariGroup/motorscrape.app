@@ -564,6 +564,8 @@ async def fetch_page_html(
             if _direct_html_sufficient(html, page_kind=page_kind, platform_id=platform_id):
                 _m("scrapingbee_static_ok")
                 return html, "scrapingbee_static"
+            _m("scrapingbee_static_insufficient")
+            failures.append("scrapingbee_static: insufficient")
         except Exception as e:
             err_str = e.__class__.__name__ if not str(e) else str(e)
             logger.warning("ScrapingBee static fetch failed for %s: %s", url, err_str)
@@ -583,6 +585,7 @@ async def fetch_page_html(
                         _m("scrapingbee_rendered_ok")
                         return html, "scrapingbee_rendered"
                     _m("scrapingbee_rendered_insufficient")
+                    failures.append("scrapingbee_rendered: insufficient")
                 except Exception as e:
                     err_str = e.__class__.__name__ if not str(e) else str(e)
                     logger.warning("ScrapingBee rendered fetch failed for %s: %s", url, err_str)

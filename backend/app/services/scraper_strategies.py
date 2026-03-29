@@ -105,6 +105,7 @@ async def zenrows_try_once(
             metric_bump(f"{metric_prefix}_ok")
             return html
         metric_bump(f"{metric_prefix}_insufficient")
+        failures.append(f"{failure_label}: insufficient")
         if page_kind != "inventory":
             needs_premium = _should_retry_zenrows_with_premium_proxy(html, page_kind=page_kind)
     except Exception as e:
@@ -132,6 +133,7 @@ async def zenrows_try_once(
             metric_bump(f"{metric_prefix}_premium_ok")
             return premium_html
         metric_bump(f"{metric_prefix}_premium_insufficient")
+        failures.append(f"{failure_label}_premium: insufficient")
     except Exception as e:
         err_str = _zenrows_error_string(e)
         sanitized = err_str.replace(settings.zenrows_api_key, "***")
