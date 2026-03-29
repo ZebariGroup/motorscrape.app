@@ -35,6 +35,8 @@ export function DealerProgressList({
   const doneCount = dealerList.filter((d) => d.status === "done" || d.status === "error").length;
   const activeCount = dealerList.filter((d) => d.status === "scraping" || d.status === "parsing").length;
   const queuedCount = dealerList.filter((d) => d.status === "queued").length;
+  const allDealersSettled =
+    dealerList.length > 0 && dealerList.every((d) => d.status === "done" || d.status === "error");
 
   return (
     <div className="mb-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
@@ -56,7 +58,7 @@ export function DealerProgressList({
                 {queuedCount > 0 ? `${queuedCount} queued` : null}
               </span>
             ) : null}
-            {dealerList.length > 0 ? (
+            {dealerList.length > 0 && !(allDealersSettled && !running) ? (
               <span className="mt-1 block text-[11px] text-zinc-400 dark:text-zinc-500">
                 Tap a dealer to show their vehicles first in inventory.
               </span>
@@ -106,7 +108,14 @@ export function DealerProgressList({
               const isBusy = d.status === "scraping" || d.status === "parsing";
               const streamedListingCount = listingCountsByDealerKey[dealerSiteKey(d.website)] ?? 0;
               const visibleListingsFound = Math.max(d.listings_found ?? 0, streamedListingCount);
-              const listingSummary = visibleListingsFound > 0 ? `${visibleListingsFound.toLocaleString()} listings` : null;
+              const isTerminal = d.status === "done" || d.status === "error";
+              const simplifyRow = !running && isTerminal;
+              const listingSummary =
+                visibleListingsFound > 0
+                  ? `${visibleListingsFound.toLocaleString()} listings`
+                  : simplifyRow
+                    ? "No listings found"
+                    : null;
               const pageProgress =
                 d.reported_total_pages != null
                   ? `Page ${Math.max(1, d.current_page_number ?? d.pages_scraped ?? 1)} of ${d.reported_total_pages}`
@@ -117,8 +126,10 @@ export function DealerProgressList({
                 d.reported_total_results != null
                   ? `${d.reported_total_results.toLocaleString()} results detected`
                   : null;
-              const strategyLabel = d.strategy_used ? d.strategy_used.replaceAll("_", " ") : null;
-              const extractionLabel = d.extraction ? d.extraction.replaceAll("_", " ") : null;
+              const strategyLabel =
+                !simplifyRow && d.strategy_used ? d.strategy_used.replaceAll("_", " ") : null;
+              const extractionLabel =
+                !simplifyRow && d.extraction ? d.extraction.replaceAll("_", " ") : null;
               const canPin = Boolean(d.website?.trim());
               const isPinned = Boolean(
                 canPin &&
@@ -191,10 +202,16 @@ export function DealerProgressList({
                               : "rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-900 motion-safe:animate-pulse dark:bg-amber-950 dark:text-amber-100"
                         }
                       >
-                        {d.status}
+                        {simplifyRow && d.status === "done"
+                          ? "Complete"
+                          : simplifyRow && d.status === "error"
+                            ? "Error"
+                            : d.status}
                       </span>
-                      {d.platform_id ? <span className="text-zinc-500">{d.platform_id}</span> : null}
-                      {d.status === "scraping" && d.fetch_method ? (
+                      {!simplifyRow && d.platform_id ? (
+                        <span className="text-zinc-500">{d.platform_id}</span>
+                      ) : null}
+                      {!simplifyRow && d.status === "scraping" && d.fetch_method ? (
                         <span className="text-zinc-500">via {d.fetch_method}</span>
                       ) : null}
                       {d.status === "queued" ? (
@@ -203,7 +220,7 @@ export function DealerProgressList({
                       {d.status === "parsing" ? (
                         <span className="text-zinc-500">
                           AI extraction… {phaseSec}s
-                          {d.fetch_method ? (
+                          {!simplifyRow && d.fetch_method ? (
                             <span className="text-zinc-400"> (page via {d.fetch_method})</span>
                           ) : null}
                         </span>
@@ -212,7 +229,15 @@ export function DealerProgressList({
                         <span className="text-zinc-500">Fetching… {phaseSec}s</span>
                       ) : null}
                       {listingSummary ? (
-                        <span className="text-zinc-500">{listingSummary}</span>
+                        <span
+                          className={
+                            simplifyRow
+                              ? "font-medium text-zinc-700 dark:text-zinc-200"
+                              : "text-zinc-500"
+                          }
+                        >
+                          {listingSummary}
+                        </span>
                       ) : null}
                     </div>
                     {d.status === "queued" ? (
@@ -221,7 +246,7 @@ export function DealerProgressList({
                         a slot opens; other dealer cards may already show pages, extraction, and streaming listings.
                       </p>
                     ) : null}
-                    {pageProgress || resultsDetected || strategyLabel || extractionLabel ? (
+                    {!simplifyRow && (pageProgress || resultsDetected || strategyLabel || extractionLabel) ? (
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
                         {pageProgress ? (
                           <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-900">
@@ -250,7 +275,7 @@ export function DealerProgressList({
                         Pulling inventory now. Listings are already streaming in.
                       </p>
                     ) : null}
-                    {d.info ? (
+                    {!simplifyRow && d.info ? (
                       <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{d.info}</p>
                     ) : null}
                     {d.error ? <p className="mt-2 text-xs text-red-600">{d.error}</p> : null}
