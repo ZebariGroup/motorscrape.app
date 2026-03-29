@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   startTransition,
   useCallback,
   useEffect,
@@ -17,10 +18,10 @@ import { Snowmobile } from "./Snowmobile";
 type CharacterType = "motorcycle" | "racecar" | "boat" | "snowmobile";
 
 const CHARACTERS: Record<CharacterType, React.FC> = {
-  motorcycle: Motorcycle,
-  racecar: RaceCar,
-  boat: Boat,
-  snowmobile: Snowmobile,
+  motorcycle: memo(Motorcycle),
+  racecar: memo(RaceCar),
+  boat: memo(Boat),
+  snowmobile: memo(Snowmobile),
 };
 
 const OBSTACLES = ["🚧", "🕳️", "🛑", "🪨", "🪵"];
@@ -199,6 +200,7 @@ function drawScene(
 }
 
 export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
@@ -254,6 +256,8 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
 
   const pendingWordsRef = useRef<PendingWord[]>([]);
   const lastProcessedTickRef = useRef(0);
+  const timeoutIdsRef = useRef<number[]>([]);
+  const displayedScoreRef = useRef(0);
 
   const stateRef = useRef({
     playerY: 0,
@@ -286,6 +290,10 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     }
   }, []);
 
+  useEffect(() => {
+    rootRef.current?.focus({ preventScroll: true });
+  }, []);
+
   const scheduleSearchDoneWords = useCallback(() => {
     const base = performance.now() + 500;
     const batch = SEARCH_DONE_PHRASE.map((text, i) => ({
@@ -295,7 +303,8 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     pendingWordsRef.current.push(...batch);
     pendingWordsRef.current.sort((a, b) => a.spawnAt - b.spawnAt);
     setDoneBanner(true);
-    window.setTimeout(() => setDoneBanner(false), 9000);
+    const timeoutId = window.setTimeout(() => setDoneBanner(false), 9000);
+    timeoutIdsRef.current.push(timeoutId);
   }, []);
 
   useEffect(() => {
@@ -343,6 +352,17 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
 
   const gameLoopRef = useRef<() => void>(() => {});
 
+  const queueNextFrame = useCallback(() => {
+    cancelAnimationFrame(stateRef.current.animationFrameId);
+    stateRef.current.animationFrameId = requestAnimationFrame(() => gameLoopRef.current());
+  }, []);
+
+  const resetPlayerTransform = useCallback(() => {
+    const playerEl = playerRef.current;
+    if (!playerEl) return;
+    playerEl.style.transform = "translateY(0px) rotate(0deg) scaleX(1) scaleY(1)";
+  }, []);
+
   const doJumpImpulse = useCallback(() => {
     const s = stateRef.current;
     s.playerVelocity = JUMP_VELOCITY;
@@ -362,23 +382,30 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
   const gameLoop = useCallback(() => {
     if (!playingRef.current || gameOverRef.current) return;
 
+    const frameNow = performance.now();
     const container = containerRef.current;
     const canvas = canvasRef.current;
-    if (!container || !canvas) return;
+    if (!container || !canvas) {
+      stateRef.current.lastFrameTime = frameNow;
+      queueNextFrame();
+      return;
+    }
 
     if (document.visibilityState === "hidden") {
-      stateRef.current.lastFrameTime = performance.now();
-      stateRef.current.animationFrameId = requestAnimationFrame(() => gameLoopRef.current());
+      stateRef.current.lastFrameTime = frameNow;
+      queueNextFrame();
       return;
     }
 
     const w = container.clientWidth;
     const h = container.clientHeight;
     const ctx = canvas.getContext("2d");
-    if (!ctx || w <= 0 || h <= 0) return;
+    if (!ctx || w <= 0 || h <= 0) {
+      stateRef.current.lastFrameTime = frameNow;
+      queueNextFrame();
+      return;
+    }
 
-    const frameNow = performance.now();
-    const nowMs = Date.now();
     const state = stateRef.current;
     const dtMs = Math.min(Math.max(frameNow - state.lastFrameTime, 0), FRAME_MS_CAP);
     const dt = dtMs / 1000;
@@ -426,9 +453,9 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
 
     flushPendingWords(canvas);
 
-    if (nowMs - state.lastObstacleTime > state.nextObstacleDelayMs) {
+    if (frameNow - state.lastObstacleTime > state.nextObstacleDelayMs) {
       spawnEmojiObstacle(w);
-      state.lastObstacleTime = nowMs;
+      state.lastObstacleTime = frameNow;
       state.nextObstacleDelayMs = randomBetween(difficulty.spawnMinMs, difficulty.spawnMaxMs);
       state.speed = Math.min(state.speed, MAX_SPEED);
     }
@@ -492,7 +519,12 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
 
     state.score += dt * 9;
     const displayScore = Math.floor(state.score);
-    setScore((prev) => (displayScore > prev ? displayScore : prev));
+    if (displayScore > displayedScoreRef.current) {
+      displayedScoreRef.current = displayScore;
+      startTransition(() => {
+        setScore(displayScore);
+      });
+    }
 
     drawScene(
       ctx,
@@ -514,8 +546,8 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       playerEl.style.transform = `translateY(${state.playerY}px) rotate(${tilt}deg) scaleX(${scaleX}) scaleY(${scaleY})`;
     }
 
-    state.animationFrameId = requestAnimationFrame(() => gameLoopRef.current());
-  }, [doJumpImpulse]); // eslint-disable-line react-hooks/exhaustive-deps -- spawn helpers use refs only
+    queueNextFrame();
+  }, [doJumpImpulse, queueNextFrame]); // eslint-disable-line react-hooks/exhaustive-deps -- spawn helpers use refs only
 
   useLayoutEffect(() => {
     gameLoopRef.current = gameLoop;
@@ -527,18 +559,20 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     setIsPlaying(true);
     setIsGameOver(false);
     setScore(0);
+    displayedScoreRef.current = 0;
     const now = performance.now();
+    cancelAnimationFrame(stateRef.current.animationFrameId);
     stateRef.current = {
       playerY: 0,
       playerVelocity: 0,
       jumpBufferMs: 0,
-      jumpHeld: true,
+      jumpHeld: false,
       jumpHoldMs: 0,
       landingSquashMs: 0,
       obstacles: [],
       speed: BASE_SPEED,
       score: 0,
-      lastObstacleTime: Date.now(),
+      lastObstacleTime: now,
       nextObstacleDelayMs: 1600,
       lastFrameTime: now,
       animationFrameId: 0,
@@ -546,8 +580,10 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       parallaxPhase: 0,
       scanPhase: 0,
     };
-    gameLoop();
-  }, [gameLoop]);
+    resetPlayerTransform();
+    rootRef.current?.focus({ preventScroll: true });
+    queueNextFrame();
+  }, [queueNextFrame, resetPlayerTransform]);
 
   const pressJump = useCallback(() => {
     if (!playingRef.current || gameOverRef.current) {
@@ -609,13 +645,20 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
   }, [pressJump, releaseJump]);
 
   useEffect(() => {
-    return () => cancelAnimationFrame(stateRef.current.animationFrameId);
+    return () => {
+      cancelAnimationFrame(stateRef.current.animationFrameId);
+      for (const timeoutId of timeoutIdsRef.current) {
+        window.clearTimeout(timeoutId);
+      }
+      timeoutIdsRef.current = [];
+    };
   }, []);
 
   const CharacterComponent = CHARACTERS[character];
 
   return (
     <div
+      ref={rootRef}
       className="relative w-full min-h-[220px] h-56 flex flex-col select-none rounded-xl overflow-hidden border border-emerald-200/60 bg-zinc-50 dark:border-emerald-900/40 dark:bg-zinc-950 shadow-sm"
       onPointerDown={(e) => {
         if (e.pointerType !== "mouse" || e.button === 0) {
@@ -624,19 +667,6 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       }}
       onPointerUp={releaseJump}
       onPointerCancel={releaseJump}
-      onKeyDown={(e) => {
-        if (e.key === " " || e.key === "ArrowUp") {
-          if (e.repeat) return;
-          e.preventDefault();
-          pressJump();
-        }
-      }}
-      onKeyUp={(e) => {
-        if (e.key === " " || e.key === "ArrowUp") {
-          e.preventDefault();
-          releaseJump();
-        }
-      }}
       role="application"
       aria-label="MotorScrape Run mini-game"
       tabIndex={0}
