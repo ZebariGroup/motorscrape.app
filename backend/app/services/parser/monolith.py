@@ -2421,15 +2421,47 @@ def _query_lower_dict(url: str) -> dict[str, str]:
     return {k.lower(): v for k, v in parse_qsl(parts.query, keep_blank_values=True)}
 
 
-def _current_page_from_url(url: str) -> int:
+def _page_number_from_url(url: str) -> int | None:
     q = _query_lower_dict(url)
     for k in ("page", "pt", "_p", "pn", "pg", "currentpage", "sbpage"):
-        if k in q:
-            try:
-                return int(q[k])
-            except ValueError:
-                continue
-    return 1
+        if k not in q:
+            continue
+        try:
+            return int(q[k])
+        except ValueError:
+            continue
+    return None
+
+
+def _current_page_from_url(url: str) -> int:
+    page_num = _page_number_from_url(url)
+    return page_num if page_num is not None else 1
+
+
+def _looks_like_pagination_anchor(a: Any) -> bool:
+    cls = " ".join(a.get("class") or []).lower()
+    rel = a.get("rel")
+    rel_s = " ".join(rel).lower() if isinstance(rel, list) else str(rel or "").lower()
+    text = a.get_text(strip=True).lower()
+    aria = str(a.get("aria-label") or "").lower()
+    parent_cls = ""
+    parent = getattr(a, "parent", None)
+    if parent is not None:
+        parent_cls = " ".join(parent.get("class") or []).lower()
+    combined = " ".join(x for x in (cls, rel_s, aria, parent_cls) if x)
+    if any(token in combined for token in ("pagination", "pager", "page-item", "page-link", "next", "prev")):
+        return True
+    if text in {"next", "next page", "previous", "prev", "›", "»", "«", "‹"}:
+        return True
+    if text.isdigit() and ("page" in aria or "page" in combined):
+        return True
+    return False
+
+
+def _is_non_advancing_paged_url(base_url: str, candidate_url: str) -> bool:
+    current_page = _current_page_from_url(base_url)
+    candidate_page = _page_number_from_url(candidate_url)
+    return candidate_page is not None and candidate_page <= current_page
 
 
 def _pagination_info(
@@ -2593,7 +2625,7 @@ def _pagination_info_from_page_links(html: str, page_url: str) -> PaginationInfo
         )
         if not raw:
             data_val = str(a.get("data-val") or "").strip()
-            raw = data_val if data_val.isdigit() else None
+            raw = data_val if data_val.isdigit() and _looks_like_pagination_anchor(a) else None
         if not raw:
             continue
         try:
@@ -2825,13 +2857,18 @@ def find_next_page_url(html: str, base_url: str) -> str | None:
 
     link = soup.find("link", attrs={"rel": lambda x: x and "next" in str(x).lower()})
     if link and link.get("href"):
-        return urljoin(base_url, str(link["href"]))
+        candidate = urljoin(base_url, str(link["href"]))
+        if not _is_non_advancing_paged_url(base_url, candidate):
+            return candidate
 
     for a in soup.find_all("a", href=True):
         rel = a.get("rel")
         rel_s = " ".join(rel).lower() if isinstance(rel, list) else str(rel or "").lower()
         if "next" in rel_s:
-            return urljoin(base_url, str(a["href"]))
+            candidate = urljoin(base_url, str(a["href"]))
+            if _is_non_advancing_paged_url(base_url, candidate):
+                continue
+            return candidate
 
     current_page = _current_page_from_url(base_url)
     href_lower_tokens = _pagination_link_tokens()
@@ -2843,7 +2880,10 @@ def find_next_page_url(html: str, base_url: str) -> str | None:
         if "next" not in cls and text not in ("next", "next page", "›", "»"):
             continue
         if any(t in href_l for t in href_lower_tokens):
-            return urljoin(base_url, href)
+            candidate = urljoin(base_url, href)
+            if _is_non_advancing_paged_url(base_url, candidate):
+                continue
+            return candidate
         data_val = str(a.get("data-val") or "").strip()
         if data_val == "+1":
             return synthesize_next_page_url(base_url, current_page + 1)

@@ -1112,6 +1112,57 @@ def test_find_next_page_basspro_uses_data_val() -> None:
     assert nxt == "https://www.bassproboatingcenters.com/boats-for-sale.html?page=2"
 
 
+def test_find_next_page_ignores_non_advancing_next_href() -> None:
+    html = """
+    <html><body>
+      <a href="/inventory/new?page=3" class="pagination__next">Next</a>
+      <a href="/inventory/new?page=4">4</a>
+    </body></html>
+    """
+    base = "https://dealer.example/inventory/new?page=3"
+    nxt = find_next_page_url(html, base)
+    assert nxt == "https://dealer.example/inventory/new?page=4"
+
+
+def test_infer_inventory_pagination_ignores_non_pagination_data_val() -> None:
+    html = """
+    <html><body>
+      <a href="/vehicle/abc123" data-val="75">Vehicle Detail</a>
+      <nav aria-label="Pagination">
+        <a href="/inventory/new?page=1" aria-label="Page 1">1</a>
+        <a href="/inventory/new?page=2" aria-label="Page 2">2</a>
+        <a href="/inventory/new?page=3" aria-label="Page 3">3</a>
+      </nav>
+    </body></html>
+    """
+    p = infer_inventory_pagination(html, "https://dealer.example/inventory/new?page=1")
+    assert p is not None
+    assert p.total_pages == 3
+
+
+def test_try_extract_falls_back_to_pagination_when_next_is_stale() -> None:
+    html = """
+    <html><body>
+      <div>Showing 49 - 72 of 180 results</div>
+      <a href="/inventory/new?page=3" class="pagination__next">Next</a>
+      <div class="vehicle-card" data-year="2025" data-make="Honda" data-model="Accord" data-price="31000">
+        <a href="/inventory/v1">2025 Honda Accord Sport</a>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/inventory/new?page=3",
+        html=html,
+        make_filter="Honda",
+        model_filter="",
+    )
+    assert result is not None
+    assert result.next_page_url == "https://dealer.example/inventory/new?page=4"
+    assert result.pagination is not None
+    assert result.pagination.total_pages == 8
+    assert len(result.vehicles) == 1
+
+
 def test_try_extract_synthesizes_next_from_inventory_api_json() -> None:
     html = """
     <html><body>
