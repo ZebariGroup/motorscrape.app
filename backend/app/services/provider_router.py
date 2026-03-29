@@ -257,7 +257,7 @@ def _build_family_inventory_path(base_url: str, make: str, model: str) -> str:
         model_slug = _slugify_model_path(model)
         make_slug = _slugify_model_path(make)
         if model_slug and make_slug:
-            path = f"{path}/{make_slug}/{model_slug}"
+            path = f"{path}/{make_slug}-{model_slug}"
             return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
     return base_url
 
