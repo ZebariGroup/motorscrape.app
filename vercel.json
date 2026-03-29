@@ -11,7 +11,7 @@
       "routePrefix": "/server",
       "framework": "fastapi",
       "maxDuration": 300,
-      "excludeFiles": "{frontend/**,**/.venv/**,**/.git/**,**/__pycache__/**,**/*.pyc,**/.next/**}"
+      "excludeFiles": "{frontend/**,backend/tests/**,backend/.coverage,docs/**,supabase/**,.github/**,**/.venv/**,**/.git/**,**/__pycache__/**,**/*.pyc,**/.next/**,**/*.md}"
     }
   },
   "env": {
