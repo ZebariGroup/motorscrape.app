@@ -520,12 +520,14 @@ def _build_text_queries(
     location: str,
     make: str,
     model: str,
+    market_region: str = "us",
 ) -> list[str]:
     config = _CATEGORY_SEARCH_CONFIG[_normalize_vehicle_category(vehicle_category)]
     make_q = make.strip()
     model_q = model.strip()
     dealer_terms = tuple(config["dealer_terms"])
     fallback_terms = tuple(config["fallback_terms"])
+    eu = (market_region or "").strip().lower() == "eu"
 
     text_queries: list[str] = []
     primary_term = dealer_terms[0]
@@ -546,6 +548,17 @@ def _build_text_queries(
     elif model_q:
         for dealer_term in dealer_terms[1:]:
             text_queries.append(f"{model_q} {dealer_term} near {location}")
+
+    if eu and _normalize_vehicle_category(vehicle_category) == "car" and make_q:
+        # UK + EU English dealership discovery (Places text search is English-first).
+        text_queries.extend(
+            [
+                f"{make_q} garage near {location}",
+                f"{make_q} motors near {location}",
+                f"{make_q} car sales near {location}",
+                f"{make_q} approved used near {location}",
+            ]
+        )
 
     deduped: list[str] = []
     seen: set[str] = set()
@@ -572,6 +585,7 @@ async def find_dealerships(
     vehicle_category: str = "car",
     limit: int = 20,
     radius_miles: int = 50,
+    market_region: str = "us",
 ) -> list[DealershipFound]:
     """
     Find car dealerships near the given location using Places API (New) Text Search,
@@ -604,6 +618,7 @@ async def find_dealerships(
             location=location,
             make=make_q,
             model=model_q,
+            market_region=market_region,
         )
         query_stop_target = _places_query_stop_target(limit=limit, make=make_q, model=model_q)
 
@@ -785,6 +800,7 @@ async def find_car_dealerships(
     model: str = "",
     limit: int = 20,
     radius_miles: int = 50,
+    market_region: str = "us",
 ) -> list[DealershipFound]:
     return await find_dealerships(
         location,
@@ -793,6 +809,7 @@ async def find_car_dealerships(
         vehicle_category="car",
         limit=limit,
         radius_miles=radius_miles,
+        market_region=market_region,
     )
 
 

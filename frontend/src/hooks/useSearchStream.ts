@@ -5,7 +5,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveApiUrl } from "@/lib/apiBase";
 import { clampNumber, clampPercent, dealerSiteKey } from "@/lib/inventoryFormat";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
-import { categoryUsesCatalog, defaultVehicleCategory, getModelsForMake } from "@/lib/vehicleCatalog";
+import {
+  DEFAULT_RADIUS_MILES_US,
+  MARKET_REGION_STORAGE_KEY,
+  parseMarketRegion,
+  type MarketRegion,
+} from "@/lib/marketRegion";
+import { categoryUsesCatalog, defaultVehicleCategory, getMakesForCategory, getModelsForMake } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { DealershipProgress, VehicleListing } from "@/types/inventory";
 import type { SearchHistoryRunRow } from "@/types/searchHistory";
@@ -152,7 +158,11 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
   const [vehicleCondition, setVehicleCondition] = useState("all");
-  const [radiusMiles, setRadiusMiles] = useState("25");
+  const [radiusMiles, setRadiusMiles] = useState(String(DEFAULT_RADIUS_MILES_US));
+  const [marketRegion, setMarketRegion] = useState<MarketRegion>(() => {
+    if (typeof window === "undefined") return "us";
+    return parseMarketRegion(localStorage.getItem(MARKET_REGION_STORAGE_KEY));
+  });
   const [inventoryScope, setInventoryScope] = useState("all");
   const [maxDealerships, setMaxDealerships] = useState("8");
   const [status, setStatus] = useState<string | null>(null);
@@ -231,9 +241,33 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
 
   const usesCatalog = useMemo(() => categoryUsesCatalog(vehicleCategory), [vehicleCategory]);
   const modelOptions = useMemo(
-    () => getModelsForMake(vehicleCategory, make),
-    [make, vehicleCategory],
+    () => getModelsForMake(vehicleCategory, make, marketRegion),
+    [make, vehicleCategory, marketRegion],
   );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(MARKET_REGION_STORAGE_KEY, marketRegion);
+    } catch {
+      /* ignore */
+    }
+  }, [marketRegion]);
+
+  useEffect(() => {
+    const makes = getMakesForCategory(vehicleCategory, marketRegion);
+    if (make && !makes.includes(make)) {
+      setMake("");
+      setModel("");
+      return;
+    }
+    if (!make) return;
+    const models = getModelsForMake(vehicleCategory, make, marketRegion);
+    setModel((prev) => {
+      const parts = prev.split(",").map((s) => s.trim()).filter(Boolean);
+      const filtered = parts.filter((p) => models.includes(p));
+      return filtered.join(",");
+    });
+  }, [marketRegion, vehicleCategory, make]);
 
   const discoveredDealerPercent = useMemo(
     () => clampPercent((dealerList.length / Math.max(targetDealerCount, 1)) * 100),
@@ -583,6 +617,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       radius_miles: radiusMiles,
       inventory_scope: inventoryScope,
       max_dealerships: maxDealerships,
+      market_region: marketRegion,
     });
     const url = `${streamUrl}?${params.toString()}`;
 
@@ -719,6 +754,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     stopStream,
     vehicleCategory,
     vehicleCondition,
+    marketRegion,
     flushPendingListings,
     running,
     scheduleListingFlush,
@@ -744,6 +780,8 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       maxDealerships,
       setMaxDealerships,
       modelOptions,
+      marketRegion,
+      setMarketRegion,
     },
     search: {
       running,

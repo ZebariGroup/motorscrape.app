@@ -204,7 +204,11 @@ export function SearchExperience() {
 
   return (
     <>
-      <SiteHeader access={access} />
+      <SiteHeader
+        access={access}
+        marketRegion={form.marketRegion}
+        onMarketRegionChange={form.setMarketRegion}
+      />
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-4 py-10 pb-24 sm:px-6 sm:pb-10">
         <header className="space-y-3">
           <p className="text-sm font-medium tracking-wide text-emerald-700 uppercase">Motorscrape</p>
@@ -275,6 +279,7 @@ export function SearchExperience() {
           allowAnyModel={access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom"}
           applySavedSearchFromHistory={search.applySavedSearchFromHistory}
           applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
+          marketRegion={form.marketRegion}
         />
         <div className="grid gap-8 lg:grid-cols-3">
           <section

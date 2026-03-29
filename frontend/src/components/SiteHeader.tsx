@@ -2,16 +2,20 @@
 
 import Link from "next/link";
 
+import { MarketRegionToggle } from "@/components/MarketRegionToggle";
+import type { MarketRegion } from "@/lib/marketRegion";
 import type { AccessSummary } from "@/types/access";
 
 type Props = {
   access: AccessSummary | null;
+  marketRegion?: MarketRegion;
+  onMarketRegionChange?: (region: MarketRegion) => void;
 };
 
 const headerPad =
   "px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:px-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))]";
 
-export function SiteHeader({ access }: Props) {
+export function SiteHeader({ access, marketRegion, onMarketRegionChange }: Props) {
   if (access === null) {
     return (
       <header className="border-b border-zinc-200 bg-white/80 pt-[env(safe-area-inset-top,0px)] backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80">
@@ -27,6 +31,9 @@ export function SiteHeader({ access }: Props) {
             </span>
           </div>
           <nav className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs sm:justify-end sm:gap-x-4 sm:text-sm">
+            {marketRegion != null && onMarketRegionChange ? (
+              <MarketRegionToggle value={marketRegion} onChange={onMarketRegionChange} disabled />
+            ) : null}
             <div className="h-6 w-28 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
           </nav>
         </div>
@@ -124,6 +131,9 @@ export function SiteHeader({ access }: Props) {
               </Link>
             </div>
           )}
+          {marketRegion != null && onMarketRegionChange ? (
+            <MarketRegionToggle value={marketRegion} onChange={onMarketRegionChange} />
+          ) : null}
         </nav>
       </div>
     </header>

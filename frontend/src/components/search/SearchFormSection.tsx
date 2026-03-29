@@ -1,10 +1,9 @@
 "use client";
 
 import { useMemo, useState, useEffect, useRef, startTransition } from "react";
-import {
-  getMakesForCategory,
-  vehicleCategoryLabel,
-} from "@/lib/vehicleCatalog";
+import type { MarketRegion } from "@/lib/marketRegion";
+import { kmToMiles, milesToKm } from "@/lib/marketRegion";
+import { getMakesForCategory, vehicleCategoryLabel } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { SearchHistoryRunRow } from "@/types/searchHistory";
@@ -63,6 +62,7 @@ type Props = {
   allowAnyModel?: boolean;
   applySavedSearchFromHistory: (run: SearchHistoryRunRow, listings: AggregatedListing[]) => Promise<void>;
   applyHistoryCriteriaOnly: (run: SearchHistoryRunRow) => Promise<void>;
+  marketRegion: MarketRegion;
 };
 
 export function SearchFormSection({
@@ -103,6 +103,7 @@ export function SearchFormSection({
   allowAnyModel = true,
   applySavedSearchFromHistory,
   applyHistoryCriteriaOnly,
+  marketRegion,
 }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
@@ -138,8 +139,33 @@ export function SearchFormSection({
     () => RADIUS_CHOICES.filter((m) => m <= maxRadiusMilesCap),
     [maxRadiusMilesCap],
   );
+  const radiusKmOptions = useMemo(() => {
+    const capKm = milesToKm(maxRadiusMilesCap);
+    return [10, 25, 40, 50, 80, 100, 150, 200].filter((k) => k <= capKm);
+  }, [maxRadiusMilesCap]);
   const dealerOptions = useMemo(() => dealerChoices(maxDealersCap), [maxDealersCap]);
-  const makeOptions = useMemo(() => getMakesForCategory(vehicleCategory), [vehicleCategory]);
+  const makeOptions = useMemo(
+    () => getMakesForCategory(vehicleCategory, marketRegion),
+    [vehicleCategory, marketRegion],
+  );
+  const radiusSummary = useMemo(() => {
+    const mi = Number.parseInt(radiusMiles, 10);
+    if (!Number.isFinite(mi)) return "";
+    if (marketRegion === "eu") {
+      return `${milesToKm(mi)} km`;
+    }
+    return `${mi} mi`;
+  }, [radiusMiles, marketRegion]);
+
+  useEffect(() => {
+    if (marketRegion !== "eu") return;
+    const mi = Number.parseInt(radiusMiles, 10);
+    if (!Number.isFinite(mi)) return;
+    const validMiles = new Set(radiusKmOptions.map((km) => kmToMiles(km)));
+    if (validMiles.has(mi)) return;
+    const nearest = [...validMiles].reduce((a, b) => (Math.abs(b - mi) < Math.abs(a - mi) ? b : a));
+    setRadiusMiles(String(nearest));
+  }, [marketRegion, radiusKmOptions, radiusMiles, setRadiusMiles]);
 
   const handleSearch = () => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
@@ -170,7 +196,7 @@ export function SearchFormSection({
               {model ? ` · ${model}` : ""}
             </span>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
-              {radiusMiles} mi · {vehicleCondition} · {maxDealerships} dealers
+              {radiusSummary} · {vehicleCondition} · {maxDealerships} dealers
             </span>
           </div>
           <button
@@ -300,18 +326,26 @@ export function SearchFormSection({
             </div>
             <div className="col-span-full sm:col-span-2 lg:col-span-1 grid grid-cols-2 gap-4">
               <label className="flex flex-col gap-1 text-sm">
-                <span className="font-medium text-zinc-800 dark:text-zinc-200">Radius</span>
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                  Radius ({marketRegion === "eu" ? "km" : "miles"})
+                </span>
                 <select
                   className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                   value={radiusMiles}
                   onChange={(e) => setRadiusMiles(e.target.value)}
                   disabled={running}
                 >
-                  {radiusOptions.map((m) => (
-                    <option key={m} value={String(m)}>
-                      {m} miles
-                    </option>
-                  ))}
+                  {marketRegion === "eu"
+                    ? radiusKmOptions.map((km) => (
+                        <option key={km} value={String(kmToMiles(km))}>
+                          {km} km
+                        </option>
+                      ))
+                    : radiusOptions.map((m) => (
+                        <option key={m} value={String(m)}>
+                          {m} miles
+                        </option>
+                      ))}
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-sm">

@@ -168,6 +168,28 @@ def infer_make_from_page_scope(page_url: str, requested_make: str) -> str | None
     return None
 
 
+def apply_eu_make_default_from_dealer_context(
+    v: VehicleListing,
+    *,
+    requested_make: str,
+    dealer_domain: str,
+    market_region: str,
+) -> VehicleListing:
+    """When titles omit the brand (common on EU sites), infer make from the dealer hostname."""
+    if (market_region or "").strip().lower() != "eu":
+        return v
+    mk = (requested_make or "").strip()
+    if not mk:
+        return v
+    if (v.make or "").strip():
+        return v
+    dom_norm = normalize_model_text(dealer_domain)
+    make_norm = normalize_model_text(mk)
+    if len(make_norm) >= 2 and make_norm in dom_norm:
+        return v.model_copy(update={"make": mk})
+    return v
+
+
 def apply_page_make_scope(v: VehicleListing, page_url: str, requested_make: str) -> VehicleListing:
     scoped_make = infer_make_from_page_scope(page_url, requested_make)
     if not scoped_make:

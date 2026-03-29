@@ -22,6 +22,7 @@ from app.services.dealer_score_store import NO_SCORE_DEFAULT, get_scores, record
 from app.services.economics import build_search_economics, log_economics_line
 from app.services.inventory_discovery import discover_sitemap_inventory_urls
 from app.services.inventory_filters import (
+    apply_eu_make_default_from_dealer_context,
     apply_page_make_scope,
     infer_vehicle_condition_from_page,
     listing_matches_filters,
@@ -217,6 +218,7 @@ def _find_inventory_url(
     base_url: str,
     *,
     vehicle_condition: str = "all",
+    market_region: str = "us",
 ) -> str:
     """Heuristic to find the best 'inventory' link on a dealership homepage."""
     try:
@@ -224,6 +226,7 @@ def _find_inventory_url(
         best_url = base_url
         best_score = -1
         condition = (vehicle_condition or "all").strip().lower()
+        eu = (market_region or "").strip().lower() == "eu"
 
         for a in soup.find_all("a", href=True):
             href_raw = str(a["href"])
@@ -235,6 +238,48 @@ def _find_inventory_url(
 
             if _looks_like_inventory_detail_href(href_raw):
                 continue
+
+            if eu:
+                if any(
+                    tok in href
+                    for tok in (
+                        "used-cars",
+                        "usedcars",
+                        "/used/",
+                        "new-cars",
+                        "newcars",
+                        "/new/",
+                        "approved-used",
+                        "stocklist",
+                        "vehicle-search",
+                        "cars-for-sale",
+                        "used-cars-for-sale",
+                        "gebrauchtwagen",
+                        "neuwagen",
+                        "fahrzeuge",
+                        "occasion",
+                        "voitures",
+                        "vehicules",
+                        "stock",
+                        "parc-auto",
+                        "search-results",
+                    )
+                ) or any(
+                    tok in text
+                    for tok in (
+                        "used cars",
+                        "new cars",
+                        "approved used",
+                        "our stock",
+                        "used vehicles",
+                        "new vehicles",
+                        "occasion",
+                        "véhicules",
+                        "vehicules",
+                        "stock list",
+                    )
+                ):
+                    score += 24
 
             if "inventory" in href or "inventory" in text:
                 score += 20
@@ -1018,13 +1063,18 @@ async def stream_search(
     outcome_holder: dict[str, Any] | None = None,
     correlation_id: str | None = None,
     recorder: ScrapeRunRecorder | None = None,
+    market_region: str = "us",
 ) -> AsyncIterator[str]:
     """
     Yield SSE-formatted strings: status, dealership, vehicles, error, done.
     """
     cid_log = f"[{correlation_id}] " if correlation_id else ""
+    mr = (market_region or "us").strip().lower()
+    if mr not in ("us", "eu"):
+        mr = "us"
+    market_region = mr
     logger.info(
-        f"{cid_log}Starting search: location={location}, category={vehicle_category}, make={make}, model={model}"
+        f"{cid_log}Starting search: location={location}, category={vehicle_category}, make={make}, model={model}, region={market_region}"
     )
     if recorder is not None:
         recorder.event(
@@ -1040,6 +1090,7 @@ async def stream_search(
                 "vehicle_condition": vehicle_condition,
                 "inventory_scope": inventory_scope,
                 "radius_miles": radius_miles,
+                "market_region": market_region,
             },
         )
     yield sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
@@ -1112,6 +1163,7 @@ async def stream_search(
                 model=model,
                 limit=min(requested_dealerships * 3, 30),
                 radius_miles=radius_miles,
+                market_region=market_region,
             )
         else:
             dealers = await find_dealerships(
@@ -1121,6 +1173,7 @@ async def stream_search(
                 vehicle_category=vehicle_category,
                 limit=min(requested_dealerships * 3, 30),
                 radius_miles=radius_miles,
+                market_region=market_region,
             )
     except Exception as e:
         logger.exception(f"{cid_log}Places search failed")
@@ -1723,6 +1776,7 @@ async def stream_search(
                         homepage_html,
                         base_url,
                         vehicle_condition=vehicle_condition,
+                        market_region=market_region,
                     ),
                     make=make,
                     model=model,
@@ -1999,6 +2053,7 @@ async def stream_search(
                                 rendered_home_html,
                                 base_url,
                                 vehicle_condition=vehicle_condition,
+                                market_region=market_region,
                             ),
                             make=make,
                             model=model,
@@ -2343,20 +2398,21 @@ async def stream_search(
                         break
 
                 page_vehicle_condition = infer_vehicle_condition_from_page(current_url, current_html)
-                normalized_vehicles = [
-                    (
-                        apply_page_make_scope(
-                            (
-                                v.model_copy(update={"vehicle_condition": page_vehicle_condition})
-                                if v.vehicle_condition is None and page_vehicle_condition is not None
-                                else v
-                            ),
-                            current_url,
-                            make,
-                        )
+                normalized_vehicles: list[VehicleListing] = []
+                for v in ext_result.vehicles:
+                    w = (
+                        v.model_copy(update={"vehicle_condition": page_vehicle_condition})
+                        if v.vehicle_condition is None and page_vehicle_condition is not None
+                        else v
                     )
-                    for v in ext_result.vehicles
-                ]
+                    w = apply_page_make_scope(w, current_url, make)
+                    w = apply_eu_make_default_from_dealer_context(
+                        w,
+                        requested_make=make,
+                        dealer_domain=domain or "",
+                        market_region=market_region,
+                    )
+                    normalized_vehicles.append(w)
                 if ext_result.pagination is not None:
                     latest_pagination = ext_result.pagination
                 filtered = [

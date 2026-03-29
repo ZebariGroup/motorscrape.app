@@ -58,6 +58,7 @@ async def search_stream(
         ge=1,
         le=50,
     ),
+    market_region: Literal["us", "eu"] = Query(default="us"),
 ) -> StreamingResponse:
     if not vehicle_category_enabled(vehicle_category):
         raise HTTPException(status_code=400, detail=f"Vehicle category '{vehicle_category}' is not enabled.")
@@ -147,6 +148,7 @@ async def search_stream(
                 outcome_holder=outcome,
                 correlation_id=correlation_id,
                 recorder=recorder,
+                market_region=market_region,
             ):
                 yield chunk.encode("utf-8")
         except asyncio.CancelledError:

@@ -677,6 +677,59 @@ def _family_stack_allowed_for_target(platform_id: str, html_lower: str, page_url
     if platform_id == "ford_family_inventory":
         if infiniti_or_nissan_host and "ford" not in host and "lincoln" not in host:
             return False
+        # Sonic-style markers appear on many non-Ford EU/UK OEM sites; require Ford/Lincoln in the host
+        # before treating the page as the Ford family stack (avoids BMW UK sites misclassified as Ford).
+        if "ford" not in host and "lincoln" not in host:
+            non_ford_oem = (
+                "bmw",
+                "mini",
+                "mercedes",
+                "audi",
+                "volkswagen",
+                "vw",
+                "porsche",
+                "jaguar",
+                "landrover",
+                "land-rover",
+                "volvo",
+                "cupra",
+                "seat",
+                "skoda",
+                "škoda",
+                "peugeot",
+                "citroen",
+                "citroën",
+                "dsautomobiles",
+                "renault",
+                "fiat",
+                "alfaromeo",
+                "alfa-romeo",
+                "maserati",
+                "bentley",
+                "rollsroyce",
+                "rolls-royce",
+                "astonmartin",
+                "aston-martin",
+                "mclaren",
+                "polestar",
+                "lynkco",
+                "opel",
+                "vauxhall",
+                "hyundai",
+                "kia",
+                "toyota",
+                "lexus",
+                "nissan",
+                "honda",
+                "mazda",
+                "subaru",
+                "suzuki",
+                "mitsubishi",
+                "tesla",
+                "byd",
+            )
+            if any(token in host for token in non_ford_oem):
+                return False
         return _ford_lincoln_allowed(html_lower, page_url)
     if platform_id == "gm_family_inventory":
         if infiniti_or_nissan_host:

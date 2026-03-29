@@ -1,3 +1,5 @@
+import type { MarketRegion } from "@/lib/marketRegion";
+
 export type VehicleCategory = "car" | "motorcycle" | "boat" | "other";
 
 export const VEHICLE_CATEGORY_OPTIONS: Array<{ value: VehicleCategory; label: string }> = [
@@ -385,6 +387,90 @@ const BOAT_CATALOG = [
   },
 ] as const;
 
+/** Extra model lines common in EU/UK; merged into US rows for `marketRegion === "eu"`. */
+const EU_EXTRA_MODELS_BY_MAKE: Record<string, readonly string[]> = {
+  BMW: [
+    "1 Series",
+    "2 Series Gran Tourer",
+    "2 Series Active Tourer",
+    "iX1",
+    "iX2",
+    "X2",
+  ],
+  Audi: ["A1", "Q2", "e-tron", "e-tron Sportback"],
+  "Mercedes-Benz": ["EQA", "EQB", "EQC", "EQV", "T-Class", "Citan", "CLA Shooting Brake"],
+  Volkswagen: [
+    "ID.3",
+    "ID.5",
+    "ID.7",
+    "Passat",
+    "Polo",
+    "T-Cross",
+    "T-Roc",
+    "Touran",
+    "Arteon",
+    "California",
+  ],
+  Toyota: ["Aygo X", "bZ4X", "C-HR", "Proace", "Proace City"],
+  Ford: ["Puma", "Kuga", "Focus", "Mondeo", "Tourneo", "Ranger Raptor"],
+  Hyundai: ["Bayon", "i10", "i20", "i30", "IONIQ", "IONIQ 5 N"],
+  Kia: ["Ceed", "Picanto", "Stonic", "XCeed", "EV3"],
+  Nissan: ["Juke", "Qashqai", "X-Trail", "Townstar", "Primastar"],
+  Honda: ["e:Ny1", "Jazz", "ZR-V", "HR-V"],
+  Mazda: ["2", "CX-3", "MX-30"],
+  Subaru: ["Crosstrek", "Levorg"],
+  Volvo: ["EX40", "EC40"],
+  MINI: ["Aceman", "Cooper", "Cooper Electric"],
+  Porsche: ["Taycan Cross Turismo", "718 Spyder"],
+  "Land Rover": ["Range Rover SV", "Defender Octa"],
+};
+
+/** Brands and lines primarily marketed in Europe; merged into the car catalog for EU. */
+const EU_ONLY_CAR_BRANDS: readonly { make: string; models: readonly string[] }[] = [
+  { make: "Abarth", models: ["500e", "595", "695"] },
+  { make: "Alpine", models: ["A110", "A290"] },
+  { make: "Citroën", models: ["C3", "C4", "C5 Aircross", "ë-C4", "Berlingo", "SpaceTourer", "Ami"] },
+  { make: "Cupra", models: ["Born", "Formentor", "Leon", "Tavascan", "Terramar", "Ateca"] },
+  { make: "Dacia", models: ["Duster", "Sandero", "Jogger", "Spring", "Bigster"] },
+  { make: "DS", models: ["DS 3", "DS 4", "DS 7", "DS 9"] },
+  { make: "Fiat", models: ["500", "500e", "Panda", "Tipo", "600e"] },
+  { make: "Lancia", models: ["Ypsilon"] },
+  { make: "MG", models: ["MG3", "MG4", "MG5", "ZS", "HS", "Cyberster"] },
+  { make: "Opel", models: ["Corsa", "Astra", "Mokka", "Grandland", "Combo", "Frontera", "Vivaro"] },
+  { make: "Peugeot", models: ["208", "2008", "308", "3008", "408", "5008", "Rifter", "Partner", "e-208", "e-2008"] },
+  { make: "Renault", models: ["Clio", "Captur", "Austral", "Rafale", "Mégane", "Scénic", "Kangoo", "Trafic", "Master", "5 E-Tech"] },
+  { make: "SEAT", models: ["Ibiza", "Leon", "Ateca", "Tarraco"] },
+  { make: "Škoda", models: ["Fabia", "Scala", "Octavia", "Superb", "Kamiq", "Karoq", "Kodiaq", "Enyaq", "Elroq"] },
+  { make: "Smart", models: ["#1", "#3"] },
+  { make: "SsangYong", models: ["Torres", "Korando", "Rexton", "Musso"] },
+  { make: "Vauxhall", models: ["Corsa", "Astra", "Mokka", "Grandland", "Frontera", "Vivaro", "Combo"] },
+];
+
+function mergeEuCarCatalog(): { make: string; models: readonly string[] }[] {
+  const byMake = new Map<string, Set<string>>();
+  for (const row of CAR_CATALOG) {
+    byMake.set(row.make, new Set([...row.models]));
+  }
+  for (const [make, models] of Object.entries(EU_EXTRA_MODELS_BY_MAKE)) {
+    const bucket = byMake.get(make) ?? new Set();
+    for (const m of models) bucket.add(m);
+    byMake.set(make, bucket);
+  }
+  for (const row of EU_ONLY_CAR_BRANDS) {
+    const bucket = byMake.get(row.make) ?? new Set();
+    for (const m of row.models) bucket.add(m);
+    byMake.set(row.make, bucket);
+  }
+  return [...byMake.entries()]
+    .map(([make, set]) => ({
+      make,
+      models: [...set].sort((a, b) => a.localeCompare(b)) as readonly string[],
+    }))
+    .sort((a, b) => a.make.localeCompare(b.make));
+}
+
+const EU_CAR_CATALOG_MERGED: readonly { make: string; models: readonly string[] }[] = mergeEuCarCatalog();
+
 const VEHICLE_CATALOG_BY_CATEGORY: Record<VehicleCategory, readonly { make: string; models: readonly string[] }[]> = {
   car: CAR_CATALOG,
   motorcycle: MOTORCYCLE_CATALOG,
@@ -392,12 +478,26 @@ const VEHICLE_CATALOG_BY_CATEGORY: Record<VehicleCategory, readonly { make: stri
   other: [],
 };
 
-export function getMakesForCategory(category: VehicleCategory): readonly string[] {
-  return VEHICLE_CATALOG_BY_CATEGORY[category].map((entry) => entry.make);
+function vehicleCatalogRows(
+  category: VehicleCategory,
+  marketRegion: MarketRegion,
+): readonly { make: string; models: readonly string[] }[] {
+  if (category === "car" && marketRegion === "eu") {
+    return EU_CAR_CATALOG_MERGED;
+  }
+  return VEHICLE_CATALOG_BY_CATEGORY[category];
 }
 
-export function getModelsForMake(category: VehicleCategory, make: string): readonly string[] {
-  return VEHICLE_CATALOG_BY_CATEGORY[category].find((entry) => entry.make === make)?.models ?? [];
+export function getMakesForCategory(category: VehicleCategory, marketRegion: MarketRegion = "us"): readonly string[] {
+  return vehicleCatalogRows(category, marketRegion).map((entry) => entry.make);
+}
+
+export function getModelsForMake(
+  category: VehicleCategory,
+  make: string,
+  marketRegion: MarketRegion = "us",
+): readonly string[] {
+  return vehicleCatalogRows(category, marketRegion).find((entry) => entry.make === make)?.models ?? [];
 }
 
 export function categoryUsesCatalog(category: VehicleCategory): boolean {
