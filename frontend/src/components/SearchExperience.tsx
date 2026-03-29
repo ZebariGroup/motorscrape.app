@@ -277,6 +277,7 @@ export function SearchExperience() {
               priceBounds={filters.priceBounds}
               effectivePriceMin={filters.effectivePriceMin}
               effectivePriceMax={filters.effectivePriceMax}
+              isPriceFilterActive={filters.isPriceFilterActive}
               setPriceFilterMin={filters.setPriceFilterMin}
               setPriceFilterMax={filters.setPriceFilterMax}
               onClearFilters={filters.clearFilters}

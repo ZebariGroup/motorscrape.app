@@ -22,6 +22,14 @@ from app.db.account_store import (
 logger = logging.getLogger(__name__)
 
 
+class EmailNotVerifiedError(Exception):
+    """Raised when sign_in_with_password fails because the email is not confirmed yet."""
+
+
+class EmailAlreadyRegisteredError(Exception):
+    """Public sign_up rejected because the email is already registered in Supabase Auth."""
+
+
 class SupabaseAccountStore:
     def __init__(self) -> None:
         url = settings.supabase_url
@@ -32,21 +40,35 @@ class SupabaseAccountStore:
 
     def create_user(self, email: str, password: str, *, tier: str = "free") -> UserRecord:
         email_n = email.strip().lower()
-        res = self.client.auth.admin.create_user({
-            "email": email_n,
-            "password": password,
-            "email_confirm": True
-        })
-        if not res.user:
-            raise RuntimeError("Failed to create user")
+        # Use the public sign-up path so GoTrue sends the confirmation email (admin.create_user does not).
+        anon = (settings.supabase_anon_key or "").strip()
+        if not anon:
+            raise RuntimeError("SUPABASE_ANON_KEY must be set for email verification sign-ups.")
+
+        anon_client = create_client(settings.supabase_url.strip(), anon)
+        try:
+            res = anon_client.auth.sign_up({"email": email_n, "password": password})
+        except Exception as e:
+            msg = (getattr(e, "message", None) or str(e)).lower()
+            if (
+                "already been registered" in msg
+                or "user already registered" in msg
+                or "already registered" in msg
+            ):
+                raise EmailAlreadyRegisteredError from e
+            raise
+        if res.user is None:
+            raise RuntimeError("Sign up failed.")
 
         user_id = res.user.id
 
-        # Profile is created via trigger, but we might need to update the tier
         if tier != "free":
             self.client.table("profiles").update({"tier": tier}).eq("id", user_id).execute()
 
-        return self.get_user_by_id(user_id) # type: ignore[return-value]
+        record = self.get_user_by_id(user_id)
+        if record is None:
+            raise RuntimeError("Profile not found after sign up; retry shortly.")
+        return record
 
     def get_user_by_id(self, user_id: str) -> UserRecord | None:
         res = self.client.table("profiles").select("*").eq("id", user_id).execute()
@@ -65,7 +87,10 @@ class SupabaseAccountStore:
             res = self.client.auth.sign_in_with_password({"email": email.strip().lower(), "password": password})
             if res.user:
                 return self.get_user_by_id(res.user.id)
-        except Exception:
+        except Exception as e:
+            msg = (getattr(e, "message", None) or str(e)).lower()
+            if "email_not_confirmed" in msg or "email not confirmed" in msg:
+                raise EmailNotVerifiedError from e
             return None
         return None
 

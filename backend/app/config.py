@@ -134,6 +134,14 @@ class Settings(BaseSettings):
 
     # Supabase configuration
     supabase_url: str = Field(default="", validation_alias=AliasChoices("SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL"))
+    supabase_anon_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "SUPABASE_ANON_KEY",
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+            "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+        ),
+    )
     supabase_service_key: str = Field(default="", validation_alias=AliasChoices("SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_ROLE_KEY"))
 
     session_secret: str = Field(default="", validation_alias=AliasChoices("SESSION_SECRET", "MOTORSCRAPE_SESSION_SECRET"))

@@ -14,6 +14,7 @@ from app.api.deps import AccessContext, get_access_context
 from app.auth.session import SESSION_COOKIE_NAME, issue_session_token
 from app.config import settings
 from app.db.account_store import get_account_store
+from app.db.supabase_store import EmailAlreadyRegisteredError, EmailNotVerifiedError
 from app.tiers import TierId, limits_for_tier
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -65,7 +66,23 @@ def signup(body: SignUpBody, response: Response) -> dict[str, Any]:
     store = get_account_store(settings.accounts_db_path)
     if store.get_user_by_email(body.email):
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered.")
-    user = store.create_user(body.email, body.password, tier=TierId.FREE.value)
+    try:
+        user = store.create_user(body.email, body.password, tier=TierId.FREE.value)
+    except EmailAlreadyRegisteredError:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered.") from None
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "SUPABASE_ANON_KEY" in msg:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, msg) from exc
+        raise
+    if settings.supabase_url and settings.supabase_service_key:
+        # Session is issued only after they confirm the Supabase magic link / OTP.
+        return {
+            "id": user.id,
+            "email": user.email,
+            "tier": user.tier,
+            "email_verification_required": True,
+        }
     _set_session_cookie(response, user.id)
     return {"id": user.id, "email": user.email, "tier": user.tier}
 
@@ -75,7 +92,13 @@ def login(body: LoginBody, response: Response) -> dict[str, Any]:
     if not (settings.session_secret or "").strip():
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Accounts are not configured.")
     store = get_account_store(settings.accounts_db_path)
-    user = store.verify_login(body.email, body.password)
+    try:
+        user = store.verify_login(body.email, body.password)
+    except EmailNotVerifiedError:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Confirm the link in your email before signing in.",
+        ) from None
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password.")
     _set_session_cookie(response, user.id)

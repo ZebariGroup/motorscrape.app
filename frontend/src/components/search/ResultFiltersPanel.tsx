@@ -22,6 +22,7 @@ type Props = {
   priceBounds: { min: number; max: number } | null;
   effectivePriceMin: number | null;
   effectivePriceMax: number | null;
+  isPriceFilterActive: boolean;
   setPriceFilterMin: (v: number) => void;
   setPriceFilterMax: (v: number) => void;
   onClearFilters: () => void;
@@ -44,12 +45,19 @@ export function ResultFiltersPanel({
   priceBounds,
   effectivePriceMin,
   effectivePriceMax,
+  isPriceFilterActive,
   setPriceFilterMin,
   setPriceFilterMax,
   onClearFilters,
 }: Props) {
   const bodyStyleLabel = vehicleCategory === "car" ? "Style" : "Type / class";
   const bodyStyleAnyLabel = vehicleCategory === "car" ? "All styles" : "All types";
+  const priceStep = priceBounds ? sliderStep(priceBounds.min, priceBounds.max, 1) : 1;
+  const sliderMin = priceBounds ? effectivePriceMin ?? priceBounds.min : 0;
+  const sliderMax = priceBounds ? effectivePriceMax ?? priceBounds.max : 0;
+  const priceSpan = priceBounds ? Math.max(priceBounds.max - priceBounds.min, 1) : 1;
+  const sliderLeftPercent = priceBounds ? ((sliderMin - priceBounds.min) / priceSpan) * 100 : 0;
+  const sliderRightPercent = priceBounds ? ((sliderMax - priceBounds.min) / priceSpan) * 100 : 100;
   return (
     <div className="mb-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
       <button
@@ -123,37 +131,41 @@ export function ResultFiltersPanel({
               <div className="flex items-center justify-between text-xs">
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">Price</span>
                 <span className="text-zinc-500 dark:text-zinc-400">
-                  {priceBounds && effectivePriceMin != null && effectivePriceMax != null
-                    ? `${formatMoney(effectivePriceMin)} to ${formatMoney(effectivePriceMax)}`
+                  {priceBounds
+                    ? isPriceFilterActive
+                      ? `${formatMoney(sliderMin)} to ${formatMoney(sliderMax)}`
+                      : "Showing all prices"
                     : "No priced vehicles yet"}
                 </span>
               </div>
-              {priceBounds && effectivePriceMin != null && effectivePriceMax != null ? (
+              {priceBounds ? (
                 <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
+                  <div className="relative flex items-center gap-2">
+                    <div className="pointer-events-none absolute inset-x-0 h-1 rounded-full bg-zinc-200 dark:bg-zinc-700">
+                      <div
+                        className="absolute h-full rounded-full bg-emerald-400"
+                        style={{ left: `${sliderLeftPercent}%`, width: `${Math.max(0, sliderRightPercent - sliderLeftPercent)}%` }}
+                      />
+                    </div>
                     <input
                       type="range"
                       aria-label="Minimum price"
                       min={priceBounds.min}
                       max={priceBounds.max}
-                      step={sliderStep(priceBounds.min, priceBounds.max, 500)}
-                      value={effectivePriceMin}
-                      onChange={(e) =>
-                        setPriceFilterMin(Math.min(Number(e.target.value), effectivePriceMax))
-                      }
-                      className="min-w-0 flex-1 accent-emerald-600"
+                      step={priceStep}
+                      value={sliderMin}
+                      onChange={(e) => setPriceFilterMin(Math.min(Number(e.target.value), sliderMax))}
+                      className="relative z-10 min-w-0 flex-1 appearance-none accent-emerald-600"
                     />
                     <input
                       type="range"
                       aria-label="Maximum price"
                       min={priceBounds.min}
                       max={priceBounds.max}
-                      step={sliderStep(priceBounds.min, priceBounds.max, 500)}
-                      value={effectivePriceMax}
-                      onChange={(e) =>
-                        setPriceFilterMax(Math.max(Number(e.target.value), effectivePriceMin))
-                      }
-                      className="min-w-0 flex-1 accent-emerald-600"
+                      step={priceStep}
+                      value={sliderMax}
+                      onChange={(e) => setPriceFilterMax(Math.max(Number(e.target.value), sliderMin))}
+                      className="relative z-10 min-w-0 flex-1 appearance-none accent-emerald-600"
                     />
                   </div>
                   <div className="flex justify-between text-[11px] text-zinc-500 dark:text-zinc-400">

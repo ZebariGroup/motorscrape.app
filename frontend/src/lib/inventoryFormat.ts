@@ -5,7 +5,7 @@ export type AggregatedListing = VehicleListing & {
   dealership_website: string;
 };
 
-export function formatMoney(n: number | undefined, emptyLabel = "—") {
+export function formatMoney(n: number | null | undefined, emptyLabel = "—") {
   if (n == null || Number.isNaN(n)) return emptyLabel;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -81,6 +81,6 @@ export function listingIdentityKey(v: Partial<AggregatedListing>, fallback = "")
 
 export function sliderStep(min: number, max: number, fallback: number) {
   const span = Math.max(0, max - min);
-  if (span <= 0) return fallback;
-  return Math.max(fallback, Math.round(span / 100));
+  if (span <= 0) return Math.max(1, fallback);
+  return Math.max(1, Math.round(span / 120));
 }

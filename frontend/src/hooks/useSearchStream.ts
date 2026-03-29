@@ -242,23 +242,30 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     [listings],
   );
 
+  const isPriceFilterActive = useMemo(() => {
+    if (!priceBounds) return false;
+    if (priceFilterMin != null && priceFilterMin > priceBounds.min) return true;
+    if (priceFilterMax != null && priceFilterMax < priceBounds.max) return true;
+    return false;
+  }, [priceBounds, priceFilterMin, priceFilterMax]);
+
   const effectivePriceMin = useMemo(() => {
-    if (!priceBounds) return null;
+    if (!priceBounds || !isPriceFilterActive) return null;
     return clampNumber(
       priceFilterMin ?? priceBounds.min,
       priceBounds.min,
       priceFilterMax ?? priceBounds.max,
     );
-  }, [priceBounds, priceFilterMax, priceFilterMin]);
+  }, [isPriceFilterActive, priceBounds, priceFilterMax, priceFilterMin]);
 
   const effectivePriceMax = useMemo(() => {
-    if (!priceBounds) return null;
+    if (!priceBounds || !isPriceFilterActive) return null;
     return clampNumber(
       priceFilterMax ?? priceBounds.max,
       effectivePriceMin ?? priceBounds.min,
       priceBounds.max,
     );
-  }, [effectivePriceMin, priceBounds, priceFilterMax]);
+  }, [effectivePriceMin, isPriceFilterActive, priceBounds, priceFilterMax]);
 
   const filteredListings = useMemo(() => {
     const filtered = listings.filter((listing) => {
@@ -271,10 +278,18 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       if (colorFilter && listing.exterior_color !== colorFilter) {
         return false;
       }
-      if (effectivePriceMin != null && (listing.price == null || listing.price < effectivePriceMin)) {
+      if (
+        isPriceFilterActive &&
+        effectivePriceMin != null &&
+        (listing.price == null || listing.price < effectivePriceMin)
+      ) {
         return false;
       }
-      if (effectivePriceMax != null && (listing.price == null || listing.price > effectivePriceMax)) {
+      if (
+        isPriceFilterActive &&
+        effectivePriceMax != null &&
+        (listing.price == null || listing.price > effectivePriceMax)
+      ) {
         return false;
       }
       return true;
@@ -283,6 +298,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   }, [
     bodyStyleFilter,
     colorFilter,
+    isPriceFilterActive,
     effectivePriceMax,
     effectivePriceMin,
     listings,
@@ -299,6 +315,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const activeResultFilterCount = useMemo(() => {
     let count = 0;
     if (
+      isPriceFilterActive &&
       priceBounds &&
       effectivePriceMin != null &&
       effectivePriceMax != null &&
@@ -321,6 +338,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     colorFilter,
     effectivePriceMax,
     effectivePriceMin,
+    isPriceFilterActive,
     priceBounds,
     yearFilter,
   ]);
@@ -562,6 +580,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       setPriceFilterMin,
       priceFilterMax,
       setPriceFilterMax,
+      isPriceFilterActive,
       priceBounds,
       yearOptions,
       bodyStyleOptions,

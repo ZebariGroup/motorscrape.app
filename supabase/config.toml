@@ -150,10 +150,18 @@ max_indexes = 5
 [auth]
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
-# in emails.
-site_url = "http://127.0.0.1:3000"
+# in emails. Matches production; for local-only link testing in Inbucket, temporarily set this to
+# http://127.0.0.1:3000 and restart `supabase start`.
+site_url = "https://www.motorscrape.com"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+additional_redirect_urls = [
+  "http://127.0.0.1:3000",
+  "http://localhost:3000",
+  "https://127.0.0.1:3000",
+  "https://localhost:3000",
+  "https://motorscrape.com",
+  "https://www.motorscrape.com",
+]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to the local API URL (http://127.0.0.1:<port>/auth/v1).
@@ -206,36 +214,66 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
-max_frequency = "1s"
+max_frequency = "1m0s"
 # Number of characters used in the email OTP.
-otp_length = 6
+otp_length = 8
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
-# Use a production-ready SMTP server
-# [auth.email.smtp]
-# enabled = true
-# host = "smtp.sendgrid.net"
-# port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# Custom SMTP via Resend (https://resend.com/docs/send-with-smtp — also "Send with Supabase" in Resend docs).
+# Uses the same credentials as backend transactional mail: RESEND_API_KEY + a verified-domain From address.
+# - `supabase config push` applies Auth (templates + SMTP) to the linked project; requires SUPABASE_ACCESS_TOKEN plus RESEND_API_KEY and ALERTS_FROM_EMAIL in .env.
+# - Local: with enabled = true, `supabase start` sends real mail unless you temporarily set enabled =.false and use Inbucket.
+[auth.email.smtp]
+enabled = true
+host = "smtp.resend.com"
+port = 587
+user = "resend"
+pass = "env(RESEND_API_KEY)"
+admin_email = "env(ALERTS_FROM_EMAIL)"
+sender_name = "Motorscrape"
 
-# Uncomment to customize email template
-# [auth.email.template.invite]
-# subject = "You have been invited"
-# content_path = "./supabase/templates/invite.html"
+# Email HTML templates. Restart after edits: `supabase stop && supabase start`.
+# Paths: `auth.email.template.*` uses repo-root-relative (e.g. supabase/templates/…); `auth.email.notification.*` uses paths under supabase/ (e.g. templates/…).
+# For hosted Supabase, paste the same HTML into Dashboard → Authentication → Email Templates.
+[auth.email.template.invite]
+subject = "You’re invited to Motorscrape"
+content_path = "supabase/templates/invite.html"
 
-# Uncomment to customize notification email template
-# [auth.email.notification.password_changed]
-# enabled = true
-# subject = "Your password has been changed"
-# content_path = "./templates/password_changed_notification.html"
+[auth.email.template.confirmation]
+subject = "Confirm your Motorscrape email"
+content_path = "supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset your Motorscrape password"
+content_path = "supabase/templates/recovery.html"
+
+[auth.email.template.magic_link]
+subject = "Your Motorscrape sign-in link"
+content_path = "supabase/templates/magic_link.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your new Motorscrape email"
+content_path = "supabase/templates/email_change.html"
+
+[auth.email.template.reauthentication]
+subject = "Your Motorscrape verification code"
+content_path = "supabase/templates/reauthentication.html"
+
+[auth.email.notification.password_changed]
+enabled = true
+subject = "Your Motorscrape password was changed"
+# Notification templates resolve relative to supabase/ (not repo root); use templates/... here.
+content_path = "templates/password_changed_notification.html"
+
+[auth.email.notification.email_changed]
+enabled = true
+subject = "Your Motorscrape email was changed"
+content_path = "templates/email_changed_notification.html"
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.
@@ -283,8 +321,8 @@ max_enrolled_factors = 10
 
 # Control MFA via App Authenticator (TOTP)
 [auth.mfa.totp]
-enroll_enabled = false
-verify_enabled = false
+enroll_enabled = true
+verify_enabled = true
 
 # Configure MFA via Phone Messaging
 [auth.mfa.phone]
