@@ -58,7 +58,7 @@ export function DealerProgressList({
                 {queuedCount > 0 ? `${queuedCount} queued` : null}
               </span>
             ) : null}
-            {dealerList.length > 0 && !(allDealersSettled && !running) ? (
+            {dealerList.length > 0 && !allDealersSettled ? (
               <span className="mt-1 block text-[11px] text-zinc-400 dark:text-zinc-500">
                 Tap a dealer to show their vehicles first in inventory.
               </span>
@@ -109,7 +109,7 @@ export function DealerProgressList({
               const streamedListingCount = listingCountsByDealerKey[dealerSiteKey(d.website)] ?? 0;
               const visibleListingsFound = Math.max(d.listings_found ?? 0, streamedListingCount);
               const isTerminal = d.status === "done" || d.status === "error";
-              const simplifyRow = !running && isTerminal;
+              const simplifyRow = isTerminal;
               const listingSummary =
                 visibleListingsFound > 0
                   ? `${visibleListingsFound.toLocaleString()} listings`
