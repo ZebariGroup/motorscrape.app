@@ -12,7 +12,6 @@ dependencies = [
     "openai==1.59.7",
     "beautifulsoup4==4.14.3",
     "lxml==6.0.2",
-    "playwright==1.49.1",
     "itsdangerous==2.2.0",
     "passlib[bcrypt]==1.7.4",
     "bcrypt==4.2.1",

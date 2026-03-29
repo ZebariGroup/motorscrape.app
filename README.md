@@ -122,8 +122,9 @@ To keep slow dealerships from bottlenecking the rest of a search, the backend al
 
 **Setup (own server / Docker / local):**
 
-1. Install Python deps (`playwright` is in [`backend/requirements.txt`](backend/requirements.txt)).
-2. Install the browser once: `cd backend && playwright install chromium`
+1. Install base Python deps: `cd backend && pip install -r requirements.txt`.
+2. (Optional local Playwright mode) install browsers:
+   `cd backend && pip install playwright && playwright install chromium`
 3. Set env: `PLAYWRIGHT_ENABLED=true` (optional: `PLAYWRIGHT_MAX_WORKERS`, `PLAYWRIGHT_TIMEOUT_MS`, `PLAYWRIGHT_POST_LOAD_WAIT_MS` — see [`.env.example`](.env.example)).
 4. Watch **`fetch_metrics`** after rollout. A healthy change should increase `playwright_ok` and reduce `zenrows_rendered` without reducing listing completeness.
 
