@@ -1,0 +1,12 @@
+---
+description: Use live search logs for scraper debugging
+alwaysApply: true
+---
+
+# Live Search Logs First
+
+- For production scrape issues, check live run logs first at `https://www.motorscrape.com/server/search/logs`.
+- Use `correlation_id`, dealership-level errors, and fetch/extraction metrics to identify platform-specific failures before changing code.
+- When a user reports a bad result, ask for or locate the newest run and debug from that run's failing dealerships.
+- Prefer fixes that preserve successful dealerships while improving failures (timeouts, 403s, routing misses).
+- After each fix, validate by rerunning the same query and comparing error counts and result quality in the live logs.
