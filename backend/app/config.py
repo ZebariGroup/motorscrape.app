@@ -67,9 +67,9 @@ class Settings(BaseSettings):
     zenrows_premium_proxy: bool = False
     # Milliseconds to wait after JS render (only when js_render=true); lower saves time/credits.
     zenrows_wait_ms: int = 3000
-    # Max concurrent in-flight ZenRows API calls. Keep the default conservative so
-    # render-heavy OEM inventory searches do not overrun lower-tier plan limits.
-    zenrows_max_concurrency: int = 3
+    # Max concurrent in-flight ZenRows API calls. Default to the current Start-tier
+    # capacity so production can use the upgraded pool without extra env tuning.
+    zenrows_max_concurrency: int = 50
     # Retry transient ZenRows transport/rate-limit failures with small backoff.
     zenrows_request_attempts: int = 2
     zenrows_retry_backoff_ms: int = 1200
@@ -78,8 +78,9 @@ class Settings(BaseSettings):
     scrapingbee_api_key: str = ""
     scrapingbee_wait_ms: int = 3000
     scrapingbee_max_concurrency: int = 4
-    # Shared cap across managed providers (ZenRows + ScrapingBee).
-    managed_scraper_max_concurrency: int = 6
+    # Shared cap across managed providers (ZenRows + ScrapingBee). Keep this aligned
+    # with the upgraded ZenRows plan so the aggregate gate is not the bottleneck.
+    managed_scraper_max_concurrency: int = 50
     # Homepage fetches do not usually need JS rendering; keep off to reduce managed spend.
     homepage_managed_js_render: bool = False
     # Self-hosted headless Chromium (Playwright). Runs after direct HTTP fails or HTML is
@@ -95,7 +96,7 @@ class Settings(BaseSettings):
     max_dealerships: int = 8
     # Concurrent dealership workers (I/O-bound scraping). Higher keeps unrelated dealers moving
     # when a few sites are slow or blocked.
-    search_concurrency: int = 8
+    search_concurrency: int = 16
     # When managed scrapers are enabled, bound worker fan-out by external capacity.
     search_workers_per_managed_slot: int = 2
     # Max concurrent HTTP fetches per normalized dealer domain (avoids hammering shared infra).
