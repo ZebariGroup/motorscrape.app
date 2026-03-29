@@ -1546,3 +1546,31 @@ def test_try_extract_oneaudi_flattens_nested_offer_url() -> None:
     assert vehicle.model == "A5"
     assert vehicle.trim == "Premium Plus"
     assert vehicle.listing_url == "https://www.audidealer.example/vdp/a5-1"
+
+
+def test_try_extract_dealer_inspire_next_data_vehicle_aliases() -> None:
+    """Dealer Inspire / Next.js SRP JSON uses vehicleMake/vehicleModel-style keys."""
+    html = """
+    <html><body>
+      <script id="__NEXT_DATA__" type="application/json">
+      {"props":{"pageProps":{"results":[
+        {"vehicleMake":"Honda","vehicleModel":"Civic","vehicleYear":2024,
+         "vdpPath":"/used/honda-civic-1","stockNumber":"S1","price":22000}
+      ]}}}
+      </script>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer-inspire.example/searchused",
+        html=html,
+        make_filter="Honda",
+        model_filter="Civic",
+        platform_id="dealer_inspire",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.make == "Honda"
+    assert v.model == "Civic"
+    assert v.year == 2024
+    assert v.listing_url == "https://dealer-inspire.example/used/honda-civic-1"

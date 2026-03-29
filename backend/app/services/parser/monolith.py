@@ -113,6 +113,15 @@ _INVENTORY_KEYS = {
     "odometermiles",
     "odometerreading",
     "mileagevalue",
+    # Dealer Inspire / Next.js SRP payloads (camelCase keys lowercased in _collect_vehicle_arrays)
+    "vehiclemake",
+    "vehiclemodel",
+    "vehicleyear",
+    "makename",
+    "modelname",
+    "detailurl",
+    "vehicleurl",
+    "vdppath",
 }
 
 _VEHICLE_KEEP_KEYS = {
@@ -1148,7 +1157,14 @@ def _pick_price_from_pricelib(raw: Any) -> float | None:
 
 
 def _pick_year(d: dict[str, Any]) -> int | None:
-    y = d.get("year") or d.get("vehicleModelDate") or d.get("modelYear") or d.get("itemYear")
+    y = (
+        d.get("year")
+        or d.get("vehicleModelDate")
+        or d.get("modelYear")
+        or d.get("itemYear")
+        or d.get("vehicleYear")
+        or d.get("yearValue")
+    )
     return _coerce_int(y)
 
 
@@ -1340,8 +1356,10 @@ def dict_to_vehicle_listing(
         or d.get("brand")
         or d.get("manuf")
         or d.get("itemMake")
+        or d.get("vehicleMake")
+        or d.get("makeName")
     )
-    model = d.get("model") or d.get("itemModel")
+    model = d.get("model") or d.get("itemModel") or d.get("vehicleModel") or d.get("modelName")
     vin = d.get("vin") or d.get("vehicleIdentificationNumber") or d.get("vehicle_identification_number")
     if isinstance(make, dict):
         make = make.get("name")
@@ -1377,6 +1395,9 @@ def dict_to_vehicle_listing(
         or d.get("itemUrl")
         or d.get("sameAs")
         or d.get("link")
+        or d.get("detailUrl")
+        or d.get("vehicleUrl")
+        or d.get("vdpPath")
     )
     listing_url = None
     if isinstance(vdp, list) and vdp:

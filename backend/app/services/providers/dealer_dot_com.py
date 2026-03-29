@@ -20,4 +20,5 @@ def extract_inventory(
         make_filter=make_filter,
         model_filter=model_filter,
         vehicle_category=vehicle_category,
+        platform_id="dealer_dot_com",
     )

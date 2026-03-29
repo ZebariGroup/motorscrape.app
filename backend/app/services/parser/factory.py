@@ -42,6 +42,51 @@ class DealerOnInventoryParser:
         return records
 
 
+class DealerInspireInventoryParser:
+    """Normalize Dealer Inspire / Next.js inventory blobs before dict_to_vehicle_listing."""
+
+    platform_id = "dealer_inspire"
+
+    def normalize_pricing_dicts(self, records: list[dict]) -> list[dict]:
+        normalized: list[dict] = []
+        for record in records:
+            item = dict(record)
+            if not item.get("make"):
+                m = item.get("vehicleMake") or item.get("makeName")
+                if m:
+                    item["make"] = m
+            if not item.get("model"):
+                mdl = item.get("vehicleModel") or item.get("modelName")
+                if mdl:
+                    item["model"] = mdl
+            if item.get("year") in (None, "", 0) and (
+                item.get("vehicleYear") is not None or item.get("yearValue") is not None
+            ):
+                item["year"] = item.get("vehicleYear") if item.get("vehicleYear") is not None else item.get("yearValue")
+            if not item.get("vdpUrl"):
+                link = item.get("detailUrl") or item.get("vehicleUrl") or item.get("vdpPath")
+                if link:
+                    item["vdpUrl"] = link
+            nested = item.get("vehicle")
+            if isinstance(nested, dict):
+                for key in (
+                    "make",
+                    "model",
+                    "year",
+                    "vin",
+                    "vdpUrl",
+                    "stockNumber",
+                    "price",
+                    "trim",
+                    "mileage",
+                ):
+                    nv = nested.get(key)
+                    if nv not in (None, "", [], {}) and item.get(key) in (None, "", [], {}):
+                        item[key] = nv
+            normalized.append(item)
+        return normalized
+
+
 class OneAudiFalconInventoryParser:
     platform_id = "oneaudi_falcon"
 
@@ -71,6 +116,8 @@ def inventory_parser_for_platform(platform_id: str | None) -> InventoryHtmlParse
         return DealerDotComInventoryParser()
     if platform_id == "dealer_on":
         return DealerOnInventoryParser()
+    if platform_id == "dealer_inspire":
+        return DealerInspireInventoryParser()
     if platform_id == "oneaudi_falcon":
         return OneAudiFalconInventoryParser()
     return GenericInventoryParser()
