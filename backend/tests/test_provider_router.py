@@ -39,6 +39,35 @@ def test_resolve_inventory_url_for_provider_prefers_team_velocity_all_inventory_
     assert url == "https://www.examplepowersports.com/--inventory"
 
 
+def test_resolve_inventory_url_for_provider_canonicalizes_oneaudi_all_to_generic_new_root() -> None:
+    route = ProviderRoute(
+        platform_id="oneaudi_falcon",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("en/inventory/new", "en/inventory/used"),
+        inventory_url_hint="https://www.audicarlsbad.com/en/inventory/new/audi-q5/",
+    )
+    html = """
+    <html><body>
+      <a href="/en/inventory/new/audi-q5/">New Q5</a>
+      <a href="/en/inventory/used/audi-q7/">Used Q7</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.audicarlsbad.com/en/",
+        route,
+        fallback_url="https://www.audicarlsbad.com/en/inventory/new/audi-q5/",
+        make="Audi",
+        model="Q5,Q7,Q3",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.audicarlsbad.com/en/inventory/new/"
+
+
 def test_resolve_inventory_url_for_provider_prefers_dealer_spike_inventory_over_model_list() -> None:
     route = ProviderRoute(
         platform_id="dealer_spike",

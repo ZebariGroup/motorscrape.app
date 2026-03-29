@@ -788,6 +788,21 @@ def _canonical_team_velocity_inventory_url(base_url: str, condition: str) -> str
     return urlunsplit((parts.scheme, parts.netloc, "/--inventory", query, ""))
 
 
+def _canonical_oneaudi_inventory_url(url: str, condition: str) -> str:
+    parts = urlsplit(url)
+    raw_segments = [segment for segment in parts.path.split("/") if segment]
+    lower_segments = [segment.lower() for segment in raw_segments]
+    prefix_segments: list[str] = []
+    if "inventory" in lower_segments:
+        prefix_segments = raw_segments[: lower_segments.index("inventory")]
+    elif raw_segments and re.fullmatch(r"[a-z]{2}(?:-[a-z]{2})?", raw_segments[0].lower()):
+        prefix_segments = raw_segments[:1]
+    cond = (condition or "all").strip().lower()
+    inventory_condition = "used" if cond == "used" else "new"
+    path_segments = [*prefix_segments, "inventory", inventory_condition]
+    return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join(path_segments) + "/", "", ""))
+
+
 def _canonical_team_velocity_filtered_inventory_url(
     base_url: str,
     *,
@@ -1407,6 +1422,13 @@ def resolve_inventory_url_for_provider(
             else:
                 generic_base = _canonical_dealer_inspire_inventory_url(generic_base, condition)
             best_url = generic_base
+
+    if route and route.platform_id == "oneaudi_falcon" and condition == "all":
+        generic_base = _normalize_inventory_candidate_url(
+            best_url if best_score > 0 else (route.inventory_url_hint if route else None) or fallback_url
+        )
+        if generic_base:
+            best_url = _canonical_oneaudi_inventory_url(generic_base, "new")
 
     if route and not model_norm and route.platform_id == "dealer_spike":
         generic_base = _normalize_inventory_candidate_url(

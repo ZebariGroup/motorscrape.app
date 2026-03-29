@@ -427,7 +427,29 @@ def _collect_vehicle_arrays(obj: Any, out: list[dict], depth: int = 0) -> None:
         return
     if isinstance(obj, dict):
         lower_keys = {k.lower() for k in obj.keys()}
-        if len(lower_keys & _INVENTORY_KEYS) >= 2:
+        title = str(obj.get("name") or obj.get("title") or obj.get("vehicleTitle") or obj.get("item") or "").strip()
+        has_vehicle_offer_record = (
+            any(key in lower_keys for key in {"brand", "make", "manufacturer", "manuf", "itemmake"})
+            and any(key in lower_keys for key in {"offers", "price", "itemprice"})
+            and (
+                any(
+                    key in lower_keys
+                    for key in {
+                        "model",
+                        "itemmodel",
+                        "vehicleconfiguration",
+                        "vehiclecondition",
+                        "vehicleidentificationnumber",
+                        "vin",
+                        "vehiclemodeldate",
+                        "bodystyle",
+                        "bodytype",
+                    }
+                )
+                or bool(_TITLE_YEAR_RE.match(title))
+            )
+        )
+        if len(lower_keys & _INVENTORY_KEYS) >= 2 or has_vehicle_offer_record:
             out.append(obj)
             return
         for v in obj.values():

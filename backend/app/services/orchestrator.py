@@ -46,6 +46,7 @@ from app.services.parser import extract_vehicles_from_html, try_extract_vehicles
 from app.services.places import find_car_dealerships, find_dealerships
 from app.services.platform_store import normalize_dealer_domain
 from app.services.provider_router import (
+    _canonical_oneaudi_inventory_url,
     _build_family_inventory_path_variants,
     ProviderRoute,
     detect_or_lookup_provider,
@@ -95,31 +96,10 @@ def _team_velocity_inventory_url_from_model_hub(
 def _oneaudi_all_inventory_urls(url: str | None) -> list[str]:
     if not url:
         return []
-    parts = urlsplit(url)
-    path = parts.path.rstrip("/")
-    path_lower = path.lower()
-    variants: list[str] = []
-    if "/inventory/new" in path_lower:
-        variants.extend(
-            [
-                urlunsplit((parts.scheme, parts.netloc, f"{path}/", parts.query, "")),
-                urlunsplit((parts.scheme, parts.netloc, f"{path[:-3]}used/", parts.query, "")),
-            ]
-        )
-    elif "/inventory/used" in path_lower:
-        variants.extend(
-            [
-                urlunsplit((parts.scheme, parts.netloc, f"{path}/", parts.query, "")),
-                urlunsplit((parts.scheme, parts.netloc, f"{path[:-4]}new/", parts.query, "")),
-            ]
-        )
-    elif path_lower.endswith("/inventory"):
-        variants.extend(
-            [
-                urlunsplit((parts.scheme, parts.netloc, f"{path}/new/", parts.query, "")),
-                urlunsplit((parts.scheme, parts.netloc, f"{path}/used/", parts.query, "")),
-            ]
-        )
+    variants = [
+        _canonical_oneaudi_inventory_url(url, "new"),
+        _canonical_oneaudi_inventory_url(url, "used"),
+    ]
     seen: set[str] = set()
     ordered: list[str] = []
     for candidate in variants:
@@ -1210,6 +1190,61 @@ async def stream_search(
                         fetch_metrics[metric_key] += metric_value
             return html, method
 
+        async def _try_oneaudi_initial_inventory_alternates(primary_url: str) -> bool:
+            nonlocal current_html, current_method, inv_url
+            if not (
+                route
+                and route.platform_id == "oneaudi_falcon"
+                and vehicle_condition == "all"
+                and primary_url
+            ):
+                return False
+            for retry_url in _oneaudi_all_inventory_urls(primary_url):
+                if retry_url.rstrip("/") == primary_url.rstrip("/"):
+                    continue
+                chunks.append(
+                    sse_pack(
+                        "dealership",
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": d.name,
+                            "website": website,
+                            "current_url": retry_url,
+                            "status": "scraping",
+                        },
+                    )
+                )
+                try:
+                    retry_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                    if retry_timeout is None:
+                        raise RuntimeError("dealer_time_budget_exhausted")
+                    current_html, current_method = await asyncio.wait_for(
+                        _fetch(
+                            retry_url,
+                            "inventory",
+                            prefer_render=bool(route.requires_render),
+                            platform_id=route.platform_id,
+                        ),
+                        timeout=retry_timeout,
+                    )
+                    inv_url = retry_url
+                    route.inventory_url_hint = retry_url
+                    logger.info(
+                        "Recovered OneAudi initial inventory URL for %s via alternate %s",
+                        d.name,
+                        retry_url,
+                    )
+                    return True
+                except Exception as retry_error:
+                    logger.debug(
+                        "OneAudi initial inventory retry failed for %s via %s: %s",
+                        d.name,
+                        retry_url,
+                        retry_error,
+                    )
+            return False
+
         def _phase_timeout(
             base_timeout: float,
             *,
@@ -1546,10 +1581,15 @@ async def stream_search(
                     )
                 except asyncio.TimeoutError:
                     logger.warning(f"{cid_log}Initial inventory scrape timed out for %s", inv_url)
-                    if domain:
-                        record_provider_failure(domain)
+                    recovered = await _try_oneaudi_initial_inventory_alternates(inv_url)
                     inventory_retry_url = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
-                    if inventory_retry_url and inventory_retry_url.rstrip("/") != (inv_url or "").rstrip("/"):
+                    if not recovered and domain:
+                        record_provider_failure(domain)
+                    if (
+                        not recovered
+                        and inventory_retry_url
+                        and inventory_retry_url.rstrip("/") != (inv_url or "").rstrip("/")
+                    ):
                         chunks.append(
                             sse_pack(
                                 "dealership",
@@ -1590,7 +1630,7 @@ async def stream_search(
                             )
                             await _record_dealer_score()
                             return chunks
-                    else:
+                    elif not recovered:
                         append_dealer_error(
                             f"Timed out while fetching inventory page after ~{int(fetch_timeout)}s.",
                             current_url=inv_url,
@@ -1599,8 +1639,8 @@ async def stream_search(
                         return chunks
                 except Exception as e:
                     logger.warning(f"{cid_log}Initial inventory scrape failed for %s: %s", inv_url, e)
-                    recovered = False
-                    if "403" in str(e) or "All fetch methods failed" in str(e):
+                    recovered = await _try_oneaudi_initial_inventory_alternates(inv_url)
+                    if not recovered and ("403" in str(e) or "All fetch methods failed" in str(e)):
                         for retry_url in _inventory_url_recovery_candidates(
                             inv_url=inv_url,
                             base_url=base_url,

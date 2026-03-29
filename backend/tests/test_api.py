@@ -129,7 +129,8 @@ def test_admin_user_update_appears_in_audit_and_detail(monkeypatch) -> None:
     admin_signup = local_client.post("/auth/signup", json={"email": "matthew@zebarigroup.com", "password": "hunter22!!"})
     assert admin_signup.status_code == 201
 
-    target_signup = local_client.post("/auth/signup", json={"email": "customer@example.com", "password": "hunter22!!"})
+    target_client = TestClient(app)
+    target_signup = target_client.post("/auth/signup", json={"email": "customer@example.com", "password": "hunter22!!"})
     assert target_signup.status_code == 201
     target_user_id = target_signup.json()["id"]
 

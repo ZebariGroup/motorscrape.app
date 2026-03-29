@@ -153,6 +153,7 @@ async def execute_alert_subscription(
         user_id=user.id,
         email=user.email,
         anon_key=None,
+        is_admin=bool(user.is_admin),
     )
     quota = evaluate_search_start(ctx, store)
     next_run_at = next_subscription_run(subscription, now_ts=started_at)
