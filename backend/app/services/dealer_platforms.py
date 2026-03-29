@@ -688,7 +688,9 @@ def _family_stack_allowed_for_target(platform_id: str, html_lower: str, page_url
     if platform_id == "toyota_lexus_oem_inventory":
         if infiniti_or_nissan_host and "toyota" not in host and "lexus" not in host:
             return False
-        return any(token in host or token in target for token in ("toyota", "lexus"))
+        # Hostname only: other OEM sites (e.g. Alfa Romeo DDC) mention Toyota/Lexus in
+        # footers or comparison copy; body-text matching misroutes to /inventory/new/... SRPs.
+        return "toyota" in host or "lexus" in host
     if platform_id == "hyundai_inventory_search":
         return "hyundai" in host or "hyundai" in target
     if platform_id == "kia_inventory":

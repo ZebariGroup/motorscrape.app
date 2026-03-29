@@ -181,6 +181,24 @@ def test_detect_platform_profile_nissan_host_not_ford_family_when_ford_is_substr
     assert profile.platform_id == "nissan_infiniti_inventory"
 
 
+def test_detect_platform_profile_alfa_host_not_toyota_lexus_when_footer_mentions_toyota_lexus() -> None:
+    """DDC Alfa hosts mention Toyota/Lexus in copy; Toyota OEM routing must not apply."""
+    html = """
+    <html><body>
+      <link href="https://pictures.dealer.com/x" />
+      <script>window.DDC.WidgetData["x"]={}; ddc.widgetdata</script>
+      <div class="si-vehicle-box"></div>
+      <div class="inventory_listing"></div>
+      <a href="/viewdetails/new/abc/2025-alfa-romeo-giulia">Details</a>
+      <script>var unlockCTADiscountData = {};</script>
+      <footer>Compare Toyota and Lexus — we have Alfa Romeo inventory.</footer>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.alfaromeoofbirmingham.com/")
+    assert profile is not None
+    assert profile.platform_id == "dealer_dot_com"
+
+
 def test_inventory_render_plan_uses_sonic_scroll_for_nissan_infiniti_inventory() -> None:
     plan = inventory_render_plan_for_url(
         "https://www.jeffreynissan.com/inventory/new",
