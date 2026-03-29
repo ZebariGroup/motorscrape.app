@@ -5,8 +5,8 @@ from __future__ import annotations
 from app.services.scraper import (
     _extract_inventory_api_urls,
     _extract_inventory_get_requests,
-    _inventory_api_headers,
     _host_is_express_retail,
+    _inventory_api_headers,
     _rewrite_inventory_get_query_for_page,
     _rewrite_inventory_post_body_for_page,
     _should_prefer_zenrows_render,

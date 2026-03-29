@@ -2,8 +2,8 @@ import json
 
 from app.services.dealer_platforms import (
     detect_platform_profile,
-    inventory_render_plan_for_url,
     inventory_hints_for_platform,
+    inventory_render_plan_for_url,
     playwright_inventory_instructions_for_url,
     zenrows_inventory_js_instructions_for_url,
 )

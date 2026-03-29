@@ -282,7 +282,17 @@ def test_try_extract_basspro_inventory_card() -> None:
 
 
 def test_try_extract_onewater_listing_card_and_hidden_json() -> None:
-    html = """
+    boat_details_value = (
+        '{&quot;title&quot;:&quot;2026 BARLETTA L23M&quot;,'
+        '&quot;stockNumber&quot;:&quot;N316381&quot;,'
+        '&quot;price&quot;:149401.95,'
+        '&quot;sharePhoto&quot;:&quot;https://images.example.com/barletta-alt.jpg&quot;,'
+        '&quot;condition&quot;:&quot;New&quot;,'
+        '&quot;owner&quot;:&quot;Singleton Marine - Lake Keowee&quot;,'
+        '&quot;year&quot;:2026,&quot;make&quot;:&quot;BARLETTA&quot;,'
+        '&quot;model&quot;:&quot;L23M&quot;}'
+    )
+    html = f"""
     <html><body>
       <div class="sbiGrid">
         <div class="item">
@@ -315,7 +325,7 @@ def test_try_extract_onewater_listing_card_and_hidden_json() -> None:
             <div class="modal__overlay">
               <div class="modal__container">
                 <div class="modal-content-content">
-                  <input type="hidden" name="boat_details" value="{&quot;title&quot;:&quot;2026 BARLETTA L23M&quot;,&quot;stockNumber&quot;:&quot;N316381&quot;,&quot;price&quot;:149401.95,&quot;sharePhoto&quot;:&quot;https:\/\/images.example.com\/barletta-alt.jpg&quot;,&quot;condition&quot;:&quot;New&quot;,&quot;owner&quot;:&quot;Singleton Marine - Lake Keowee&quot;,&quot;year&quot;:2026,&quot;make&quot;:&quot;BARLETTA&quot;,&quot;model&quot;:&quot;L23M&quot;}" />
+                  <input type="hidden" name="boat_details" value="{boat_details_value}" />
                 </div>
               </div>
             </div>

@@ -1044,8 +1044,8 @@ def test_detect_or_lookup_provider_bypasses_conflicting_cached_route_for_dealer_
     </body></html>
     """
     with patch("app.services.provider_router.platform_store.get", return_value=cached), patch(
-        "app.services.provider_router.platform_store.upsert"
-    ) as upsert_mock:
+        "app.services.provider_router.platform_store.upsert",
+    ):
         route = detect_or_lookup_provider(
             domain="southgatehondapowersports.com",
             website="https://www.southgatehondapowersports.com/",

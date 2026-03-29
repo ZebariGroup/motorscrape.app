@@ -46,9 +46,9 @@ from app.services.parser import extract_vehicles_from_html, try_extract_vehicles
 from app.services.places import find_car_dealerships, find_dealerships
 from app.services.platform_store import normalize_dealer_domain
 from app.services.provider_router import (
-    _canonical_oneaudi_inventory_url,
-    _build_family_inventory_path_variants,
     ProviderRoute,
+    _build_family_inventory_path_variants,
+    _canonical_oneaudi_inventory_url,
     detect_or_lookup_provider,
     record_provider_failure,
     remember_provider_success,

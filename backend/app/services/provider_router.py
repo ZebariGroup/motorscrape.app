@@ -330,8 +330,6 @@ def _build_family_inventory_path_variants(
     condition: str = "new",
 ) -> tuple[str, ...]:
     parts = urlsplit(base_url)
-    path = parts.path.rstrip("/")
-    normalized_path = path.lower()
     model_slug = _slugify_model_path(model)
     make_slug = _slugify_model_path(make)
     if not model_slug or not make_slug:
