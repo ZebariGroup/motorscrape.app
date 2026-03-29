@@ -3063,7 +3063,7 @@ async def extract_vehicles_from_html(
             ],
             response_format=ExtractionResult,
             temperature=0.1,
-            max_tokens=4096,
+            max_completion_tokens=4096,
         )
 
     parsed = response.choices[0].message.parsed
