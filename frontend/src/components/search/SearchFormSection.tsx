@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   getMakesForCategory,
   vehicleCategoryLabel,
@@ -9,6 +9,7 @@ import type { VehicleCategory } from "@/lib/vehicleCatalog";
 
 import { MultiModelSelect } from "./MultiModelSelect";
 import { PlowTruck } from "./PlowTruck";
+import { ScrapeMiniGame } from "./ScrapeMiniGame";
 
 const RADIUS_CHOICES = [10, 25, 30, 50, 75, 100, 150, 250] as const;
 const DEALER_STEPS = [4, 6, 8, 10, 12, 16, 18, 24, 30] as const;
@@ -95,6 +96,14 @@ export function SearchFormSection({
 }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isFormExpanded, setIsFormExpanded] = useState(true);
+  const [isGameActive, setIsGameActive] = useState(false);
+
+  // Auto-close game if scraping stops
+  useEffect(() => {
+    if (!running) {
+      setIsGameActive(false);
+    }
+  }, [running]);
 
   const radiusOptions = useMemo(
     () => RADIUS_CHOICES.filter((m) => m <= maxRadiusMilesCap),
@@ -118,7 +127,9 @@ export function SearchFormSection({
           : "border-zinc-200 dark:border-zinc-800"
       }`}
     >
-      {!isFormExpanded ? (
+      {isGameActive ? (
+        <ScrapeMiniGame onClose={() => setIsGameActive(false)} />
+      ) : !isFormExpanded ? (
         <div className="flex items-center justify-between">
           <div className="flex flex-col">
             <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
@@ -342,9 +353,14 @@ export function SearchFormSection({
           <div className="mt-4 flex flex-col justify-end gap-2 sm:flex-row">
             <button
               type="button"
-              className="relative inline-flex min-h-[2.75rem] flex-1 flex-col items-center justify-center overflow-hidden rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={running || !canSearch}
-              onClick={handleSearch}
+              className={`relative inline-flex min-h-[2.75rem] flex-1 flex-col items-center justify-center overflow-hidden rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500 ${
+                !running && !canSearch ? "cursor-not-allowed opacity-50" : ""
+              }`}
+              disabled={!running && !canSearch}
+              onClick={running ? undefined : handleSearch}
+              onDoubleClick={() => {
+                if (running) setIsGameActive(true);
+              }}
             >
               {running ? (
                 <>
@@ -376,6 +392,11 @@ export function SearchFormSection({
                     <span className="max-w-full truncate px-1 text-center text-[11px] font-normal text-white/90">
                       {`${dealerListLength}/${targetDealerCount} found · ${doneDealerCount}/${targetDealerCount} done · ${listingsCount} vehicles`}
                     </span>
+                    {!isGameActive && (
+                      <span className="text-[9px] font-medium text-emerald-100/80 uppercase tracking-wider animate-pulse mt-0.5">
+                        Double-click to play
+                      </span>
+                    )}
                   </span>
                 </>
               ) : (
