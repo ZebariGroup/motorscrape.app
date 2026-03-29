@@ -183,6 +183,9 @@ _INVENTORY_HINTS = (
     "v7list-results__item",
     "v7list-vehicle",
     "vehicle-heading__link",
+    "si-vehicle-box",
+    "inventory_listing",
+    "unlockctadiscountdata",
 )
 _BLOCK_MARKERS = (
     "cf-browser-verification",

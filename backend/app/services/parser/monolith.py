@@ -151,7 +151,9 @@ _TEXT_STOCK_RE = re.compile(
     r"\b(?:stock(?:\s*(?:#|number|no\.?))?)\s*[:#-]?\s*([A-Z0-9-]{4,})\b",
     re.I,
 )
-_INVENTORY_DETAIL_PATH_RE = re.compile(r"/inventory/\d+(?:/|$)", re.I)
+_INVENTORY_DETAIL_PATH_RE = re.compile(
+    r"/inventory/\d+(?:/|$)|/viewdetails/", re.I
+)
 _TITLE_YEAR_RE = re.compile(r"^(?P<year>20\d{2}|19\d{2})\s+(?P<rest>.+)$")
 _SAVE_PRICE_MSRP_RE = re.compile(
     r"save:\s*\$[\d,]+\s*\$(?P<price>[\d,]+)\s*msrp\s*\$(?P<msrp>[\d,]+)",

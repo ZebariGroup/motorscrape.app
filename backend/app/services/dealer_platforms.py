@@ -235,6 +235,17 @@ _MARINEMAX_BOATS_SRP_ZENROWS_JS = _compact_instruction_payload(
 )
 
 
+_FORD_FAMILY_INVENTORY_ZENROWS_JS = _compact_instruction_payload(
+    [
+        {"wait": 3500},
+        {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 6000));"},
+        {"wait": 3000},
+        {"evaluate": "window.scrollTo(0, document.body.scrollHeight);"},
+        {"wait": 3000},
+    ]
+)
+
+
 def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None = None) -> str | None:
     """Return platform-specific ZenRows JS instructions for inventory URLs, if any."""
     if platform_id == "oneaudi_falcon":
@@ -245,6 +256,12 @@ def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None 
         return _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS.strip()
     if platform_id == "marinemax" and "boats-for-sale" in url.lower():
         return _MARINEMAX_BOATS_SRP_ZENROWS_JS.strip()
+    if platform_id in {
+        "ford_family_inventory",
+        "gm_family_inventory",
+        "honda_acura_inventory",
+    }:
+        return _FORD_FAMILY_INVENTORY_ZENROWS_JS.strip()
     return None
 
 
