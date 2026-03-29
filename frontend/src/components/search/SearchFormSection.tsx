@@ -6,11 +6,14 @@ import {
   vehicleCategoryLabel,
 } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
+import type { AggregatedListing } from "@/lib/inventoryFormat";
+import type { SearchHistoryRunRow } from "@/types/searchHistory";
 
 import { MultiModelSelect } from "./MultiModelSelect";
 import { PlowTruck } from "./PlowTruck";
 import { ScrapeMiniGame } from "./ScrapeMiniGame";
 import { SearchWaitFactsRotator } from "./SearchWaitFactsRotator";
+import { SearchHistoryModal } from "./SearchHistoryModal";
 
 const RADIUS_CHOICES = [10, 25, 30, 50, 75, 100, 150, 250] as const;
 const DEALER_STEPS = [4, 6, 8, 10, 12, 16, 18, 24, 30] as const;
@@ -58,6 +61,8 @@ type Props = {
   maxRadiusMilesCap?: number;
   inventoryScopePremium?: boolean;
   allowAnyModel?: boolean;
+  applySavedSearchFromHistory: (run: SearchHistoryRunRow, listings: AggregatedListing[]) => Promise<void>;
+  applyHistoryCriteriaOnly: (run: SearchHistoryRunRow) => Promise<void>;
 };
 
 export function SearchFormSection({
@@ -96,8 +101,11 @@ export function SearchFormSection({
   maxRadiusMilesCap = 250,
   inventoryScopePremium = true,
   allowAnyModel = true,
+  applySavedSearchFromHistory,
+  applyHistoryCriteriaOnly,
 }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [isFormExpanded, setIsFormExpanded] = useState(true);
   const [isGameActive, setIsGameActive] = useState(false);
   const [searchCompletedTick, setSearchCompletedTick] = useState(0);
@@ -374,7 +382,7 @@ export function SearchFormSection({
               {showAdvanced ? "Hide advanced options" : "Show advanced options"}
             </button>
           </div>
-          <div className="mt-4 flex flex-col justify-end gap-2 sm:flex-row">
+          <div className="mt-4 flex flex-col justify-end gap-2 sm:flex-row sm:items-stretch">
             <button
               type="button"
               className={`relative inline-flex min-h-[2.75rem] flex-1 flex-col items-center justify-center overflow-hidden rounded-lg bg-emerald-600 px-4 py-2.5 text-base font-bold text-white shadow-sm transition hover:bg-emerald-500 hover:text-white ${
@@ -439,14 +447,39 @@ export function SearchFormSection({
                 "Scrape inventory"
               )}
             </button>
-            <button
-              type="button"
-              className="inline-flex flex-1 items-center justify-center rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900"
-              disabled={!running}
-              onClick={onStop}
-            >
-              Stop
-            </button>
+            <div className="flex flex-1 gap-2 sm:max-w-none sm:flex-initial sm:shrink-0">
+              <button
+                type="button"
+                className="inline-flex min-h-[2.75rem] flex-1 items-center justify-center rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900 sm:flex-initial sm:min-w-[4.5rem]"
+                disabled={!running}
+                onClick={onStop}
+              >
+                Stop
+              </button>
+              <button
+                type="button"
+                onClick={() => setHistoryModalOpen(true)}
+                className="inline-flex min-h-[2.75rem] min-w-[2.75rem] shrink-0 items-center justify-center rounded-lg border border-zinc-300 text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+                aria-label="Recent searches"
+                title="Recent searches"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  className="h-5 w-5"
+                  aria-hidden
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -486,6 +519,12 @@ export function SearchFormSection({
           ))}
         </ul>
       ) : null}
+      <SearchHistoryModal
+        open={historyModalOpen}
+        onOpenChange={setHistoryModalOpen}
+        applySavedSearchFromHistory={applySavedSearchFromHistory}
+        applyHistoryCriteriaOnly={applyHistoryCriteriaOnly}
+      />
     </section>
   );
 }

@@ -8,7 +8,6 @@ import { DealerProgressList } from "@/components/search/DealerProgressList";
 import { EmailAlertPanel } from "@/components/search/EmailAlertPanel";
 import { InventoryResultsSection } from "@/components/search/InventoryResultsSection";
 import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
-import { SearchHistorySection } from "@/components/search/SearchHistorySection";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
 import { resolveApiUrl } from "@/lib/apiBase";
@@ -274,8 +273,6 @@ export function SearchExperience() {
           maxRadiusMilesCap={maxRadiusCap}
           inventoryScopePremium={scopePremium}
           allowAnyModel={access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom"}
-        />
-        <SearchHistorySection
           applySavedSearchFromHistory={search.applySavedSearchFromHistory}
           applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
         />

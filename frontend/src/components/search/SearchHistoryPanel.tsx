@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, forwardRef, useState } from "react";
 
 import { resolveApiUrl } from "@/lib/apiBase";
 import { defaultVehicleCategory, vehicleCategoryLabel } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { SearchHistoryDetailResponse, SearchHistoryRunRow } from "@/types/searchHistory";
+
+export type SearchHistoryPanelHandle = {
+  refresh: () => void;
+};
 
 type Props = {
   applySavedSearchFromHistory: (run: SearchHistoryRunRow, listings: AggregatedListing[]) => Promise<void>;
@@ -40,7 +44,11 @@ function parseCategory(raw: string): VehicleCategory {
   return defaultVehicleCategory();
 }
 
-export function SearchHistorySection({ applySavedSearchFromHistory, applyHistoryCriteriaOnly }: Props) {
+/** Body content for {@link SearchHistoryModal} (no outer dialog chrome). */
+export const SearchHistoryPanel = forwardRef<SearchHistoryPanelHandle, Props>(function SearchHistoryPanel(
+  { applySavedSearchFromHistory, applyHistoryCriteriaOnly },
+  ref,
+) {
   const [runs, setRuns] = useState<SearchHistoryRunRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingList, setLoadingList] = useState(true);
@@ -65,6 +73,8 @@ export function SearchHistorySection({ applySavedSearchFromHistory, applyHistory
       setLoadingList(false);
     }
   }, []);
+
+  useImperativeHandle(ref, () => ({ refresh }), [refresh]);
 
   useEffect(() => {
     void refresh();
@@ -103,43 +113,31 @@ export function SearchHistorySection({ applySavedSearchFromHistory, applyHistory
 
   if (loadingList && runs.length === 0 && !loadError) {
     return (
-      <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">Recent searches</h2>
-        <p className="mt-2 text-sm text-zinc-500">Loading…</p>
-      </section>
+      <div>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
+      </div>
     );
   }
 
   if (runs.length === 0) {
     return (
-      <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">Recent searches</h2>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      <div>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
           {loadError ??
             "After you run a search, it appears here so you can reopen saved results or reuse the same filters without retyping."}
         </p>
-      </section>
+      </div>
     );
   }
 
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">Recent searches</h2>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="self-start text-xs font-medium text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
-        >
-          Refresh
-        </button>
-      </div>
-      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Open a past run to see vehicles as of that search. Dealers change inventory often—run a new search when you need
-        the latest stock.
+    <div>
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        Open a past run to see vehicles as of that search. Dealers change inventory often—run a new search when you need the
+        latest stock.
       </p>
       {loadError ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">{loadError}</p> : null}
-      <ul className="mt-4 divide-y divide-zinc-200 dark:divide-zinc-800">
+      <ul className="mt-3 divide-y divide-zinc-200 dark:divide-zinc-800">
         {runs.map((run) => {
           const busy = busyId === run.correlation_id;
           const saved = Boolean(run.has_saved_results && (run.saved_listings_count ?? 0) > 0);
@@ -177,6 +175,6 @@ export function SearchHistorySection({ applySavedSearchFromHistory, applyHistory
           );
         })}
       </ul>
-    </section>
+    </div>
   );
-}
+});
