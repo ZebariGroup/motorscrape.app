@@ -10,6 +10,7 @@ import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import { MultiModelSelect } from "./MultiModelSelect";
 import { PlowTruck } from "./PlowTruck";
 import { ScrapeMiniGame } from "./ScrapeMiniGame";
+import { SearchWaitFactsRotator } from "./SearchWaitFactsRotator";
 
 const RADIUS_CHOICES = [10, 25, 30, 50, 75, 100, 150, 250] as const;
 const DEALER_STEPS = [4, 6, 8, 10, 12, 16, 18, 24, 30] as const;
@@ -449,19 +450,32 @@ export function SearchFormSection({
           </div>
         </>
       )}
-      {status ? (
-        <div className={`space-y-1 ${isFormExpanded ? "mt-4" : "mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/50"}`}>
-          <p className="flex flex-wrap items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-            {running ? (
-              <span
-                className="inline-flex h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse"
-                aria-hidden
-              />
-            ) : null}
-            <span>{status}</span>
-          </p>
+      {status || running ? (
+        <div
+          className={`space-y-2 ${isFormExpanded ? "mt-4" : "mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/50"}`}
+        >
+          {status ? (
+            <p className="flex flex-wrap items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+              {running ? (
+                <span
+                  className="inline-flex h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse"
+                  aria-hidden
+                />
+              ) : null}
+              <span>{status}</span>
+            </p>
+          ) : null}
           {running && activeDealerSummary ? (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">{activeDealerSummary}</p>
+          ) : null}
+          {running ? (
+            <SearchWaitFactsRotator
+              running={running}
+              make={make}
+              model={model}
+              vehicleCategory={vehicleCategory}
+              vehicleCondition={vehicleCondition}
+            />
           ) : null}
         </div>
       ) : null}
