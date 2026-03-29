@@ -50,6 +50,7 @@ type Props = {
   dealerListLength: number;
   targetDealerCount: number;
   doneDealerCount: number;
+  activeDealerSummary: string | null;
   listingsCount: number;
   /** When set, caps advanced options for the current account tier. */
   maxDealersCap?: number;
@@ -88,6 +89,7 @@ export function SearchFormSection({
   dealerListLength,
   targetDealerCount,
   doneDealerCount,
+  activeDealerSummary,
   listingsCount,
   maxDealersCap = 30,
   maxRadiusMilesCap = 250,
@@ -432,6 +434,9 @@ export function SearchFormSection({
             ) : null}
             <span>{status}</span>
           </p>
+          {running && activeDealerSummary ? (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">{activeDealerSummary}</p>
+          ) : null}
         </div>
       ) : null}
       {errors.length > 0 ? (

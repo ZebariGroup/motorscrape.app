@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -50,6 +51,25 @@ class ScrapeRunRecorder:
     finalized: bool = False
     _overflow_logged: bool = False
     _seen_dealers: set[str] = field(default_factory=set)
+    first_discovered_dealer_ms: int | None = None
+    first_active_dealer_ms: int | None = None
+    first_vehicle_batch_ms: int | None = None
+    timeout_counts_by_platform: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    timeout_counts_by_fetch_method: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    error_counts_by_platform: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    error_counts_by_fetch_method: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+
+    def _elapsed_ms(self) -> int:
+        return max(0, int((time.time() - self.started_at) * 1000))
+
+    def _mark_first(self, field_name: str) -> None:
+        if getattr(self, field_name) is None:
+            setattr(self, field_name, self._elapsed_ms())
+
+    @staticmethod
+    def _bump(counter: dict[str, int], key: str | None) -> None:
+        normalized = (key or "unknown").strip() or "unknown"
+        counter[normalized] = int(counter.get(normalized, 0)) + 1
 
     def event(
         self,
@@ -127,6 +147,10 @@ class ScrapeRunRecorder:
         if dealer_key not in self._seen_dealers:
             self._seen_dealers.add(dealer_key)
             self.dealerships_attempted += 1
+        self._mark_first("first_active_dealer_ms")
+
+    def note_dealer_discovered(self) -> None:
+        self._mark_first("first_discovered_dealer_ms")
 
     def note_dealer_done(self, *, listings_found: int) -> None:
         self.dealerships_succeeded += 1
@@ -134,6 +158,45 @@ class ScrapeRunRecorder:
 
     def note_dealer_failed(self) -> None:
         self.dealerships_failed += 1
+
+    def note_vehicle_batch(
+        self,
+        *,
+        batch_size: int,
+        platform_id: str | None = None,
+        fetch_method: str | None = None,
+    ) -> None:
+        if batch_size > 0:
+            self._mark_first("first_vehicle_batch_ms")
+
+    def note_dealer_issue(
+        self,
+        *,
+        issue_type: str,
+        platform_id: str | None = None,
+        fetch_method: str | None = None,
+    ) -> None:
+        if issue_type == "timeout":
+            self._bump(self.timeout_counts_by_platform, platform_id)
+            self._bump(self.timeout_counts_by_fetch_method, fetch_method)
+            return
+        self._bump(self.error_counts_by_platform, platform_id)
+        self._bump(self.error_counts_by_fetch_method, fetch_method)
+
+    def summary_metrics(self) -> dict[str, Any]:
+        return {
+            "timing_metrics_ms": {
+                "first_discovered_dealer": self.first_discovered_dealer_ms,
+                "first_active_dealer": self.first_active_dealer_ms,
+                "first_vehicle_batch": self.first_vehicle_batch_ms,
+            },
+            "dealer_issue_breakdown": {
+                "timeouts_by_platform": dict(sorted(self.timeout_counts_by_platform.items())),
+                "timeouts_by_fetch_method": dict(sorted(self.timeout_counts_by_fetch_method.items())),
+                "errors_by_platform": dict(sorted(self.error_counts_by_platform.items())),
+                "errors_by_fetch_method": dict(sorted(self.error_counts_by_fetch_method.items())),
+            },
+        }
 
     def finalize(
         self,

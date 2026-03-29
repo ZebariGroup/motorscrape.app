@@ -39,16 +39,17 @@ export type DealershipProgress = {
   name: string;
   website: string;
   address?: string;
-  status: "scraping" | "parsing" | "done" | "error";
+  status: "queued" | "scraping" | "parsing" | "done" | "error";
   error?: string;
   info?: string;
+  current_url?: string;
   fetch_method?: string;
   /** Parse path: provider route, structured JSON, or LLM */
   extraction?: string;
   /** Detected/cached dealer platform identifier */
   platform_id?: string;
   /** Where the platform routing info came from */
-  platform_source?: "hit" | "detected" | "refresh" | "stale" | "none";
+  platform_source?: "hit" | "detected" | "refresh" | "stale" | "none" | "cache";
   /** Provider strategy currently selected for the dealer */
   strategy_used?: string;
   /** Per-dealer sequence of fetch modes (e.g. direct, zenrows_rendered) */
@@ -60,6 +61,7 @@ export type DealershipProgress = {
   reported_total_results?: number;
   reported_page_size?: number;
   pagination_source?: string;
+  from_cache?: boolean;
   /** Client-only: when the current status phase started (ms since epoch). */
   phaseSince?: number;
 };

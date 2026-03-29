@@ -37,6 +37,9 @@ type Props = {
   onSortOrderChange: (order: ListingSortOrder) => void;
   vehicleCategory: VehicleCategory;
   allowCsvExport?: boolean;
+  activeDealerSummary?: string | null;
+  activeDealerCount?: number;
+  queuedDealerCount?: number;
 };
 
 export function InventoryResultsSection({
@@ -48,6 +51,9 @@ export function InventoryResultsSection({
   onSortOrderChange,
   vehicleCategory,
   allowCsvExport = true,
+  activeDealerSummary = null,
+  activeDealerCount = 0,
+  queuedDealerCount = 0,
 }: Props) {
   const [selectedListingIndex, setSelectedListingIndex] = useState<number | null>(null);
   const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
@@ -129,6 +135,13 @@ export function InventoryResultsSection({
               Still scanning dealers… New cards appear as each site is contacted. Matches show here
               as soon as AI finishes a page.
             </p>
+            {activeDealerSummary ? (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {activeDealerSummary}
+                {queuedDealerCount > 0 ? ` · ${queuedDealerCount} waiting for a worker` : ""}
+                {activeDealerCount > 0 ? ` · ${activeDealerCount} scraping live` : ""}
+              </p>
+            ) : null}
             <div className="grid gap-4 sm:grid-cols-2">
               {loadingInventoryCards.map((_, idx) => (
                 <article

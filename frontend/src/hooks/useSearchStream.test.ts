@@ -207,7 +207,7 @@ describe("useSearchStream", () => {
       });
     });
 
-    expect(result.current.listings.listings).toHaveLength(0);
+    expect(result.current.listings.listings).toHaveLength(1);
 
     act(() => {
       const callbacks = [...rafQueue];
@@ -217,5 +217,36 @@ describe("useSearchStream", () => {
 
     expect(result.current.listings.listings).toHaveLength(2);
     expect(result.current.listings.listings.map((listing) => listing.model)).toEqual(["F-150", "Bronco"]);
+  });
+
+  it("should summarize queued dealers before scraping starts", () => {
+    const { result } = renderHook(() => useSearchStream());
+
+    act(() => {
+      result.current.form.setLocation("Seattle");
+      result.current.search.startSearch();
+    });
+
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.emit("dealership", {
+        index: 1,
+        total: 2,
+        name: "Ford Seattle",
+        website: "https://ford.example",
+        status: "queued",
+      });
+      es.emit("dealership", {
+        index: 2,
+        total: 2,
+        name: "Toyota Seattle",
+        website: "https://toyota.example",
+        status: "queued",
+      });
+    });
+
+    expect(result.current.dealers.queuedDealerCount).toBe(2);
+    expect(result.current.dealers.activeDealerSummary).toBe("2 dealers queued");
   });
 });

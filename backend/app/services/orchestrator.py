@@ -44,7 +44,7 @@ from app.services.orchestrator_utils import (
 )
 from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.places import find_car_dealerships, find_dealerships
-from app.services.platform_store import normalize_dealer_domain
+from app.services.platform_store import normalize_dealer_domain, platform_store
 from app.services.provider_router import (
     ProviderRoute,
     _build_family_inventory_path_variants,
@@ -1052,6 +1052,8 @@ async def stream_search(
     t0 = time.perf_counter()
     fetch_metrics: dict[str, int] = defaultdict(int)
     extraction_metrics: dict[str, int] = defaultdict(int)
+    warmed_inventory_cache: dict[str, dict[str, Any] | None] = {}
+    platform_cache_entries: dict[str, Any] = {}
 
     def finalize_done(base: dict[str, Any], *, ok: bool, status: str | None = None) -> dict[str, Any]:
         duration_ms = int((time.perf_counter() - t0) * 1000)
@@ -1071,7 +1073,13 @@ async def stream_search(
             inventory_scope=invs,
             ok=ok,
         )
-        payload = {**base, "duration_ms": duration_ms, "economics": economics, "correlation_id": correlation_id}
+        payload = {
+            **base,
+            **(recorder.summary_metrics() if recorder is not None else {}),
+            "duration_ms": duration_ms,
+            "economics": economics,
+            "correlation_id": correlation_id,
+        }
         if outcome_holder is not None:
             outcome_holder.clear()
             outcome_holder.update(payload)
@@ -1127,18 +1135,95 @@ async def stream_search(
         return
 
     raw_dealer_count = len(dealers)
+    if recorder is not None and raw_dealer_count > 0:
+        recorder.note_dealer_discovered()
     dealers = dedupe_dealers_by_domain(dealers)
     deduped_dealer_count = len(dealers)
-    if len(dealers) > 1:
-        score_domains = [normalize_dealer_domain((dealer.website or "").strip()) for dealer in dealers]
-        dealer_scores = await asyncio.to_thread(get_scores, score_domains)
-        dealers.sort(
-            key=lambda dealer: dealer_scores.get(
-                normalize_dealer_domain((dealer.website or "").strip()),
-                NO_SCORE_DEFAULT,
-            ),
-            reverse=True,
+    if recorder is not None:
+        recorder.event(
+            event_type="dealers_discovered",
+            phase="places",
+            level="info",
+            message=f"Discovered {deduped_dealer_count} dealerships with websites.",
+            payload={
+                "dealer_discovery_count": raw_dealer_count,
+                "dealer_deduped_count": deduped_dealer_count,
+            },
         )
+    dealer_domains = [normalize_dealer_domain((dealer.website or "").strip()) for dealer in dealers]
+    unique_domains = sorted({domain for domain in dealer_domains if domain})
+    if unique_domains:
+        platform_entries = await asyncio.gather(*(asyncio.to_thread(platform_store.get, domain) for domain in unique_domains))
+        platform_cache_entries = {
+            domain: entry
+            for domain, entry in zip(unique_domains, platform_entries, strict=False)
+            if entry is not None
+        }
+    if settings.inventory_cache_enabled and dealers:
+        cache_warm_pairs: list[tuple[str, str]] = []
+        seen_cache_keys: set[str] = set()
+        for d in dealers:
+            website = prefer_https_website_url((d.website or "").strip())
+            domain = normalize_dealer_domain(website)
+            inv_cache_key = inventory_listings_cache_key(
+                website=website,
+                domain=domain,
+                make=make,
+                model=model,
+                vehicle_category=vehicle_category,
+                vehicle_condition=vehicle_condition,
+                inventory_scope=inventory_scope,
+                max_pages=requested_pages,
+            )
+            if inv_cache_key in seen_cache_keys:
+                continue
+            seen_cache_keys.add(inv_cache_key)
+            cache_warm_pairs.append((inv_cache_key, website))
+        if cache_warm_pairs:
+            cache_warm_results = await asyncio.gather(
+                *[
+                    asyncio.to_thread(get_cached_inventory_listings, cache_key)
+                    for cache_key, _website in cache_warm_pairs
+                ]
+            )
+            warmed_inventory_cache = {
+                cache_key: cached
+                for (cache_key, _website), cached in zip(cache_warm_pairs, cache_warm_results, strict=False)
+            }
+    if len(dealers) > 1:
+        dealer_scores = await asyncio.to_thread(get_scores, dealer_domains)
+
+        def _dealer_sort_key(dealer: DealershipFound) -> tuple[int, int, float]:
+            website = prefer_https_website_url((dealer.website or "").strip())
+            domain = normalize_dealer_domain(website)
+            inv_cache_key = inventory_listings_cache_key(
+                website=website,
+                domain=domain,
+                make=make,
+                model=model,
+                vehicle_category=vehicle_category,
+                vehicle_condition=vehicle_condition,
+                inventory_scope=inventory_scope,
+                max_pages=requested_pages,
+            )
+            cached_inventory = warmed_inventory_cache.get(inv_cache_key) or {}
+            platform_entry = platform_cache_entries.get(domain)
+            route_hint_score = 0
+            if platform_entry is not None:
+                if platform_entry.is_usable:
+                    route_hint_score += 20
+                if platform_entry.inventory_url_hint:
+                    route_hint_score += 8
+                if not platform_entry.requires_render:
+                    route_hint_score += 4
+                route_hint_score -= min(int(platform_entry.failure_count or 0), 3) * 5
+            return (
+                1 if cached_inventory.get("listings") else 0,
+                route_hint_score,
+                dealer_scores.get(domain, NO_SCORE_DEFAULT),
+            )
+
+        dealers.sort(key=_dealer_sort_key, reverse=True)
     dealers = dealers[: requested_dealerships]
     if not dealers:
         if recorder is not None:
@@ -1178,6 +1263,9 @@ async def stream_search(
                 f"condition {vehicle_condition}, category {vehicle_category}, workers {effective_concurrency})"
             ),
             "phase": "scrape",
+            "dealer_discovery_count": raw_dealer_count,
+            "dealer_deduped_count": deduped_dealer_count,
+            "dealerships_queued": len(dealers),
         },
     )
 
@@ -1188,39 +1276,40 @@ async def stream_search(
     parse_timeout = min(settings.openai_timeout + 5.0, max(20.0, dealer_timeout * 0.35))
     metrics_lock = asyncio.Lock()
     inv_url_cache: dict[str, str] = {}
-    warmed_inventory_cache: dict[str, dict[str, Any] | None] = {}
-
-    if settings.inventory_cache_enabled and dealers:
-        cache_warm_pairs: list[tuple[str, str]] = []
-        seen_cache_keys: set[str] = set()
-        for d in dealers:
-            website = prefer_https_website_url((d.website or "").strip())
-            domain = normalize_dealer_domain(website)
-            inv_cache_key = inventory_listings_cache_key(
-                website=website,
-                domain=domain,
-                make=make,
-                model=model,
-                vehicle_category=vehicle_category,
-                vehicle_condition=vehicle_condition,
-                inventory_scope=inventory_scope,
-                max_pages=requested_pages,
-            )
-            if inv_cache_key in seen_cache_keys:
-                continue
-            seen_cache_keys.add(inv_cache_key)
-            cache_warm_pairs.append((inv_cache_key, website))
-        if cache_warm_pairs:
-            cache_warm_results = await asyncio.gather(
-                *[
-                    asyncio.to_thread(get_cached_inventory_listings, cache_key)
-                    for cache_key, _website in cache_warm_pairs
-                ]
-            )
-            warmed_inventory_cache = {
-                cache_key: cached
-                for (cache_key, _website), cached in zip(cache_warm_pairs, cache_warm_results, strict=False)
-            }
+    for i, d in enumerate(dealers, start=1):
+        website = prefer_https_website_url((d.website or "").strip())
+        domain = normalize_dealer_domain(website)
+        inv_cache_key = inventory_listings_cache_key(
+            website=website,
+            domain=domain,
+            make=make,
+            model=model,
+            vehicle_category=vehicle_category,
+            vehicle_condition=vehicle_condition,
+            inventory_scope=inventory_scope,
+            max_pages=requested_pages,
+        )
+        cached_inventory = warmed_inventory_cache.get(inv_cache_key) or {}
+        platform_entry = platform_cache_entries.get(domain)
+        queued_info = "Waiting for an open scrape worker."
+        if cached_inventory.get("listings"):
+            queued_info = "Cache hit ready to stream inventory."
+        elif platform_entry is not None and platform_entry.inventory_url_hint:
+            queued_info = "Queued with a known inventory route."
+        yield sse_pack(
+            "dealership",
+            {
+                "index": i,
+                "total": len(dealers),
+                "name": d.name,
+                "website": website,
+                "address": d.address,
+                "status": "queued",
+                "info": queued_info,
+                "platform_id": platform_entry.platform_id if platform_entry is not None else None,
+                "strategy_used": platform_entry.extraction_mode if platform_entry is not None else None,
+            },
+        )
 
     async def process_one(index: int, d: DealershipFound) -> list[str]:
         chunks: list[str] = []
@@ -1352,11 +1441,23 @@ async def stream_search(
                 min_timeout=min_timeout,
             )
 
-        def append_dealer_error(message: str, *, current_url: str | None = None, phase: str = "scrape") -> None:
+        def append_dealer_error(
+            message: str,
+            *,
+            current_url: str | None = None,
+            phase: str = "scrape",
+            platform_id: str | None = None,
+            fetch_method: str | None = None,
+        ) -> None:
             nonlocal dealer_failed
             dealer_failed = True
             if recorder is not None:
                 recorder.note_dealer_failed()
+                recorder.note_dealer_issue(
+                    issue_type="error",
+                    platform_id=platform_id,
+                    fetch_method=fetch_method,
+                )
                 recorder.event(
                     event_type="dealer_error",
                     phase=phase,
@@ -1407,6 +1508,7 @@ async def stream_search(
                     "website": website,
                     "address": d.address,
                     "status": "scraping",
+                    "info": "Contacting the dealership website…",
                 },
             )
         )
@@ -1421,6 +1523,8 @@ async def stream_search(
                 total_cached = 0
                 for listing_chunk in _chunk_listings(cached_listings):
                     total_cached += len(listing_chunk)
+                    if recorder is not None:
+                        recorder.note_vehicle_batch(batch_size=len(listing_chunk), fetch_method="inventory_cache")
                     chunks.append(
                         sse_pack(
                             "vehicles",
@@ -1448,6 +1552,7 @@ async def stream_search(
                             "platform_source": "cache",
                             "strategy_used": "inventory_cache",
                             "from_cache": True,
+                            "info": "Loaded from warm inventory cache.",
                         },
                     )
                 )
@@ -2207,14 +2312,26 @@ async def stream_search(
                         async with metrics_lock:
                             extraction_metrics["pages_llm_failed"] += 1
                         if pages_scraped == 0:
-                            append_dealer_error(msg, current_url=current_url, phase="parse")
+                            append_dealer_error(
+                                msg,
+                                current_url=current_url,
+                                phase="parse",
+                                platform_id=route.platform_id if route else None,
+                                fetch_method=current_method,
+                            )
                         break
                     except Exception as e:
                         logger.warning("Parse failed for %s: %s", current_url, e)
                         async with metrics_lock:
                             extraction_metrics["pages_llm_failed"] += 1
                         if pages_scraped == 0:
-                            append_dealer_error(str(e), current_url=current_url, phase="parse")
+                            append_dealer_error(
+                                str(e),
+                                current_url=current_url,
+                                phase="parse",
+                                platform_id=route.platform_id if route else None,
+                                fetch_method=current_method,
+                            )
                         break
 
                 page_vehicle_condition = infer_vehicle_condition_from_page(current_url, current_html)
@@ -2352,6 +2469,7 @@ async def stream_search(
                                 "website": website,
                                 "current_url": current_url,
                                 "status": "parsing",
+                                "listings_found": total_vehicles + len(deduped_filtered),
                                 **page_progress_payload,
                             },
                         )
@@ -2451,6 +2569,12 @@ async def stream_search(
                     total_vehicles += len(vdicts)
                     listings_for_cache.extend(vdicts)
                     for listing_chunk in _chunk_listings(vdicts):
+                        if recorder is not None:
+                            recorder.note_vehicle_batch(
+                                batch_size=len(listing_chunk),
+                                platform_id=route.platform_id if route else None,
+                                fetch_method=current_method,
+                            )
                         chunks.append(
                             sse_pack(
                                 "vehicles",
@@ -2579,9 +2703,15 @@ async def stream_search(
                 )
             except asyncio.TimeoutError:
                 website = d.website or ""
+                domain = normalize_dealer_domain(website)
+                platform_entry = platform_cache_entries.get(domain)
                 logger.warning(f"{cid_log}Dealership worker timed out for %s", website)
                 if recorder is not None:
                     recorder.note_dealer_failed()
+                    recorder.note_dealer_issue(
+                        issue_type="timeout",
+                        platform_id=platform_entry.platform_id if platform_entry is not None else None,
+                    )
                     recorder.event(
                         event_type="dealer_timeout",
                         phase="worker",

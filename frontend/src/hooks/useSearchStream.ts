@@ -162,6 +162,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const correlationIdRef = useRef<string | null>(null);
   const pendingListingsRef = useRef<AggregatedListing[]>([]);
   const listingFlushHandleRef = useRef<number | null>(null);
+  const sawFirstVehicleBatchRef = useRef(false);
 
   const dealerList = useMemo(
     () => Object.values(dealers).sort((a, b) => a.index - b.index),
@@ -172,6 +173,32 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     () => dealerList.filter((d) => d.status === "done" || d.status === "error").length,
     [dealerList],
   );
+
+  const queuedDealerCount = useMemo(
+    () => dealerList.filter((d) => d.status === "queued").length,
+    [dealerList],
+  );
+
+  const activeDealerCount = useMemo(
+    () => dealerList.filter((d) => d.status === "scraping" || d.status === "parsing").length,
+    [dealerList],
+  );
+
+  const activeDealerSummary = useMemo(() => {
+    const active = dealerList.filter((d) => d.status === "scraping" || d.status === "parsing");
+    if (active.length === 0) {
+      if (queuedDealerCount > 0) {
+        return `${queuedDealerCount} dealer${queuedDealerCount === 1 ? "" : "s"} queued`;
+      }
+      return null;
+    }
+    const names = active.slice(0, 2).map((dealer) => dealer.name);
+    const label = names.join(" and ");
+    const remaining = active.length - names.length;
+    return remaining > 0
+      ? `${label} +${remaining} more active`
+      : `${label} active now`;
+  }, [dealerList, queuedDealerCount]);
 
   const listingCountsByDealerKey = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -450,6 +477,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     pendingListingsRef.current = [];
     cancelScheduledPaint(listingFlushHandleRef.current);
     listingFlushHandleRef.current = null;
+    sawFirstVehicleBatchRef.current = false;
     setErrors([]);
     setListings([]);
     setDealers({});
@@ -526,7 +554,12 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
             dealership_website: dealerSite,
           })),
         );
-        scheduleListingFlush();
+        if (!sawFirstVehicleBatchRef.current && batch.length > 0) {
+          sawFirstVehicleBatchRef.current = true;
+          flushPendingListings();
+        } else {
+          scheduleListingFlush();
+        }
       } catch {
         /* ignore */
       }
@@ -644,6 +677,9 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       discoveredDealerPercent,
       completedDealerPercent,
       doneDealerCount,
+      queuedDealerCount,
+      activeDealerCount,
+      activeDealerSummary,
       listingCountsByDealerKey,
       nowMs,
       pinnedDealerWebsite,

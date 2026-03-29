@@ -252,6 +252,7 @@ export function SearchExperience() {
           dealerListLength={dealers.dealerList.length}
           targetDealerCount={dealers.targetDealerCount}
           doneDealerCount={dealers.doneDealerCount}
+          activeDealerSummary={dealers.activeDealerSummary}
           listingsCount={listings.listings.length}
           maxDealersCap={maxDealersCap}
           maxRadiusMilesCap={maxRadiusCap}
@@ -303,6 +304,9 @@ export function SearchExperience() {
             onSortOrderChange={listings.setSortOrder}
             vehicleCategory={form.vehicleCategory}
             allowCsvExport={csvOk}
+            activeDealerSummary={dealers.activeDealerSummary}
+            activeDealerCount={dealers.activeDealerCount}
+            queuedDealerCount={dealers.queuedDealerCount}
           />
         </div>
 

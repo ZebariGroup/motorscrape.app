@@ -33,6 +33,8 @@ export function DealerProgressList({
   }, []);
 
   const doneCount = dealerList.filter((d) => d.status === "done" || d.status === "error").length;
+  const activeCount = dealerList.filter((d) => d.status === "scraping" || d.status === "parsing").length;
+  const queuedCount = dealerList.filter((d) => d.status === "queued").length;
 
   return (
     <div className="mb-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
@@ -47,6 +49,13 @@ export function DealerProgressList({
             {dealerList.length === 0 && !running
               ? "No dealerships yet."
               : `${doneCount} of ${dealerList.length} processed`}
+            {running && (activeCount > 0 || queuedCount > 0) ? (
+              <span className="mt-1 block text-[11px] text-zinc-400 dark:text-zinc-500">
+                {activeCount > 0 ? `${activeCount} active` : null}
+                {activeCount > 0 && queuedCount > 0 ? " · " : null}
+                {queuedCount > 0 ? `${queuedCount} queued` : null}
+              </span>
+            ) : null}
             {dealerList.length > 0 ? (
               <span className="mt-1 block text-[11px] text-zinc-400 dark:text-zinc-500">
                 Tap a dealer to show their vehicles first in inventory.
@@ -93,10 +102,23 @@ export function DealerProgressList({
             {dealerList.map((d) => {
               const phaseSec =
                 d.phaseSince != null ? Math.max(0, Math.floor((nowMs - d.phaseSince) / 1000)) : 0;
+              const isQueued = d.status === "queued";
               const isBusy = d.status === "scraping" || d.status === "parsing";
               const streamedListingCount = listingCountsByDealerKey[dealerSiteKey(d.website)] ?? 0;
               const visibleListingsFound = Math.max(d.listings_found ?? 0, streamedListingCount);
               const listingSummary = visibleListingsFound > 0 ? `${visibleListingsFound.toLocaleString()} listings` : null;
+              const pageProgress =
+                d.reported_total_pages != null
+                  ? `Page ${Math.max(1, d.current_page_number ?? d.pages_scraped ?? 1)} of ${d.reported_total_pages}`
+                  : d.pages_scraped != null && d.pages_scraped > 0
+                    ? `${d.pages_scraped} page${d.pages_scraped === 1 ? "" : "s"} scraped`
+                    : null;
+              const resultsDetected =
+                d.reported_total_results != null
+                  ? `${d.reported_total_results.toLocaleString()} results detected`
+                  : null;
+              const strategyLabel = d.strategy_used ? d.strategy_used.replaceAll("_", " ") : null;
+              const extractionLabel = d.extraction ? d.extraction.replaceAll("_", " ") : null;
               const canPin = Boolean(d.website?.trim());
               const isPinned = Boolean(
                 canPin &&
@@ -131,6 +153,8 @@ export function DealerProgressList({
                     } ${
                       isPinned
                         ? "border-emerald-500 ring-2 ring-emerald-500/35 dark:border-emerald-500"
+                        : isQueued
+                          ? "border-sky-200 bg-sky-50/40 dark:border-sky-900/50 dark:bg-sky-950/20"
                         : isBusy
                           ? "border-amber-200 shadow-sm shadow-amber-100/50 dark:border-amber-900/50 dark:shadow-none"
                           : "border-zinc-200 dark:border-zinc-800"
@@ -162,13 +186,19 @@ export function DealerProgressList({
                             ? "rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
                             : d.status === "error"
                               ? "rounded-full bg-red-50 px-2 py-0.5 font-medium text-red-800 dark:bg-red-950 dark:text-red-200"
+                              : d.status === "queued"
+                                ? "rounded-full bg-sky-50 px-2 py-0.5 font-medium text-sky-800 dark:bg-sky-950 dark:text-sky-200"
                               : "rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-900 motion-safe:animate-pulse dark:bg-amber-950 dark:text-amber-100"
                         }
                       >
                         {d.status}
                       </span>
+                      {d.platform_id ? <span className="text-zinc-500">{d.platform_id}</span> : null}
                       {d.status === "scraping" && d.fetch_method ? (
                         <span className="text-zinc-500">via {d.fetch_method}</span>
+                      ) : null}
+                      {d.status === "queued" ? (
+                        <span className="text-zinc-500">Queued… {phaseSec}s</span>
                       ) : null}
                       {d.status === "parsing" ? (
                         <span className="text-zinc-500">
@@ -185,6 +215,35 @@ export function DealerProgressList({
                         <span className="text-zinc-500">{listingSummary}</span>
                       ) : null}
                     </div>
+                    {pageProgress || resultsDetected || strategyLabel || extractionLabel ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                        {pageProgress ? (
+                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-900">
+                            {pageProgress}
+                          </span>
+                        ) : null}
+                        {resultsDetected ? (
+                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-900">
+                            {resultsDetected}
+                          </span>
+                        ) : null}
+                        {strategyLabel ? (
+                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-900">
+                            {strategyLabel}
+                          </span>
+                        ) : null}
+                        {extractionLabel && d.status === "parsing" ? (
+                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 dark:bg-zinc-900">
+                            {extractionLabel}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {isBusy && visibleListingsFound > 0 ? (
+                      <p className="mt-2 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                        Pulling inventory now. Listings are already streaming in.
+                      </p>
+                    ) : null}
                     {d.info ? (
                       <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">{d.info}</p>
                     ) : null}

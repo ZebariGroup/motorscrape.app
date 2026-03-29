@@ -529,10 +529,10 @@ def _build_text_queries(
 
     text_queries: list[str] = []
     primary_term = dealer_terms[0]
-    if make_q and model_q:
-        text_queries.append(f"{make_q} {model_q} {primary_term} near {location}")
-    elif make_q:
+    if make_q:
         text_queries.append(f"{make_q} {primary_term} near {location}")
+        if model_q:
+            text_queries.append(f"{make_q} {model_q} {primary_term} near {location}")
     elif model_q:
         text_queries.append(f"{model_q} {primary_term} near {location}")
     else:
@@ -554,6 +554,14 @@ def _build_text_queries(
             deduped.append(text_query)
             seen.add(text_query)
     return deduped
+
+
+def _places_query_stop_target(*, limit: int, make: str, model: str) -> int:
+    """Stop once we have enough likely candidates for dedupe/filtering."""
+    limit = max(1, int(limit or 1))
+    if not (make.strip() or model.strip()):
+        return limit
+    return min(limit, max(8, int(limit * 0.6)))
 
 
 async def find_dealerships(
@@ -597,10 +605,11 @@ async def find_dealerships(
             make=make_q,
             model=model_q,
         )
+        query_stop_target = _places_query_stop_target(limit=limit, make=make_q, model=model_q)
 
         places: list[dict[str, Any]] = []
         seen_place_resources: set[str] = set()
-        for text_query in text_queries:
+        for idx, text_query in enumerate(text_queries):
             try:
                 found = await _search_places_text(
                     client,
@@ -624,6 +633,8 @@ async def find_dealerships(
                 seen_place_resources.add(dedupe_key)
                 places.append(place)
             if len(places) >= limit:
+                break
+            if idx >= 1 and len(places) >= query_stop_target:
                 break
 
         if not places and _CATEGORY_SEARCH_CONFIG[category].get("included_type"):
