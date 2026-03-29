@@ -26,15 +26,22 @@ const CHARACTERS: Record<CharacterType, React.FC> = {
 const OBSTACLES = ["🚧", "🕳️", "🛑", "🪨", "🪵"];
 
 const HIGH_SCORE_KEY = "motorscrape-minigame-highscore";
-const MS_PER_FRAME_60 = 1000 / 60;
-const GRAVITY = 0.62;
-const JUMP_STRENGTH = -12.2;
+const FRAME_MS_CAP = 32;
+const BASE_SPEED = 250;
+const MAX_SPEED = 520;
+const GRAVITY = 1680;
+const JUMP_VELOCITY = -500;
+const MAX_JUMP_HEIGHT = 76;
+const JUMP_HOLD_MS = 110;
+const JUMP_HOLD_GRAVITY_SCALE = 0.68;
+const JUMP_RELEASE_DAMPING = 0.58;
+const LANDING_SQUASH_MS = 110;
 const GROUND_Y = 0;
 const PLAYER_WIDTH = 60;
 const PLAYER_HEIGHT = 40;
 const PLAYER_HIT_INSET = 6;
 const PLAYER_LEFT = 20;
-const JUMP_BUFFER_FRAMES = 8;
+const JUMP_BUFFER_MS = 130;
 const SEARCH_DONE_PHRASE = ["YOUR", "SEARCH", "IS", "DONE"] as const;
 const WORD_SPAWN_GAP_MS = 400;
 
@@ -48,6 +55,24 @@ type GameObstacle = {
 };
 
 type PendingWord = { spawnAt: number; text: string };
+
+type DifficultyTuning = {
+  speedTarget: number;
+  spawnMinMs: number;
+  spawnMaxMs: number;
+};
+
+function getDifficulty(score: number): DifficultyTuning {
+  if (score < 25) return { speedTarget: 250, spawnMinMs: 1350, spawnMaxMs: 1850 };
+  if (score < 60) return { speedTarget: 300, spawnMinMs: 1150, spawnMaxMs: 1600 };
+  if (score < 110) return { speedTarget: 360, spawnMinMs: 980, spawnMaxMs: 1400 };
+  if (score < 175) return { speedTarget: 430, spawnMinMs: 860, spawnMaxMs: 1220 };
+  return { speedTarget: 500, spawnMinMs: 760, spawnMaxMs: 1080 };
+}
+
+function randomBetween(min: number, max: number) {
+  return min + Math.random() * (max - min);
+}
 
 interface Props {
   onClose: () => void;
@@ -233,11 +258,15 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
   const stateRef = useRef({
     playerY: 0,
     playerVelocity: 0,
-    jumpBufferFrames: 0,
+    jumpBufferMs: 0,
+    jumpHeld: false,
+    jumpHoldMs: 0,
+    landingSquashMs: 0,
     obstacles: [] as GameObstacle[],
-    speed: 5,
+    speed: BASE_SPEED,
     score: 0,
     lastObstacleTime: 0,
+    nextObstacleDelayMs: 1600,
     lastFrameTime: 0,
     animationFrameId: 0,
     roadPhase: 0,
@@ -316,8 +345,18 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
 
   const doJumpImpulse = useCallback(() => {
     const s = stateRef.current;
-    s.playerVelocity = JUMP_STRENGTH;
-    s.jumpBufferFrames = 0;
+    s.playerVelocity = JUMP_VELOCITY;
+    s.jumpBufferMs = 0;
+    s.jumpHoldMs = 0;
+    s.landingSquashMs = 0;
+  }, []);
+
+  const releaseJump = useCallback(() => {
+    const s = stateRef.current;
+    s.jumpHeld = false;
+    if (s.playerVelocity < 0) {
+      s.playerVelocity *= JUMP_RELEASE_DAMPING;
+    }
   }, []);
 
   const gameLoop = useCallback(() => {
@@ -341,34 +380,57 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     const frameNow = performance.now();
     const nowMs = Date.now();
     const state = stateRef.current;
-    const rawDt = (frameNow - state.lastFrameTime) / MS_PER_FRAME_60;
-    const dt = Math.min(Math.max(rawDt, 0), 3);
+    const dtMs = Math.min(Math.max(frameNow - state.lastFrameTime, 0), FRAME_MS_CAP);
+    const dt = dtMs / 1000;
     state.lastFrameTime = frameNow;
+
+    const difficulty = getDifficulty(state.score);
+    const speedBlend = Math.min(1, dt * 2.4);
+    state.speed += (difficulty.speedTarget - state.speed) * speedBlend;
 
     state.roadPhase += state.speed * dt;
     state.parallaxPhase += state.speed * 0.22 * dt;
-    state.scanPhase += dt;
+    state.scanPhase += dtMs * 0.06;
 
-    state.playerVelocity += GRAVITY * dt;
+    const holdGravityScale =
+      state.jumpHeld && state.playerVelocity < 0 && state.jumpHoldMs < JUMP_HOLD_MS
+        ? JUMP_HOLD_GRAVITY_SCALE
+        : 1;
+    state.playerVelocity += GRAVITY * holdGravityScale * dt;
     state.playerY += state.playerVelocity * dt;
+    if (state.jumpHeld && state.playerVelocity < 0) {
+      state.jumpHoldMs += dtMs;
+    }
 
+    if (state.playerY < -MAX_JUMP_HEIGHT) {
+      state.playerY = -MAX_JUMP_HEIGHT;
+      state.playerVelocity = Math.max(0, state.playerVelocity);
+    }
+
+    const wasAirborne = state.playerY < GROUND_Y || state.playerVelocity < 0;
     const onGround = state.playerY >= GROUND_Y;
     if (onGround) {
       state.playerY = GROUND_Y;
       state.playerVelocity = 0;
-      if (state.jumpBufferFrames > 0) {
+      state.jumpHoldMs = 0;
+      if (wasAirborne) {
+        state.landingSquashMs = LANDING_SQUASH_MS;
+      }
+      if (state.jumpBufferMs > 0) {
         doJumpImpulse();
       }
-    } else if (state.jumpBufferFrames > 0) {
-      state.jumpBufferFrames = Math.max(0, state.jumpBufferFrames - dt);
+    } else if (state.jumpBufferMs > 0) {
+      state.jumpBufferMs = Math.max(0, state.jumpBufferMs - dtMs);
     }
+    state.landingSquashMs = Math.max(0, state.landingSquashMs - dtMs);
 
     flushPendingWords(canvas);
 
-    if (nowMs - state.lastObstacleTime > 1400 + Math.random() * 1200) {
+    if (nowMs - state.lastObstacleTime > state.nextObstacleDelayMs) {
       spawnEmojiObstacle(w);
       state.lastObstacleTime = nowMs;
-      state.speed = Math.min(state.speed + 0.08, 14);
+      state.nextObstacleDelayMs = randomBetween(difficulty.spawnMinMs, difficulty.spawnMaxMs);
+      state.speed = Math.min(state.speed, MAX_SPEED);
     }
 
     let collision = false;
@@ -428,7 +490,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       return;
     }
 
-    state.score += 0.1 * dt;
+    state.score += dt * 9;
     const displayScore = Math.floor(state.score);
     setScore((prev) => (displayScore > prev ? displayScore : prev));
 
@@ -445,7 +507,11 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
 
     const playerEl = playerRef.current;
     if (playerEl) {
-      playerEl.style.transform = `translateY(${state.playerY}px)`;
+      const tilt = Math.max(-9, Math.min(9, state.playerVelocity / 85));
+      const squatProgress = state.landingSquashMs / LANDING_SQUASH_MS;
+      const scaleX = 1 + squatProgress * 0.08;
+      const scaleY = 1 - squatProgress * 0.1;
+      playerEl.style.transform = `translateY(${state.playerY}px) rotate(${tilt}deg) scaleX(${scaleX}) scaleY(${scaleY})`;
     }
 
     state.animationFrameId = requestAnimationFrame(() => gameLoopRef.current());
@@ -465,11 +531,15 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     stateRef.current = {
       playerY: 0,
       playerVelocity: 0,
-      jumpBufferFrames: 0,
+      jumpBufferMs: 0,
+      jumpHeld: true,
+      jumpHoldMs: 0,
+      landingSquashMs: 0,
       obstacles: [],
-      speed: 5,
+      speed: BASE_SPEED,
       score: 0,
       lastObstacleTime: Date.now(),
+      nextObstacleDelayMs: 1600,
       lastFrameTime: now,
       animationFrameId: 0,
       roadPhase: 0,
@@ -479,18 +549,19 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     gameLoop();
   }, [gameLoop]);
 
-  const jump = useCallback(() => {
+  const pressJump = useCallback(() => {
     if (!playingRef.current || gameOverRef.current) {
       startGame();
       return;
     }
     const s = stateRef.current;
+    s.jumpHeld = true;
     const onGroundForJump = s.playerY >= GROUND_Y && s.playerVelocity >= 0;
     if (onGroundForJump) {
       doJumpImpulse();
       return;
     }
-    s.jumpBufferFrames = JUMP_BUFFER_FRAMES;
+    s.jumpBufferMs = JUMP_BUFFER_MS;
   }, [startGame, doJumpImpulse]);
 
   useEffect(() => {
@@ -518,13 +589,24 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === "Space" || e.code === "ArrowUp") {
+        if (e.repeat) return;
         e.preventDefault();
-        jump();
+        pressJump();
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space" || e.code === "ArrowUp") {
+        e.preventDefault();
+        releaseJump();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [jump]);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [pressJump, releaseJump]);
 
   useEffect(() => {
     return () => cancelAnimationFrame(stateRef.current.animationFrameId);
@@ -535,11 +617,24 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
   return (
     <div
       className="relative w-full min-h-[220px] h-56 flex flex-col select-none rounded-xl overflow-hidden border border-emerald-200/60 bg-zinc-50 dark:border-emerald-900/40 dark:bg-zinc-950 shadow-sm"
-      onClick={jump}
+      onPointerDown={(e) => {
+        if (e.pointerType !== "mouse" || e.button === 0) {
+          pressJump();
+        }
+      }}
+      onPointerUp={releaseJump}
+      onPointerCancel={releaseJump}
       onKeyDown={(e) => {
         if (e.key === " " || e.key === "ArrowUp") {
+          if (e.repeat) return;
           e.preventDefault();
-          jump();
+          pressJump();
+        }
+      }}
+      onKeyUp={(e) => {
+        if (e.key === " " || e.key === "ArrowUp") {
+          e.preventDefault();
+          releaseJump();
         }
       }}
       role="application"
@@ -577,25 +672,6 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
             </button>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {(Object.keys(CHARACTERS) as CharacterType[]).map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setCharacter(c);
-              }}
-              className={`rounded-md px-2 py-0.5 text-[10px] font-semibold capitalize transition ${
-                character === c
-                  ? "bg-emerald-600 text-white shadow-sm dark:bg-emerald-500"
-                  : "bg-zinc-200 text-zinc-600 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
         {doneBanner ? (
           <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
             Search finished — inventory is ready below. Keep running for a new HI score.
@@ -605,18 +681,56 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
 
       <div ref={containerRef} className="relative min-h-0 flex-1 w-full overflow-hidden">
         {!isPlaying && !isGameOver && (
-          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-1 bg-zinc-50/85 px-4 text-center backdrop-blur-[2px] dark:bg-zinc-950/80">
-            <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">Ready to scrape the road</span>
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">Space, ↑, or tap to jump · double-tap scrape button opens this lane</span>
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-zinc-50/88 px-4 text-center backdrop-blur-[2px] dark:bg-zinc-950/84">
+            <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">Pick your ride and hit the lane</span>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {(Object.keys(CHARACTERS) as CharacterType[]).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCharacter(c);
+                  }}
+                  className={`rounded-md px-2.5 py-1 text-[11px] font-semibold capitalize transition ${
+                    character === c
+                      ? "bg-emerald-600 text-white shadow-sm dark:bg-emerald-500"
+                      : "bg-white/90 text-zinc-700 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">Hold jump for a little extra air · release early for a short hop</span>
           </div>
         )}
 
         {isGameOver && (
-          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-zinc-50/90 px-4 backdrop-blur-sm dark:bg-zinc-950/85">
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-zinc-50/90 px-4 backdrop-blur-sm dark:bg-zinc-950/85">
             <span className="text-lg font-bold text-zinc-900 dark:text-zinc-50">Wiped out</span>
             <span className="text-center text-xs text-zinc-600 dark:text-zinc-400">
               Space or tap to respawn — listings are still in the results panel.
             </span>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {(Object.keys(CHARACTERS) as CharacterType[]).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCharacter(c);
+                  }}
+                  className={`rounded-md px-2.5 py-1 text-[11px] font-semibold capitalize transition ${
+                    character === c
+                      ? "bg-emerald-600 text-white shadow-sm dark:bg-emerald-500"
+                      : "bg-white/90 text-zinc-700 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -628,7 +742,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
 
         <div
           ref={playerRef}
-          className="pointer-events-none absolute bottom-4 left-5 z-20 h-10 w-[60px] will-change-transform"
+          className="pointer-events-none absolute bottom-4 left-5 z-20 h-10 w-[60px] origin-bottom will-change-transform"
           style={{ marginBottom: 0 }}
         >
           <CharacterComponent />
