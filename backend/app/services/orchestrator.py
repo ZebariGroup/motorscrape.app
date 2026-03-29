@@ -2224,6 +2224,7 @@ async def stream_search(
                             "ford_family_inventory",
                             "gm_family_inventory",
                             "honda_acura_inventory",
+                            "nissan_infiniti_inventory",
                             "oneaudi_falcon",
                             "toyota_lexus_oem_inventory",
                         }

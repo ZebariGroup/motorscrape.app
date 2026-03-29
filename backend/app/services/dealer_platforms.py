@@ -40,6 +40,17 @@ _FORD_FAMILY_STRONG_MARKERS: tuple[str, ...] = (
     "/viewdetails/",
     "inventory_listing",
 )
+# Sonic / SecureOfferSites-style stack shared by Ford, Nissan, INFINITI, etc. — do not use "ford" substring
+# in HTML alone (e.g. "affordable") to enable the Ford OEM profile.
+_NISSAN_INFINITI_SONIC_MARKERS: tuple[str, ...] = (
+    "si-vehicle-box",
+    "unlockctadiscountdata",
+    "/viewdetails/",
+    "inventory_listing",
+)
+
+_FORD_LINCOLN_BODY_RE = re.compile(r"(?<![a-z0-9])ford(?![a-z0-9])", re.I)
+_LINCOLN_BODY_RE = re.compile(r"(?<![a-z0-9])lincoln(?![a-z0-9])", re.I)
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,6 +299,8 @@ def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None 
         "ford_family_inventory",
         "gm_family_inventory",
         "honda_acura_inventory",
+        "nissan_infiniti_inventory",
+        "kia_inventory",
     }:
         return _FORD_FAMILY_INVENTORY_ZENROWS_JS.strip()
     return None
@@ -306,7 +319,11 @@ def playwright_inventory_instructions_for_url(url: str, platform_id: str | None 
     """Return Playwright-specific interaction steps for inventory URLs, if any."""
     if platform_id == "oneaudi_falcon":
         return _ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS.strip()
-    if platform_id == "ford_family_inventory":
+    if platform_id in {
+        "ford_family_inventory",
+        "nissan_infiniti_inventory",
+        "kia_inventory",
+    }:
         return _FORD_FAMILY_PLAYWRIGHT_INSTRUCTIONS.strip()
     if platform_id == "dealer_on":
         return _DEALER_ON_PLAYWRIGHT_INSTRUCTIONS.strip()
@@ -624,14 +641,24 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
 )
 
 
-def _family_stack_allowed_for_target(platform_id: str, target: str, page_url: str) -> bool:
+def _ford_lincoln_allowed(html_lower: str, page_url: str) -> bool:
+    """Ford/Lincoln OEM stack: host may contain ford/lincoln; body/URL must not match via substrings like 'affordable'."""
     host = urlsplit(page_url).netloc.lower()
+    if "ford" in host or "lincoln" in host:
+        return True
+    blob = f"{html_lower} {page_url.lower()}"
+    return bool(_FORD_LINCOLN_BODY_RE.search(blob) or _LINCOLN_BODY_RE.search(blob))
+
+
+def _family_stack_allowed_for_target(platform_id: str, html_lower: str, page_url: str) -> bool:
+    host = urlsplit(page_url).netloc.lower()
+    target = html_lower + " " + page_url.lower()
     if platform_id == "nissan_infiniti_inventory":
         return any(token in host or token in target for token in ("nissan", "infiniti"))
     if platform_id == "honda_acura_inventory":
         return any(token in host or token in target for token in ("honda", "acura"))
     if platform_id == "ford_family_inventory":
-        return any(token in host or token in target for token in ("ford", "lincoln"))
+        return _ford_lincoln_allowed(html_lower, page_url)
     if platform_id == "gm_family_inventory":
         return any(
             token in host or token in target
@@ -651,7 +678,10 @@ def _family_stack_allowed_for_target(platform_id: str, target: str, page_url: st
     return True
 
 
-def _platform_tie_break_priority(definition: PlatformDefinition, target: str) -> int:
+def _platform_tie_break_priority(
+    definition: PlatformDefinition, target: str, *, page_url: str = ""
+) -> int:
+    host = urlsplit(page_url).netloc.lower()
     if definition.platform_id == "team_velocity":
         return 30 if any(marker in target for marker in _TEAM_VELOCITY_STRONG_MARKERS) else 0
     if definition.platform_id == "dealer_inspire":
@@ -660,6 +690,12 @@ def _platform_tie_break_priority(definition: PlatformDefinition, target: str) ->
         return 5 if "__next_data__" in target else 0
     if definition.platform_id == "dealer_spike":
         return 35 if any(marker in target for marker in _DEALER_SPIKE_STRONG_MARKERS) else 0
+    if definition.platform_id == "nissan_infiniti_inventory":
+        if "nissan" in host or "infiniti" in host:
+            sonic = sum(1 for marker in _NISSAN_INFINITI_SONIC_MARKERS if marker in target)
+            if sonic >= 3:
+                return 26
+        return 0
     if definition.platform_id == "ford_family_inventory":
         return 25 if all(marker in target for marker in ("ford", "vehicle_results_label")) else (
             18 if sum(1 for marker in _FORD_FAMILY_STRONG_MARKERS if marker in target) >= 4 else 0
@@ -674,12 +710,12 @@ def _best_platform_definition(html: str, page_url: str = "") -> PlatformDefiniti
     target = lower + " " + page_url.lower()
     best: tuple[int, int, PlatformDefinition] | None = None
     for definition in _PLATFORM_REGISTRY:
-        if not _family_stack_allowed_for_target(definition.platform_id, target, page_url):
+        if not _family_stack_allowed_for_target(definition.platform_id, lower, page_url):
             continue
         score = sum(1 for marker in definition.markers if marker in target)
         if score <= 0:
             continue
-        priority = _platform_tie_break_priority(definition, target)
+        priority = _platform_tie_break_priority(definition, target, page_url=page_url)
         if not best or score > best[0] or (score == best[0] and priority > best[1]):
             best = (score, priority, definition)
     return best[2] if best else None
