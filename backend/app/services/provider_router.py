@@ -250,7 +250,13 @@ def _slugify_model_path(text: str) -> str:
     return slug.strip("-")
 
 
-def _build_family_inventory_path(base_url: str, make: str, model: str) -> str:
+def _build_family_inventory_path(
+    base_url: str,
+    make: str,
+    model: str,
+    *,
+    condition: str = "new",
+) -> str:
     parts = urlsplit(base_url)
     path = parts.path.rstrip("/")
     model_slug = _slugify_model_path(model)
@@ -286,15 +292,22 @@ def _build_family_inventory_path(base_url: str, make: str, model: str) -> str:
                 parts.scheme,
                 parts.netloc,
                 f"/inventory/{segments[1]}/{make_slug}/{model_slug}",
-                parts.query,
-                parts.fragment,
+                "",
+                "",
             )
         )
 
     if normalized_path.endswith("/inventory/new") or normalized_path.endswith("/inventory/used"):
         path = f"{path}/{make_slug}-{model_slug}"
         return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
-    return base_url
+
+    # Base URL has no /inventory path at all (homepage or unrecognized page).
+    # Construct a canonical family inventory SRP with the model slug appended.
+    cond = (condition or "new").strip().lower()
+    inv_path = "/inventory/used" if cond == "used" else "/inventory/new"
+    return urlunsplit(
+        (parts.scheme, parts.netloc, f"{inv_path}/{make_slug}-{model_slug}", "", "")
+    )
 
 
 def _looks_like_exact_bmw_inventory_path(url: str, model: str) -> bool:
@@ -1386,7 +1399,12 @@ def resolve_inventory_url_for_provider(
 
     if not route and make_norm and model_norm:
         base_for_family = _normalize_inventory_candidate_url(best_url if best_score > 0 else fallback_url)
-        candidate = _build_family_inventory_path(base_for_family, make=make, model=(model.split(",")[0].strip() if "," in model else model))
+        candidate = _build_family_inventory_path(
+            base_for_family,
+            make=make,
+            model=(model.split(",")[0].strip() if "," in model else model),
+            condition=condition,
+        )
         if candidate != base_for_family:
             best_url = candidate
 
@@ -1414,13 +1432,13 @@ def resolve_inventory_url_for_provider(
                 best_url = _with_query_params(base, {"model": model})
         elif route.platform_id == "honda_acura_inventory":
             base = _normalize_inventory_candidate_url(best_url if best_score > 0 else generic_base)
-            best_url = _build_family_inventory_path(base, make, model)
+            best_url = _build_family_inventory_path(base, make, model, condition=condition)
         elif route.platform_id in {"ford_family_inventory", "gm_family_inventory"}:
             base = _normalize_inventory_candidate_url(best_url if best_score > 0 else generic_base)
-            best_url = _build_family_inventory_path(base, make, model)
+            best_url = _build_family_inventory_path(base, make, model, condition=condition)
         elif route.platform_id == "toyota_lexus_oem_inventory":
             base = _normalize_inventory_candidate_url(best_url if best_score > 0 else generic_base)
-            best_url = _build_family_inventory_path(base, make, model)
+            best_url = _build_family_inventory_path(base, make, model, condition=condition)
             best_url = _drop_query_keys(best_url, {"gvBodyStyle", "make", "search"})
             best_url = _with_query_params(best_url, {"model": model})
         elif route.platform_id == "dealer_on" and best_score < 100 and generic_base:

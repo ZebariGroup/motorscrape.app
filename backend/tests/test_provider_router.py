@@ -943,7 +943,30 @@ def test_resolve_inventory_url_for_provider_normalizes_stale_ford_model_hint() -
         model="Bronco",
         vehicle_condition="new",
     )
-    assert url.startswith("https://www.elcajonford.com/inventory/new/ford/bronco")
+    assert url == "https://www.elcajonford.com/inventory/new/ford-bronco"
+
+
+def test_resolve_inventory_url_for_provider_ford_family_constructs_srp_from_homepage() -> None:
+    route = ProviderRoute(
+        platform_id="ford_family_inventory",
+        confidence=1.0,
+        extraction_mode="structured_html",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory/new", "inventory/used"),
+        inventory_url_hint=None,
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html><body>Welcome to Ford</body></html>",
+        "https://www.chulavistaford.com/",
+        route,
+        fallback_url="https://www.chulavistaford.com/",
+        make="Ford",
+        model="Bronco",
+        vehicle_condition="new",
+    )
+    assert url == "https://www.chulavistaford.com/inventory/new/ford-bronco"
 
 
 def test_detect_or_lookup_provider_normalizes_cached_dealer_on_render_flag() -> None:
