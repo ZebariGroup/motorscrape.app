@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.api.deps import AccessContext, get_access_context
 from app.api.routes_admin import router as admin_router
@@ -74,6 +74,11 @@ async def search_stream(
     outcome: dict = {}
     store = get_account_store(settings.accounts_db_path)
     correlation_id = correlation_id or build_correlation_id()
+    existing_run = store.get_scrape_run(correlation_id, user_id=ctx.user_id, anon_key=ctx.anon_key)
+    if existing_run is not None and existing_run.status == "running":
+        logger.warning("Duplicate search stream prevented for correlation_id=%s", correlation_id)
+        # Tell EventSource clients to stop retrying this duplicate stream request.
+        return Response(status_code=204)
     recorder = create_scrape_run_recorder(
         store=store,
         correlation_id=correlation_id,

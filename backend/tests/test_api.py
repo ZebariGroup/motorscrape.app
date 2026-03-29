@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.config import settings
@@ -58,6 +59,22 @@ def test_search_stream_accepts_vehicle_category() -> None:
                 assert r.status_code == 200
                 _ = b"".join(r.iter_bytes())
         assert mocked_find.await_args.kwargs["vehicle_category"] == "boat"
+
+
+def test_search_stream_duplicate_running_correlation_id_returns_204() -> None:
+    mocked_store = SimpleNamespace(
+        get_scrape_run=lambda correlation_id, *, user_id=None, anon_key=None: SimpleNamespace(status="running"),
+    )
+    with patch("app.main.get_account_store", return_value=mocked_store):
+        with patch("app.main.create_scrape_run_recorder") as mocked_recorder:
+            with patch("app.main.evaluate_search_start") as mocked_quota:
+                response = client.get(
+                    "/search/stream",
+                    params={"location": "Detroit, MI", "correlation_id": "srch-duplicate"},
+                )
+    assert response.status_code == 204
+    mocked_recorder.assert_not_called()
+    mocked_quota.assert_not_called()
 
 
 def test_search_logs_endpoint_returns_run_and_events() -> None:
