@@ -124,7 +124,7 @@ describe("useSearchStream", () => {
     expect(result.current.search.status).toBe("Search finished · 1 dealerships searched");
   });
 
-  it("should handle reconnecting state", () => {
+  it("should handle reconnecting state", async () => {
     const { result } = renderHook(() => useSearchStream());
 
     act(() => {
@@ -138,8 +138,37 @@ describe("useSearchStream", () => {
       if (es.onerror) es.onerror();
     });
 
+    await act(async () => {
+      await Promise.resolve();
+    });
+
     expect(result.current.search.reconnecting).toBe(true);
     expect(result.current.search.status).toBe("Connection lost. Reconnecting...");
+  });
+
+  it("should not treat as failure when error fires before done in the same turn (stream close race)", async () => {
+    const { result } = renderHook(() => useSearchStream());
+
+    act(() => {
+      result.current.form.setLocation("Seattle");
+      result.current.search.startSearch();
+    });
+
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.readyState = 2; // CLOSED — not CONNECTING, so the deferred handler would normally error
+      if (es.onerror) es.onerror();
+      es.emit("done", { ok: true, dealer_deduped_count: 1, dealer_discovery_count: 1 });
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.search.running).toBe(false);
+    expect(result.current.search.errors).toHaveLength(0);
+    expect(result.current.search.status).toBe("Search finished · 1 dealerships searched");
   });
 
   it("should include vehicle category in the stream URL", () => {

@@ -183,6 +183,8 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const esRef = useRef<EventSource | null>(null);
   const streamSessionRef = useRef(0);
+  /** Set when the terminal `done` SSE event is handled — avoids false errors from EventSource close/reconnect. */
+  const streamDoneReceivedRef = useRef(false);
   const correlationIdRef = useRef<string | null>(null);
   const pendingListingsRef = useRef<AggregatedListing[]>([]);
   const listingFlushHandleRef = useRef<number | null>(null);
@@ -601,6 +603,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     setPinnedDealerWebsite(null);
     setStatus(null);
     setReconnecting(false);
+    streamDoneReceivedRef.current = false;
     const startedAt = Date.now();
     setNowMs(startedAt);
 
@@ -695,6 +698,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
 
     const onDone = (ev: Event) => {
       if (isStaleSession()) return;
+      streamDoneReceivedRef.current = true;
       const me = ev as MessageEvent;
       try {
         const data = JSON.parse(me.data) as {
@@ -735,13 +739,18 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
 
     es.onerror = () => {
       if (isStaleSession()) return;
-      if (es.readyState === EventSource.CONNECTING) {
-        setReconnecting(true);
-        setStatus("Connection lost. Reconnecting...");
-        return;
-      }
-      setErrors((e) => [...e, "Connection to search stream lost or failed."]);
-      closeStream();
+      // EventSource fires `error` when the server closes the stream after a normal `done`, and may
+      // enter CONNECTING while auto-reconnecting. Defer handling so `onDone` can run in the same turn.
+      queueMicrotask(() => {
+        if (isStaleSession() || streamDoneReceivedRef.current) return;
+        if (es.readyState === EventSource.CONNECTING) {
+          setReconnecting(true);
+          setStatus("Connection lost. Reconnecting...");
+          return;
+        }
+        setErrors((e) => [...e, "Connection to search stream lost or failed."]);
+        closeStream();
+      });
     };
   }, [
     closeStream,
