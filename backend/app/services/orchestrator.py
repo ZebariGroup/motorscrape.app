@@ -779,6 +779,20 @@ def _inventory_url_recovery_candidates(
             for m in model_values[:2]:
                 add(_with_query_params(canonical, {"make": make, "model": m}))
         add(_with_query_params(canonical, {"make": make}))
+    elif route and route.platform_id in {
+        "ford_family_inventory",
+        "gm_family_inventory",
+        "honda_acura_inventory",
+        "toyota_lexus_oem_inventory",
+    }:
+        inv_path = "/inventory/used" if condition == "used" else "/inventory/new"
+        broad_srp = urlunsplit((parsed_base.scheme, parsed_base.netloc, inv_path, "", ""))
+        add(broad_srp)
+        if model_values and make_norm:
+            for m in model_values[:2]:
+                model_norm = re.sub(r"[^a-z0-9]+", "-", m.strip().lower()).strip("-")
+                if model_norm:
+                    add(urlunsplit((parsed_base.scheme, parsed_base.netloc, f"{inv_path}/{make_norm}-{model_norm}", "", "")))
     elif not route:
         canonical = guess_franchise_inventory_srp_url(base_url, condition) or ""
         if canonical:

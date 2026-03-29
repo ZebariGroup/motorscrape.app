@@ -30,7 +30,13 @@ _managed_scraper_sem_lock = asyncio.Lock()
 _zenrows_cooldown_until_monotonic: float = 0.0
 
 _ZENROWS_TRANSIENT_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504, 520, 522, 524})
-_DIRECT_FIRST_RENDER_PREFERRED_PLATFORMS = frozenset({"dealer_on"})
+_DIRECT_FIRST_RENDER_PREFERRED_PLATFORMS = frozenset({
+    "dealer_on",
+    "ford_family_inventory",
+    "gm_family_inventory",
+    "honda_acura_inventory",
+    "toyota_lexus_oem_inventory",
+})
 
 # Long-lived clients reuse TLS sessions and connection pools (per-request timeout still applies).
 _scraper_client_lock = asyncio.Lock()
