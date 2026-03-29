@@ -215,6 +215,12 @@ export function DealerProgressList({
                         <span className="text-zinc-500">{listingSummary}</span>
                       ) : null}
                     </div>
+                    {d.status === "queued" ? (
+                      <p className="mt-2 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+                        Scraping runs with a limited number of workers. This row switches to scraping as soon as
+                        a slot opens; other dealer cards may already show pages, extraction, and streaming listings.
+                      </p>
+                    ) : null}
                     {pageProgress || resultsDetected || strategyLabel || extractionLabel ? (
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
                         {pageProgress ? (
