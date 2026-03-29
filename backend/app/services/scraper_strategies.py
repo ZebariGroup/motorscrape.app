@@ -81,6 +81,7 @@ async def zenrows_try_once(
     metric_prefix: str,
     failure_label: str,
     js_instructions: str | None = None,
+    platform_id: str | None = None,
 ) -> str | None:
     """Single ZenRows attempt with optional premium retry; mirrors previous nested `_try_zenrows`."""
     from app.services.scraper import (  # noqa: PLC0415 — lazy import breaks cycle with zenrows helpers
@@ -101,7 +102,7 @@ async def zenrows_try_once(
             js_instructions=js_instructions,
         )
         html = await _maybe_append_inventory_api_data(url, html, timeout)
-        if _direct_html_sufficient(html, page_kind=page_kind):
+        if _direct_html_sufficient(html, page_kind=page_kind, platform_id=platform_id):
             metric_bump(f"{metric_prefix}_ok")
             return html
         metric_bump(f"{metric_prefix}_insufficient")
@@ -129,7 +130,7 @@ async def zenrows_try_once(
             js_instructions=js_instructions,
         )
         premium_html = await _maybe_append_inventory_api_data(url, premium_html, timeout)
-        if _direct_html_sufficient(premium_html, page_kind=page_kind):
+        if _direct_html_sufficient(premium_html, page_kind=page_kind, platform_id=platform_id):
             metric_bump(f"{metric_prefix}_premium_ok")
             return premium_html
         metric_bump(f"{metric_prefix}_premium_insufficient")

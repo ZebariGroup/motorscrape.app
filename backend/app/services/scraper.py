@@ -38,6 +38,15 @@ _DIRECT_FIRST_RENDER_PREFERRED_PLATFORMS = frozenset({
     "toyota_lexus_oem_inventory",
 })
 
+# OEM Sonic / si-vehicle-box SRP — same readiness rules as Ford family (placeholders, JSON-LD counts).
+_SONIC_STYLE_INVENTORY_PLATFORMS = frozenset(
+    {
+        "ford_family_inventory",
+        "nissan_infiniti_inventory",
+        "kia_inventory",
+    }
+)
+
 # Long-lived clients reuse TLS sessions and connection pools (per-request timeout still applies).
 _scraper_client_lock = asyncio.Lock()
 _direct_httpx_client: httpx.AsyncClient | None = None
@@ -515,6 +524,7 @@ async def fetch_page_html(
                 js_render=False,
                 metric_prefix="zenrows_static",
                 failure_label="zenrows_static",
+                platform_id=platform_id,
             )
             if html is not None:
                 return html, "zenrows_static"
@@ -552,6 +562,7 @@ async def fetch_page_html(
                     metric_prefix="zenrows_rendered",
                     failure_label="zenrows_rendered",
                     js_instructions=js_instructions,
+                    platform_id=platform_id,
                 )
                 if html is not None:
                     return html, "zenrows_rendered"
@@ -784,7 +795,7 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str 
     # the real inventory via Vue.js — treat them as render-required always.
     if page_kind == "inventory" and _looks_like_sonic_teamvelocity_spa(html):
         return False
-    if page_kind == "inventory" and platform_id == "ford_family_inventory":
+    if page_kind == "inventory" and platform_id in _SONIC_STYLE_INVENTORY_PLATFORMS:
         if _looks_like_placeholder_inventory(html):
             return False
         if _looks_like_empty_inventory_shell(html):
@@ -804,6 +815,11 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str 
         # client-side inventory has hydrated. Require multiple vehicle-specific
         # signals before trusting direct HTML as extraction-ready.
         if _has_structured_inventory_hint(html) and _count_structured_vehicle_signals(html) >= 3:
+            return True
+    elif page_kind == "inventory" and platform_id == "dealer_on":
+        if _looks_like_empty_inventory_shell(html):
+            return False
+        if _html_looks_inventory_ready(html, platform_id=platform_id):
             return True
     elif _has_structured_inventory_hint(html):
         return True
@@ -958,7 +974,7 @@ async def _scrapingbee_fetch(
 
 def _html_looks_inventory_ready(html: str, *, platform_id: str | None = None) -> bool:
     lower = html.lower()
-    if platform_id == "ford_family_inventory":
+    if platform_id in _SONIC_STYLE_INVENTORY_PLATFORMS:
         return (
             "vehicle_results_label" in lower
             or "inventory_listing" in lower

@@ -136,6 +136,35 @@ def test_detect_platform_profile_matches_ford_family_on_group_host() -> None:
     assert profile.requires_render is True
 
 
+def test_detect_platform_profile_infiniti_host_not_honda_acura_when_shared_sonic_markers() -> None:
+    """INFINITI retailers use the same Sonic DOM markers as Honda OEM; hostname must disambiguate."""
+    html = """
+    <html><body>
+      <p>Welcome to LaFontaine INFINITI</p>
+      <div class="si-vehicle-box"></div>
+      <div class="inventory_listing"></div>
+      <a href="/viewdetails/new/abc/2025-infiniti-q50">Details</a>
+      <script>var unlockCTADiscountData = {};</script>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.lafontaineinfinititroy.com/")
+    assert profile is not None
+    assert profile.platform_id == "nissan_infiniti_inventory"
+
+
+def test_detect_platform_profile_infiniti_host_not_gm_family_when_footer_mentions_chevy() -> None:
+    html = """
+    <html><body>
+      <title>Infiniti of Windsor</title>
+      <div class="si-vehicle-box"></div>
+      <footer>Also shop Chevrolet and GMC trucks at our group site</footer>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.infinitiofwindsor.com/")
+    assert profile is not None
+    assert profile.platform_id == "nissan_infiniti_inventory"
+
+
 def test_detect_platform_profile_nissan_host_not_ford_family_when_ford_is_substring() -> None:
     """Marketing copy like 'affordable' must not enable Ford OEM detection on Nissan dealers."""
     html = """

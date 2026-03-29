@@ -653,18 +653,28 @@ def _ford_lincoln_allowed(html_lower: str, page_url: str) -> bool:
 def _family_stack_allowed_for_target(platform_id: str, html_lower: str, page_url: str) -> bool:
     host = urlsplit(page_url).netloc.lower()
     target = html_lower + " " + page_url.lower()
+    infiniti_or_nissan_host = "infiniti" in host or "nissan" in host
     if platform_id == "nissan_infiniti_inventory":
         return any(token in host or token in target for token in ("nissan", "infiniti"))
     if platform_id == "honda_acura_inventory":
+        # Shared Sonic markers (si-vehicle-box, etc.) must not classify INFINITI/Nissan dealers as Honda/Acura.
+        if infiniti_or_nissan_host:
+            return False
         return any(token in host or token in target for token in ("honda", "acura"))
     if platform_id == "ford_family_inventory":
+        if infiniti_or_nissan_host and "ford" not in host and "lincoln" not in host:
+            return False
         return _ford_lincoln_allowed(html_lower, page_url)
     if platform_id == "gm_family_inventory":
+        if infiniti_or_nissan_host:
+            return False
         return any(
             token in host or token in target
             for token in ("chevrolet", "chevy", "gmc", "buick", "cadillac")
         )
     if platform_id == "toyota_lexus_oem_inventory":
+        if infiniti_or_nissan_host and "toyota" not in host and "lexus" not in host:
+            return False
         return any(token in host or token in target for token in ("toyota", "lexus"))
     if platform_id == "hyundai_inventory_search":
         return "hyundai" in host or "hyundai" in target
