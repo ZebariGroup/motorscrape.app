@@ -249,6 +249,59 @@ async def test_find_car_dealerships_happy_path(places_api_key: str, monkeypatch:
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_find_car_dealerships_filters_results_outside_requested_radius(places_api_key: str) -> None:
+    loc_response = {
+        "places": [
+            {
+                "location": {"latitude": 42.3314, "longitude": -83.0458},
+            }
+        ]
+    }
+    search_response = {
+        "places": [
+            {
+                "id": "ChIJnear",
+                "name": "places/ChIJnear",
+                "displayName": {"text": "Nearby Ford"},
+                "formattedAddress": "123 Main",
+                "websiteUri": "https://nearby-ford.example/",
+                "location": {"latitude": 42.359, "longitude": -83.05},
+            },
+            {
+                "id": "ChIJfar",
+                "name": "places/ChIJfar",
+                "displayName": {"text": "Far Ford"},
+                "formattedAddress": "456 Main",
+                "websiteUri": "https://far-ford.example/",
+                "location": {"latitude": 42.75, "longitude": -83.05},
+            },
+        ]
+    }
+    search_bodies: list[dict] = []
+
+    def _route(request: object) -> Response:
+        try:
+            raw = request.content.decode() if getattr(request, "content", None) else "{}"  # type: ignore[union-attr]
+            body = json.loads(raw) if raw else {}
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return Response(200, json={"places": []})
+        if "includedType" not in body:
+            return Response(200, json=loc_response)
+        search_bodies.append(body)
+        return Response(200, json=search_response)
+
+    respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
+
+    out = await places.find_car_dealerships("Detroit MI", make="Ford", limit=5, radius_miles=25)
+    assert [dealer.name for dealer in out] == ["Nearby Ford"]
+    assert search_bodies
+    assert "locationRestriction" in search_bodies[0]
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_find_dealerships_boats_uses_untyped_query(places_api_key: str) -> None:
     """Boat discovery should rely on text query matching instead of car_dealer filtering."""
     loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
@@ -594,12 +647,10 @@ async def test_find_dealerships_motorcycles_caps_generic_fallback_candidates(pla
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_resolve_location_bias_returns_none_on_http_error(places_api_key: str) -> None:
+async def test_resolve_location_center_returns_none_on_http_error(places_api_key: str) -> None:
     import httpx
 
     respx.post(places.SEARCH_TEXT_URL).mock(return_value=Response(500))
     async with httpx.AsyncClient() as client:
-        bias = await places._resolve_location_bias(
-            client, places_api_key, location="Nowhere", radius_miles=10
-        )
-    assert bias is None
+        center = await places._resolve_location_center(client, places_api_key, location="Nowhere")
+    assert center is None

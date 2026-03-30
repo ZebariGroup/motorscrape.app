@@ -8,6 +8,7 @@ export type AlertCriteria = {
   inventory_scope: "all" | "on_lot_only" | "exclude_shared" | "include_transit";
   max_dealerships: number | null;
   max_pages_per_dealer: number | null;
+  market_region?: "us" | "eu";
 };
 
 export type AlertSubscription = {

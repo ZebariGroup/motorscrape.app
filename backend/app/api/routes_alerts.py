@@ -27,6 +27,7 @@ class AlertCriteriaBody(BaseModel):
     inventory_scope: Literal["all", "on_lot_only", "exclude_shared", "include_transit"] = "all"
     max_dealerships: int | None = Field(default=None, ge=1, le=30)
     max_pages_per_dealer: int | None = Field(default=None, ge=1, le=50)
+    market_region: Literal["us", "eu"] = "us"
 
 
 class AlertSubscriptionBody(BaseModel):

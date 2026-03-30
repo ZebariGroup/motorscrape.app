@@ -6,6 +6,13 @@ import { EmailAlertPanel } from "@/components/search/EmailAlertPanel";
 import { MultiModelSelect } from "@/components/search/MultiModelSelect";
 import { resolveApiUrl } from "@/lib/apiBase";
 import {
+  kmToMiles,
+  MARKET_REGION_STORAGE_KEY,
+  milesToKm,
+  parseMarketRegion,
+  type MarketRegion,
+} from "@/lib/marketRegion";
+import {
   ENABLED_VEHICLE_CATEGORY_OPTIONS,
   categoryUsesCatalog,
   defaultVehicleCategory,
@@ -61,6 +68,10 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
   const [radiusMiles, setRadiusMiles] = useState("25");
   const [inventoryScope, setInventoryScope] = useState<AlertSubscription["criteria"]["inventory_scope"]>("all");
   const [maxDealerships, setMaxDealerships] = useState("8");
+  const [marketRegion] = useState<MarketRegion>(() => {
+    if (typeof window === "undefined") return "us";
+    return parseMarketRegion(localStorage.getItem(MARKET_REGION_STORAGE_KEY));
+  });
 
   const load = useCallback(async () => {
     if (!authenticated || !paid) return;
@@ -87,9 +98,13 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
   const inventoryScopePremium = access?.limits?.inventory_scope_premium ?? true;
   const allowAnyModel = ["premium", "max_pro", "enterprise", "custom"].includes(tier.toLowerCase());
   const usesCatalog = useMemo(() => categoryUsesCatalog(vehicleCategory), [vehicleCategory]);
-  const makeOptions = useMemo(() => getMakesForCategory(vehicleCategory), [vehicleCategory]);
-  const modelOptions = useMemo(() => getModelsForMake(vehicleCategory, make), [make, vehicleCategory]);
+  const makeOptions = useMemo(() => getMakesForCategory(vehicleCategory, marketRegion), [marketRegion, vehicleCategory]);
+  const modelOptions = useMemo(() => getModelsForMake(vehicleCategory, make, marketRegion), [make, marketRegion, vehicleCategory]);
   const radiusOptions = useMemo(() => RADIUS_CHOICES.filter((miles) => miles <= maxRadiusCap), [maxRadiusCap]);
+  const radiusKmOptions = useMemo(() => {
+    const capKm = milesToKm(maxRadiusCap);
+    return [10, 25, 40, 50, 80, 100, 150, 200].filter((km) => km <= capKm);
+  }, [maxRadiusCap]);
   const dealerOptions = useMemo(() => dealerChoices(maxDealersCap), [maxDealersCap]);
   const canCreateAlert = location.trim().length >= 2 && (allowAnyModel || model.trim().length > 0);
   const draftCriteria = {
@@ -102,6 +117,7 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
     inventory_scope: inventoryScope,
     max_dealerships: Number.parseInt(maxDealerships, 10) || null,
     max_pages_per_dealer: null,
+    market_region: marketRegion,
   };
 
   useEffect(() => {
@@ -118,6 +134,16 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
       setRadiusMiles(String(maxRadiusCap));
     }
   }, [maxRadiusCap, radiusMiles]);
+
+  useEffect(() => {
+    if (marketRegion !== "eu") return;
+    const mi = Number.parseInt(radiusMiles, 10);
+    if (!Number.isFinite(mi)) return;
+    const validMiles = new Set(radiusKmOptions.map((km) => kmToMiles(km)));
+    if (validMiles.has(mi)) return;
+    const nearest = [...validMiles].reduce((a, b) => (Math.abs(b - mi) < Math.abs(a - mi) ? b : a));
+    setRadiusMiles(String(nearest));
+  }, [marketRegion, radiusKmOptions, radiusMiles]);
 
   useEffect(() => {
     if (!inventoryScopePremium && inventoryScope !== "all") {
@@ -303,17 +329,25 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span className="font-medium text-zinc-800 dark:text-zinc-200">Radius</span>
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                  Radius ({marketRegion === "eu" ? "km" : "miles"})
+                </span>
                 <select
                   value={radiusMiles}
                   onChange={(event) => setRadiusMiles(event.target.value)}
                   className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                 >
-                  {radiusOptions.map((miles) => (
-                    <option key={miles} value={String(miles)}>
-                      {miles} miles
-                    </option>
-                  ))}
+                  {marketRegion === "eu"
+                    ? radiusKmOptions.map((km) => (
+                        <option key={km} value={String(kmToMiles(km))}>
+                          {km} km
+                        </option>
+                      ))
+                    : radiusOptions.map((miles) => (
+                        <option key={miles} value={String(miles)}>
+                          {miles} miles
+                        </option>
+                      ))}
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-sm">

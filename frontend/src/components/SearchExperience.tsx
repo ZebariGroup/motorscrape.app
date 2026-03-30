@@ -141,6 +141,7 @@ export function SearchExperience() {
     inventory_scope: form.inventoryScope as "all" | "on_lot_only" | "exclude_shared" | "include_transit",
     max_dealerships: Number.parseInt(form.maxDealerships, 10) || null,
     max_pages_per_dealer: null,
+    market_region: form.marketRegion,
   };
 
   // Avoid duplicating the same "quota reached" message: we show it via the modal instead.

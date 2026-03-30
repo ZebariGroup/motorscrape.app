@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { resolveApiUrl } from "@/lib/apiBase";
+import { milesToKm } from "@/lib/marketRegion";
 import type { AccessSummary } from "@/types/access";
 import type { AlertCriteria } from "@/types/alerts";
 
@@ -65,6 +66,12 @@ export function EmailAlertPanel({
     const parts = [criteria.vehicle_category, criteria.location, criteria.make, criteria.model].filter(Boolean);
     return parts.join(" · ") || "Scheduled alert";
   }, [criteria.location, criteria.make, criteria.model, criteria.vehicle_category]);
+  const radiusLabel = useMemo(() => {
+    if ((criteria.market_region ?? "us") === "eu") {
+      return `${milesToKm(criteria.radius_miles)} km`;
+    }
+    return `${criteria.radius_miles} mi`;
+  }, [criteria.market_region, criteria.radius_miles]);
 
   const openModal = () => {
     if (!paid || !canSearch) return;
@@ -255,7 +262,7 @@ export function EmailAlertPanel({
                   Schedule: {cadence === "daily" ? "Daily" : "Weekly"} at {hourLocal.padStart(2, "0")}:00 in {timezone}
                 </p>
                 <p className="mt-1">
-                  Search: {criteria.vehicle_category} · {criteria.location} · {criteria.make || "Any make"} · {criteria.model || "Any model"} · {criteria.radius_miles} mi
+                  Search: {criteria.vehicle_category} · {criteria.location} · {criteria.make || "Any make"} · {criteria.model || "Any model"} · {radiusLabel}
                 </p>
               </div>
 
@@ -429,7 +436,7 @@ export function EmailAlertPanel({
                 Schedule: {cadence === "daily" ? "Daily" : "Weekly"} at {hourLocal.padStart(2, "0")}:00 in {timezone}
               </p>
               <p className="mt-1">
-                Search: {criteria.location} · {criteria.make || "Any make"} · {criteria.model || "Any model"} · {criteria.radius_miles} mi
+                Search: {criteria.location} · {criteria.make || "Any make"} · {criteria.model || "Any model"} · {radiusLabel}
               </p>
             </div>
 

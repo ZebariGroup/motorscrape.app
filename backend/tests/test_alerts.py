@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from app.config import settings
 from app.db.account_store import get_account_store
 from app.main import app
+from app.schemas import SearchRequest
+from app.services.search_runner import run_search_once
 from fastapi.testclient import TestClient
 
 
@@ -36,6 +39,7 @@ def test_paid_user_can_create_and_list_alerts(monkeypatch) -> None:
                 "inventory_scope": "all",
                 "max_dealerships": 8,
                 "max_pages_per_dealer": 3,
+                "market_region": "eu",
             },
             "cadence": "daily",
             "hour_local": 8,
@@ -46,12 +50,14 @@ def test_paid_user_can_create_and_list_alerts(monkeypatch) -> None:
     assert response.status_code == 201
     subscription = response.json()["subscription"]
     assert subscription["deliver_csv"] is True
+    assert subscription["criteria"]["market_region"] == "eu"
 
     listed = client.get("/alerts/subscriptions")
     assert listed.status_code == 200
     payload = listed.json()
     assert payload["email_configured"] is True
     assert len(payload["subscriptions"]) == 1
+    assert payload["subscriptions"][0]["criteria"]["market_region"] == "eu"
 
 
 def test_internal_due_runner_executes_alert(monkeypatch) -> None:
@@ -69,10 +75,11 @@ def test_internal_due_runner_executes_alert(monkeypatch) -> None:
                 "make": "Toyota",
                 "model": "Tacoma",
                 "vehicle_condition": "used",
-                "radius_miles": 25,
+                "radius_miles": 250,
                 "inventory_scope": "all",
                 "max_dealerships": 8,
                 "max_pages_per_dealer": 3,
+                "market_region": "eu",
             },
             "cadence": "daily",
             "hour_local": 8,
@@ -101,4 +108,20 @@ def test_internal_due_runner_executes_alert(monkeypatch) -> None:
     assert len(scrape_runs) == 1
     assert scrape_runs[0].trigger_source == "alert_schedule"
     assert scrape_runs[0].status == "success"
+    assert scrape_runs[0].radius_miles == 30
     assert runs[0]["summary"]["correlation_id"] == scrape_runs[0].correlation_id
+
+
+@pytest.mark.asyncio
+async def test_run_search_once_passes_market_region_to_stream_search() -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_stream_search(**kwargs):
+        captured.update(kwargs)
+        yield 'event: done\ndata: {"ok": true}\n\n'
+
+    request = SearchRequest(location="Paris, France", make="BMW", model="X5", market_region="eu")
+    with patch("app.services.search_runner.stream_search", new=_fake_stream_search):
+        await run_search_once(request)
+
+    assert captured["market_region"] == "eu"

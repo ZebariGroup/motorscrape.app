@@ -130,21 +130,21 @@ async def execute_alert_subscription(
     trigger_source: str,
 ) -> dict[str, Any]:
     started_at = time.time()
-    raw_request = SearchRequest.model_validate(subscription.criteria)
+    request = effective_search_request(subscription.criteria, tier=user.tier)
     correlation_id = build_correlation_id(prefix="alert")
     recorder = create_scrape_run_recorder(
         store=store,
         correlation_id=correlation_id,
         trigger_source=f"alert_{trigger_source}",
-        location=raw_request.location,
-        make=raw_request.make,
-        model=raw_request.model,
-        vehicle_category=raw_request.vehicle_category,
-        vehicle_condition=raw_request.vehicle_condition,
-        inventory_scope=raw_request.inventory_scope,
-        radius_miles=raw_request.radius_miles,
-        requested_max_dealerships=raw_request.max_dealerships,
-        requested_max_pages_per_dealer=raw_request.max_pages_per_dealer,
+        location=request.location,
+        make=request.make,
+        model=request.model,
+        vehicle_category=request.vehicle_category,
+        vehicle_condition=request.vehicle_condition,
+        inventory_scope=request.inventory_scope,
+        radius_miles=request.radius_miles,
+        requested_max_dealerships=request.max_dealerships,
+        requested_max_pages_per_dealer=request.max_pages_per_dealer,
         user_id=user.id,
     )
     ctx = AccessContext(
@@ -211,7 +211,6 @@ async def execute_alert_subscription(
     status = "success"
 
     try:
-        request = effective_search_request(subscription.criteria, tier=user.tier)
         result = await run_search_once(request, correlation_id=correlation_id, recorder=recorder)
         record_search_completed(ctx, result.outcome, counts_as_overage=quota.counts_as_overage, store=store)
         result_count = len(result.listings)

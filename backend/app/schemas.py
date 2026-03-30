@@ -48,6 +48,10 @@ class SearchRequest(BaseModel):
             "subject to server safety caps."
         ),
     )
+    market_region: Literal["us", "eu"] = Field(
+        default="us",
+        description="Search market profile used for radius display and region-specific discovery phrasing.",
+    )
 
 
 class DealershipFound(BaseModel):

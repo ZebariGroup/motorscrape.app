@@ -67,11 +67,12 @@ MAX_LOCATION_BIAS_RADIUS_MILES = int(MAX_LOCATION_BIAS_RADIUS_METERS // METERS_P
 
 # Text Search (New) field mask — websiteUri uses Enterprise SKU; omit if you need to trim billing.
 SEARCH_FIELD_MASK = (
-    "places.id,places.name,places.displayName,places.formattedAddress,places.websiteUri"
+    "places.id,places.name,places.displayName,places.formattedAddress,places.websiteUri,places.location"
 )
 DETAILS_FIELD_MASK = "websiteUri"
 LOCATION_FIELD_MASK = "places.location"
 SUPPORTED_VEHICLE_CATEGORIES = {"car", "motorcycle", "boat", "other"}
+EARTH_RADIUS_MILES = 3958.8
 _CATEGORY_CONTEXT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "car": ("auto", "automotive", "motors", "car", "cars", "truck", "trucks"),
     "motorcycle": (
@@ -334,7 +335,7 @@ async def _search_places_text(
     *,
     text_query: str,
     limit: int,
-    location_bias: dict[str, Any] | None = None,
+    location_restriction: dict[str, Any] | None = None,
     included_type: str | None = None,
     strict_type_filtering: bool = False,
 ) -> list[dict[str, Any]]:
@@ -346,8 +347,8 @@ async def _search_places_text(
     if included_type:
         body["includedType"] = included_type
         body["strictTypeFiltering"] = strict_type_filtering
-    if location_bias:
-        body["locationBias"] = location_bias
+    if location_restriction:
+        body["locationRestriction"] = location_restriction
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": key,
@@ -364,13 +365,12 @@ async def _search_places_text(
     return [p for p in places if isinstance(p, dict)]
 
 
-async def _resolve_location_bias(
+async def _resolve_location_center(
     client: httpx.AsyncClient,
     key: str,
     *,
     location: str,
-    radius_miles: int,
-) -> dict[str, Any] | None:
+) -> tuple[float, float] | None:
     body: dict[str, Any] = {
         "textQuery": location,
         "pageSize": 1,
@@ -396,38 +396,53 @@ async def _resolve_location_bias(
     lng = point.get("longitude")
     if lat is None or lng is None:
         return None
+    return float(lat), float(lng)
 
-    radius_meters = int(radius_miles * METERS_PER_MILE)
-    if radius_meters <= MAX_LOCATION_BIAS_RADIUS_METERS:
-        return {
-            "circle": {
-                "center": {"latitude": lat, "longitude": lng},
-                "radius": radius_meters,
-            }
+
+def _bounding_box_for_radius(*, center_lat: float, center_lng: float, radius_miles: int) -> dict[str, Any]:
+    lat_delta_deg = math.degrees(radius_miles / EARTH_RADIUS_MILES)
+    # Avoid division by zero at the poles.
+    cos_lat = max(0.0001, math.cos(math.radians(center_lat)))
+    lng_delta_deg = math.degrees(radius_miles / (EARTH_RADIUS_MILES * cos_lat))
+
+    low_lat = max(-90.0, center_lat - lat_delta_deg)
+    high_lat = min(90.0, center_lat + lat_delta_deg)
+    low_lng = max(-180.0, center_lng - lng_delta_deg)
+    high_lng = min(180.0, center_lng + lng_delta_deg)
+    return {
+        "rectangle": {
+            "low": {"latitude": low_lat, "longitude": low_lng},
+            "high": {"latitude": high_lat, "longitude": high_lng},
         }
-    else:
-        # Use a rectangle for radiuses larger than the 50km circle limit
-        earth_radius_miles = 3958.8
-        lat_delta_deg = math.degrees(radius_miles / earth_radius_miles)
-        # Avoid division by zero at the poles
-        cos_lat = max(0.0001, math.cos(math.radians(lat)))
-        lng_delta_deg = math.degrees(radius_miles / (earth_radius_miles * cos_lat))
+    }
 
-        # Clamp to valid lat/lng ranges
-        low_lat = max(-90.0, lat - lat_delta_deg)
-        high_lat = min(90.0, lat + lat_delta_deg)
 
-        # For simplicity, clamp longitude (assuming mostly continental searches).
-        # A true global solution would handle crossing the 180th meridian.
-        low_lng = max(-180.0, lng - lng_delta_deg)
-        high_lng = min(180.0, lng + lng_delta_deg)
+def _haversine_distance_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    delta_lat = math.radians(lat2 - lat1)
+    delta_lng = math.radians(lng2 - lng1)
+    a = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lng / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1 - a)))
+    return EARTH_RADIUS_MILES * c
 
-        return {
-            "rectangle": {
-                "low": {"latitude": low_lat, "longitude": low_lng},
-                "high": {"latitude": high_lat, "longitude": high_lng},
-            }
-        }
+
+def _place_within_radius(
+    place: dict[str, Any],
+    *,
+    center_lat: float,
+    center_lng: float,
+    radius_miles: int,
+) -> bool:
+    point = place.get("location") or {}
+    lat = point.get("latitude")
+    lng = point.get("longitude")
+    if lat is None or lng is None:
+        return True
+    return _haversine_distance_miles(center_lat, center_lng, float(lat), float(lng)) <= float(radius_miles)
 
 
 def _normalize_dealer_website_url(website: str) -> str:
@@ -604,12 +619,19 @@ async def find_dealerships(
     requested_radius = max(5, min(int(radius_miles or 25), 250))
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        location_bias = await _resolve_location_bias(
+        location_center = await _resolve_location_center(
             client,
             key,
             location=location,
-            radius_miles=requested_radius,
         )
+        location_restriction = None
+        if location_center is not None:
+            center_lat, center_lng = location_center
+            location_restriction = _bounding_box_for_radius(
+                center_lat=center_lat,
+                center_lng=center_lng,
+                radius_miles=requested_radius,
+            )
         category = _normalize_vehicle_category(vehicle_category)
         places_category = _effective_places_search_category(vehicle_category, make_q)
         config = _CATEGORY_SEARCH_CONFIG[places_category]
@@ -631,7 +653,7 @@ async def find_dealerships(
                     key,
                     text_query=text_query,
                     limit=limit,
-                    location_bias=location_bias,
+                    location_restriction=location_restriction,
                     included_type=config.get("included_type"),
                     strict_type_filtering=bool(config.get("strict_type_filtering")),
                 )
@@ -640,6 +662,13 @@ async def find_dealerships(
                     raise
                 continue
             for place in found:
+                if location_center is not None and not _place_within_radius(
+                    place,
+                    center_lat=center_lat,
+                    center_lng=center_lng,
+                    radius_miles=requested_radius,
+                ):
+                    continue
                 place_resource = str(place.get("name") or "")
                 pid = str(place.get("id") or "")
                 dedupe_key = place_resource or pid
@@ -660,11 +689,18 @@ async def find_dealerships(
                         key,
                         text_query=text_query,
                         limit=limit,
-                        location_bias=location_bias,
+                        location_restriction=location_restriction,
                     )
                 except Exception:
                     continue
                 for place in found:
+                    if location_center is not None and not _place_within_radius(
+                        place,
+                        center_lat=center_lat,
+                        center_lng=center_lng,
+                        radius_miles=requested_radius,
+                    ):
+                        continue
                     place_resource = str(place.get("name") or "")
                     pid = str(place.get("id") or "")
                     dedupe_key = place_resource or pid

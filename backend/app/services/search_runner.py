@@ -55,6 +55,7 @@ async def run_search_once(
         inventory_scope=request.inventory_scope,
         max_dealerships=request.max_dealerships,
         max_pages_per_dealer=request.max_pages_per_dealer,
+        market_region=request.market_region,
         outcome_holder=outcome,
         correlation_id=correlation_id,
         recorder=recorder,
