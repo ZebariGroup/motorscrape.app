@@ -190,6 +190,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const listingFlushHandleRef = useRef<number | null>(null);
   const sawFirstVehicleBatchRef = useRef(false);
   const streamErrorTimerRef = useRef<number | null>(null);
+  const streamErrorGraceMs = 500;
 
   const dealerList = useMemo(
     () => Object.values(dealers).sort((a, b) => a.index - b.index),
@@ -755,6 +756,10 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
 
     es.onopen = () => {
       if (isStaleSession()) return;
+      if (streamErrorTimerRef.current != null) {
+        window.clearTimeout(streamErrorTimerRef.current);
+        streamErrorTimerRef.current = null;
+      }
       setReconnecting(false);
     };
 
@@ -769,12 +774,18 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
           window.clearTimeout(streamErrorTimerRef.current);
         }
         streamErrorTimerRef.current = window.setTimeout(() => {
-          if (isStaleSession() || streamDoneReceivedRef.current) return;
+          if (
+            isStaleSession() ||
+            streamDoneReceivedRef.current ||
+            correlationIdRef.current == null
+          ) {
+            return;
+          }
           setReconnecting(false);
           setErrors((e) => [...e, "Connection to search stream lost or failed."]);
           closeStream();
           streamErrorTimerRef.current = null;
-        }, 120);
+        }, streamErrorGraceMs);
       });
     };
   }, [
