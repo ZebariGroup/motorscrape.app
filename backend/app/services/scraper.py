@@ -760,18 +760,33 @@ def _should_retry_zenrows_with_premium_proxy(html: str, *, page_kind: PageKind) 
     )
 
 
+def _has_rendered_sonic_vehicle_cards(html: str) -> bool:
+    """True when Sonic/TeamVelocity inventory cards are present in DOM, not just script blobs."""
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return False
+    return (
+        soup.select_one(".si-vehicle-box") is not None
+        or soup.select_one(".inventory_listing a[href*='/viewdetails/']") is not None
+        or soup.select_one("a[href*='/viewdetails/']") is not None
+    )
+
+
 def _looks_like_sonic_teamvelocity_spa(html: str) -> bool:
     """Detect Sonic/TeamVelocity DMS inventory pages that are pure Vue SPAs.
     These pages embed a small number of vehicles in JSON-LD for SEO but load
     the full inventory list via JavaScript — direct HTML is always incomplete.
     """
     lower = html.lower()
-    return (
+    if not (
         "inventory_listing" in lower
-        and "unlockctadiscountdata" in lower
         and "secureoffersites.com" in lower
         and ("teamvelocityportal.com" in lower or "sonic" in lower or "resultcount" in lower)
-    )
+    ):
+        return False
+    # If we can see rendered cards in the DOM, this is not a thin JS shell.
+    return not _has_rendered_sonic_vehicle_cards(html)
 
 
 def _count_structured_vehicle_signals(html: str) -> int:

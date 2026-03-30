@@ -27,6 +27,13 @@ _FORD_FAMILY_CACHE_CONFLICT_MARKERS: tuple[str, ...] = (
     "/viewdetails/",
     "inventory_listing",
 )
+_TEAM_VELOCITY_CACHE_CONFLICT_MARKERS: tuple[str, ...] = (
+    "inventory_listing",
+    "secureoffersites.com",
+    "teamvelocitymarketing.com",
+    "teamvelocityportal.com",
+    "resultcount",
+)
 
 _KNOWN_BRAND_TOKENS: frozenset[str] = frozenset(
     {
@@ -951,6 +958,10 @@ def _homepage_conflicts_with_cached_route(
     target = f"{homepage_html} {website}".lower()
     if not target.strip():
         return False
+    if entry.platform_id in {"dealer_inspire", "dealer_on", "dealer_dot_com"}:
+        tv_hits = sum(1 for marker in _TEAM_VELOCITY_CACHE_CONFLICT_MARKERS if marker in target)
+        if tv_hits >= 3:
+            return True
     dealer_spike_markers = (
         "dealer spike",
         "dealerspike",

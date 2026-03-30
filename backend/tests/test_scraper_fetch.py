@@ -343,6 +343,63 @@ async def test_fetch_page_html_oneaudi_shell_requires_render(
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_team_velocity_shell_requires_render(
+    zenrows_key: None,
+) -> None:
+    url = "https://dealer.example/inventory/new"
+    shell_html = """
+    <html><body>
+      <script>var inventory_listing = {}; var resultCount = 56;</script>
+      <script src="https://cdn.secureoffersites.com/app.js"></script>
+      <script type="application/ld+json">
+      {"@context":"https://schema.org","@type":"Vehicle","name":"2026 Acura MDX","vehicleIdentificationNumber":"5J8YE1H33TL011152","url":"https://dealer.example/viewdetails/new/5J8YE1H33TL011152"}
+      </script>
+    </body></html>
+    """
+    respx.get(url).mock(return_value=Response(200, text=shell_html))
+    respx.get("https://api.zenrows.com/v1/").mock(return_value=Response(200, text=_inventory_html()))
+
+    html, method = await fetch_page_html(
+        url,
+        page_kind="inventory",
+        prefer_render=True,
+        platform_id="team_velocity",
+    )
+
+    assert method == "zenrows_rendered"
+    assert "vehicle-card" in html
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_page_html_team_velocity_rendered_cards_stay_direct(
+    clear_scraper_keys: None,
+) -> None:
+    url = "https://dealer.example/inventory/new"
+    inventory_html = """
+    <html><body>
+      <script>var inventory_listing = {}; var resultCount = 8;</script>
+      <script src="https://cdn.secureoffersites.com/app.js"></script>
+      <div class="inventory_listing">
+        <div class="si-vehicle-box"><a href="/viewdetails/new/1">View Details</a></div>
+      </div>
+    </body></html>
+    """
+    respx.get(url).mock(return_value=Response(200, text=inventory_html))
+
+    html, method = await fetch_page_html(
+        url,
+        page_kind="inventory",
+        prefer_render=True,
+        platform_id="team_velocity",
+    )
+
+    assert method == "direct"
+    assert "si-vehicle-box" in html
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_does_not_premium_retry_on_zenrows_concurrency_limit(
     zenrows_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

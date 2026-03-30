@@ -1089,6 +1089,41 @@ def test_detect_or_lookup_provider_bypasses_conflicting_cached_route_for_ford_fa
     assert route.cache_status == "refresh"
 
 
+def test_detect_or_lookup_provider_bypasses_cached_dealer_inspire_when_team_velocity_markers_dominate() -> None:
+    cached = PlatformCacheEntry(
+        domain="jeffreyacura.com",
+        platform_id="dealer_inspire",
+        confidence=0.97,
+        extraction_mode="structured_json",
+        requires_render=True,
+        inventory_url_hint="https://www.jeffreyacura.com/new-vehicles/",
+        detection_source="html_fingerprint",
+        last_verified_at=datetime.now(UTC),
+        failure_count=0,
+        metadata={},
+    )
+    homepage_html = """
+    <html><body>
+      <script src="https://cdn.secureoffersites.com/app.js"></script>
+      <div class="inventory_listing"></div>
+      <script>var resultCount = 56;</script>
+      <footer>Website by Team Velocity - https://www.teamvelocitymarketing.com/</footer>
+      <a href="/inventory/new">New Inventory</a>
+    </body></html>
+    """
+    with patch("app.services.provider_router.platform_store.get", return_value=cached), patch(
+        "app.services.provider_router.platform_store.upsert",
+    ):
+        route = detect_or_lookup_provider(
+            domain="jeffreyacura.com",
+            website="https://www.jeffreyacura.com/",
+            homepage_html=homepage_html,
+        )
+    assert route is not None
+    assert route.platform_id == "team_velocity"
+    assert route.cache_status == "refresh"
+
+
 def test_resolve_inventory_url_for_provider_prefers_d2c_search_pages() -> None:
     route = ProviderRoute(
         platform_id="d2c_media",
