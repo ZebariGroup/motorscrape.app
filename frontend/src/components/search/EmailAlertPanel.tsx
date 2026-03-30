@@ -30,7 +30,7 @@ type Props = {
 };
 
 function isPaidTier(tier: string | null | undefined): boolean {
-  return ["standard", "premium", "enterprise", "custom"].includes((tier ?? "").toLowerCase());
+  return ["standard", "premium", "max_pro", "enterprise", "custom"].includes((tier ?? "").toLowerCase());
 }
 
 export function EmailAlertPanel({

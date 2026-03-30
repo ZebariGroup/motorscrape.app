@@ -14,8 +14,11 @@ import { resolveApiUrl } from "@/lib/apiBase";
 import { vehicleCategoryLabel } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import {
-  PREMIUM_BULLETS_SHORT,
+  MAX_PRO_BULLETS_SHORT,
+  PRO_BULLETS_SHORT,
   QUOTA_MODAL_BODY_DEFAULT,
+  QUOTA_MODAL_BODY_MAX_PRO_USER,
+  QUOTA_MODAL_BODY_PRO_USER,
   QUOTA_MODAL_BODY_STANDARD_USER,
   STANDARD_BULLETS_SHORT,
 } from "@/lib/tierMarketingCopy";
@@ -91,7 +94,7 @@ export function SearchExperience() {
     }
   }, [search.errors, upgradeModalOpen, dismissedQuotaMessage]);
 
-  const startCheckout = async (tier: "standard" | "premium") => {
+  const startCheckout = async (tier: "standard" | "premium" | "max_pro") => {
     setUpgradeError(null);
     setIsStartingCheckout(true);
     try {
@@ -124,6 +127,7 @@ export function SearchExperience() {
   const canSearch =
     form.location.trim().length >= 2 &&
     (access?.tier === "premium" ||
+      access?.tier === "max_pro" ||
       access?.tier === "enterprise" ||
       access?.tier === "custom" ||
       form.model.trim().length > 0);
@@ -276,7 +280,12 @@ export function SearchExperience() {
           maxDealersCap={maxDealersCap}
           maxRadiusMilesCap={maxRadiusCap}
           inventoryScopePremium={scopePremium}
-          allowAnyModel={access?.tier === "premium" || access?.tier === "enterprise" || access?.tier === "custom"}
+          allowAnyModel={
+            access?.tier === "premium" ||
+            access?.tier === "max_pro" ||
+            access?.tier === "enterprise" ||
+            access?.tier === "custom"
+          }
           applySavedSearchFromHistory={search.applySavedSearchFromHistory}
           applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
           marketRegion={form.marketRegion}
@@ -372,7 +381,13 @@ export function SearchExperience() {
                 <div className="space-y-2">
                   <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Subscribe to keep searching</h2>
                   <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                    {access?.tier === "standard" ? QUOTA_MODAL_BODY_STANDARD_USER : QUOTA_MODAL_BODY_DEFAULT}
+                    {access?.tier === "standard"
+                      ? QUOTA_MODAL_BODY_STANDARD_USER
+                      : access?.tier === "premium"
+                        ? QUOTA_MODAL_BODY_PRO_USER
+                        : access?.tier === "max_pro"
+                          ? QUOTA_MODAL_BODY_MAX_PRO_USER
+                          : QUOTA_MODAL_BODY_DEFAULT}
                   </p>
                 </div>
                 <button
@@ -392,9 +407,9 @@ export function SearchExperience() {
                 </button>
               </div>
 
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className="mt-4 grid gap-4 lg:grid-cols-3">
                 <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-                  <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Standard</h3>
+                  <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Standard — $20/mo</h3>
                   <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
                     {STANDARD_BULLETS_SHORT.map((line) => (
                       <li key={line}>• {line}</li>
@@ -410,10 +425,10 @@ export function SearchExperience() {
                   </button>
                 </div>
 
-                <div className="rounded-xl border border-emerald-300 p-4 dark:border-emerald-800">
-                  <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Premium</h3>
+                <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+                  <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Pro — $60/mo</h3>
                   <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-                    {PREMIUM_BULLETS_SHORT.map((line) => (
+                    {PRO_BULLETS_SHORT.map((line) => (
                       <li key={line}>• {line}</li>
                     ))}
                   </ul>
@@ -423,7 +438,24 @@ export function SearchExperience() {
                     onClick={() => void startCheckout("premium")}
                     className="mt-3 w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isStartingCheckout ? "Starting..." : "Subscribe Premium"}
+                    {isStartingCheckout ? "Starting..." : "Subscribe Pro"}
+                  </button>
+                </div>
+
+                <div className="rounded-xl border border-emerald-300 p-4 dark:border-emerald-800">
+                  <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Max Pro — $200/mo</h3>
+                  <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+                    {MAX_PRO_BULLETS_SHORT.map((line) => (
+                      <li key={line}>• {line}</li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    disabled={isStartingCheckout}
+                    onClick={() => void startCheckout("max_pro")}
+                    className="mt-3 w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isStartingCheckout ? "Starting..." : "Subscribe Max Pro"}
                   </button>
                 </div>
               </div>

@@ -33,7 +33,7 @@ function dealerChoices(cap: number): number[] {
 }
 
 function isPaidTier(tier: string): boolean {
-  return ["standard", "premium", "enterprise", "custom"].includes((tier || "").toLowerCase());
+  return ["standard", "premium", "max_pro", "enterprise", "custom"].includes((tier || "").toLowerCase());
 }
 
 function formatWhen(iso: string | null): string {
@@ -85,7 +85,7 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
   const maxDealersCap = access?.limits?.max_dealerships ?? data?.limits.max_dealerships ?? 30;
   const maxRadiusCap = access?.limits?.max_radius_miles ?? data?.limits.max_radius_miles ?? 250;
   const inventoryScopePremium = access?.limits?.inventory_scope_premium ?? true;
-  const allowAnyModel = ["premium", "enterprise", "custom"].includes(tier.toLowerCase());
+  const allowAnyModel = ["premium", "max_pro", "enterprise", "custom"].includes(tier.toLowerCase());
   const usesCatalog = useMemo(() => categoryUsesCatalog(vehicleCategory), [vehicleCategory]);
   const makeOptions = useMemo(() => getMakesForCategory(vehicleCategory), [vehicleCategory]);
   const modelOptions = useMemo(() => getModelsForMake(vehicleCategory, make), [make, vehicleCategory]);

@@ -25,7 +25,7 @@ type UserDraft = {
   is_admin: boolean;
 };
 
-const TIERS = ["free", "standard", "premium", "enterprise", "custom"] as const;
+const TIERS = ["free", "standard", "premium", "max_pro", "enterprise", "custom"] as const;
 const USERS_PAGE_SIZE = 12;
 const RUNS_PAGE_SIZE = 10;
 

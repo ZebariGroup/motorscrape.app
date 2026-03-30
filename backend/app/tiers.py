@@ -11,7 +11,8 @@ class TierId(StrEnum):
     ANONYMOUS = "anonymous"
     FREE = "free"
     STANDARD = "standard"
-    PREMIUM = "premium"
+    PREMIUM = "premium"  # Pro ($60/mo) — stable id for Stripe metadata and DB rows
+    MAX_PRO = "max_pro"
     ENTERPRISE = "enterprise"
     CUSTOM = "custom"
 
@@ -21,6 +22,7 @@ TierLiteral = Literal[
     TierId.FREE,
     TierId.STANDARD,
     TierId.PREMIUM,
+    TierId.MAX_PRO,
     TierId.ENTERPRISE,
     TierId.CUSTOM,
 ]
@@ -51,38 +53,54 @@ ANONYMOUS_LIMITS = TierLimits(
     inventory_scope_premium=False,
 )
 
+# Same dealership/radius/page caps as Standard; no CSV / advanced scope; lower burst rate than paid.
 FREE_LIMITS = TierLimits(
-    max_dealerships=6,
-    max_pages_per_dealer=3,
-    max_radius_miles=100,
+    max_dealerships=10,
+    max_pages_per_dealer=6,
+    max_radius_miles=30,
     max_concurrent_searches=1,
-    included_searches_per_month=25,
+    included_searches_per_month=30,
     anonymous_lifetime_searches=0,
     minute_rate_limit=4,
     csv_export=False,
     inventory_scope_premium=False,
 )
 
+# Standard — $20/mo
 STANDARD_LIMITS = TierLimits(
     max_dealerships=10,
     max_pages_per_dealer=6,
     max_radius_miles=30,
-    max_concurrent_searches=2,
-    included_searches_per_month=350,
+    max_concurrent_searches=4,
+    included_searches_per_month=200,
     anonymous_lifetime_searches=0,
     minute_rate_limit=10,
     csv_export=True,
     inventory_scope_premium=True,
 )
 
+# Pro (tier id `premium`) — $60/mo
 PREMIUM_LIMITS = TierLimits(
     max_dealerships=20,
     max_pages_per_dealer=10,
-    max_radius_miles=250,
-    max_concurrent_searches=3,
+    max_radius_miles=100,
+    max_concurrent_searches=6,
     included_searches_per_month=750,
     anonymous_lifetime_searches=0,
     minute_rate_limit=20,
+    csv_export=True,
+    inventory_scope_premium=True,
+)
+
+# Max Pro — $200/mo
+MAX_PRO_LIMITS = TierLimits(
+    max_dealerships=30,
+    max_pages_per_dealer=10,
+    max_radius_miles=100,
+    max_concurrent_searches=8,
+    included_searches_per_month=2000,
+    anonymous_lifetime_searches=0,
+    minute_rate_limit=40,
     csv_export=True,
     inventory_scope_premium=True,
 )
@@ -124,6 +142,8 @@ def limits_for_tier(tier: str) -> TierLimits:
             return STANDARD_LIMITS
         case TierId.PREMIUM.value:
             return PREMIUM_LIMITS
+        case TierId.MAX_PRO.value:
+            return MAX_PRO_LIMITS
         case TierId.ENTERPRISE.value:
             return ENTERPRISE_LIMITS
         case TierId.CUSTOM.value:
@@ -137,6 +157,8 @@ def overage_unit_price_usd(tier: str) -> float:
     tid = (tier or "").lower()
     if tid == TierId.PREMIUM.value:
         return 0.35
+    if tid == TierId.MAX_PRO.value:
+        return 0.28
     if tid == TierId.STANDARD.value:
         return 0.50
     return 0.0

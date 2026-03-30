@@ -8,7 +8,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { AlertManagerSection } from "@/components/account/AlertManagerSection";
 import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { resolveApiUrl } from "@/lib/apiBase";
-import { PREMIUM_BULLETS, STANDARD_BULLETS } from "@/lib/tierMarketingCopy";
+import { MAX_PRO_BULLETS, PRO_BULLETS, STANDARD_BULLETS } from "@/lib/tierMarketingCopy";
 import type { AccessSummary } from "@/types/access";
 
 type MeResponse = {
@@ -57,7 +57,7 @@ export default function AccountPage() {
     router.refresh();
   };
 
-  const checkout = async (tier: "standard" | "premium") => {
+  const checkout = async (tier: "standard" | "premium" | "max_pro") => {
     setBillingError(null);
     setIsManagingBilling(true);
     try {
@@ -184,13 +184,13 @@ export default function AccountPage() {
               <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
                 {me.stripe_customer_id
                   ? "Manage your active subscription, payment methods, and billing history."
-                  : "Subscribe via Stripe Checkout for Standard or Premium (see limits below). Enterprise and custom licensing are contracted separately."}
+                  : "Subscribe via Stripe Checkout for Standard, Pro, or Max Pro (see limits below). Enterprise and custom licensing are contracted separately."}
               </p>
               
               {!me.stripe_customer_id && (
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="mt-4 grid gap-4 lg:grid-cols-3">
                   <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Standard</h3>
+                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Standard — $20/mo</h3>
                     <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
                       {STANDARD_BULLETS.map((line) => (
                         <li key={line}>• {line}</li>
@@ -198,9 +198,17 @@ export default function AccountPage() {
                     </ul>
                   </div>
                   <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Premium</h3>
+                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Pro — $60/mo</h3>
                     <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-                      {PREMIUM_BULLETS.map((line) => (
+                      {PRO_BULLETS.map((line) => (
+                        <li key={line}>• {line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200 p-4 dark:border-emerald-900">
+                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Max Pro — $200/mo</h3>
+                    <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+                      {MAX_PRO_BULLETS.map((line) => (
                         <li key={line}>• {line}</li>
                       ))}
                     </ul>
@@ -227,7 +235,7 @@ export default function AccountPage() {
                       disabled={isManagingBilling}
                       className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isManagingBilling ? "Loading..." : "Upgrade to Standard"}
+                      {isManagingBilling ? "Loading..." : "Standard ($20/mo)"}
                     </button>
                     <button
                       type="button"
@@ -235,7 +243,15 @@ export default function AccountPage() {
                       disabled={isManagingBilling}
                       className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isManagingBilling ? "Loading..." : "Upgrade to Premium"}
+                      {isManagingBilling ? "Loading..." : "Pro ($60/mo)"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void checkout("max_pro")}
+                      disabled={isManagingBilling}
+                      className="rounded-lg border border-emerald-600/50 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-200 dark:hover:bg-emerald-950 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isManagingBilling ? "Loading..." : "Max Pro ($200/mo)"}
                     </button>
                   </>
                 )}

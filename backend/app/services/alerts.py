@@ -17,7 +17,7 @@ from app.tiers import limits_for_tier
 
 
 def user_can_manage_alerts(tier: str) -> bool:
-    return (tier or "").lower() in {"standard", "premium", "enterprise", "custom"}
+    return (tier or "").lower() in {"standard", "premium", "max_pro", "enterprise", "custom"}
 
 
 def effective_search_request(criteria: dict[str, Any], *, tier: str) -> SearchRequest:

@@ -142,7 +142,7 @@ export function InventoryResultsSection({
             <button
               type="button"
               disabled={filteredListings.length === 0 || !allowCsvExport}
-              title={!allowCsvExport ? "CSV export is included with Standard and Premium." : undefined}
+              title={!allowCsvExport ? "CSV export is included with Standard, Pro, and Max Pro." : undefined}
               onClick={() => {
                 const csv = listingsToCsv(filteredListings);
                 const day = new Date().toISOString().slice(0, 10);

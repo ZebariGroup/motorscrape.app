@@ -60,24 +60,29 @@ def evaluate_search_start(ctx: AccessContext, store: Any | None = None) -> Searc
     if user is None:
         return SearchQuotaDecision(False, "Account not found.", False)
 
-    if tier in (TierId.STANDARD.value, TierId.PREMIUM.value):
+    if tier in (TierId.STANDARD.value, TierId.PREMIUM.value, TierId.MAX_PRO.value):
         if tier == TierId.STANDARD.value:
             return SearchQuotaDecision(
                 False,
-                "Monthly included searches are used up. Upgrade to Premium for higher limits.",
+                "Monthly included searches are used up. Upgrade to Pro or Max Pro for a larger monthly pool.",
                 False,
             )
-        else:
+        if tier == TierId.PREMIUM.value:
             return SearchQuotaDecision(
                 False,
-                "Monthly included searches are used up. Contact support for Enterprise limits.",
+                "Monthly included searches are used up. Upgrade to Max Pro for a larger monthly pool, or contact us for Enterprise.",
                 False,
             )
+        return SearchQuotaDecision(
+            False,
+            "Monthly included searches are used up. Contact support for Enterprise or custom volume.",
+            False,
+        )
 
     # free tier
     return SearchQuotaDecision(
         False,
-        "Monthly free search limit reached. Upgrade to Standard or Premium for higher limits and overages.",
+        "Monthly free search limit reached. Subscribe to Standard, Pro, or Max Pro for higher monthly limits.",
         False,
     )
 
@@ -100,7 +105,11 @@ def record_search_completed(
 
     period = _period_utc()
     tier = (ctx.tier or TierId.FREE.value).lower()
-    is_overage = counts_as_overage and tier in (TierId.STANDARD.value, TierId.PREMIUM.value)
+    is_overage = counts_as_overage and tier in (
+        TierId.STANDARD.value,
+        TierId.PREMIUM.value,
+        TierId.MAX_PRO.value,
+    )
     store.increment_search_completed(ctx.user_id, period, counts_as_overage=is_overage)
     if is_overage:
         user = store.get_user_by_id(ctx.user_id)

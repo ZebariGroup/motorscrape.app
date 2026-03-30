@@ -171,6 +171,10 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("STRIPE_PRICE_PREMIUM_METERED"),
     )
+    stripe_price_max_pro_base: str = Field(
+        default="",
+        validation_alias=AliasChoices("STRIPE_PRICE_MAX_PRO_BASE"),
+    )
     public_web_url: str = Field(
         default="http://localhost:3000",
         validation_alias=AliasChoices("PUBLIC_WEB_URL", "NEXT_PUBLIC_SITE_URL"),

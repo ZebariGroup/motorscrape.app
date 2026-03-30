@@ -19,7 +19,7 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 
 
 class CheckoutBody(BaseModel):
-    tier: Literal["standard", "premium"]
+    tier: Literal["standard", "premium", "max_pro"]
 
 
 def _stripe() -> Any:
@@ -38,6 +38,9 @@ def _pick_prices(tier: str) -> tuple[str, str | None]:
         return base, None
     if t == TierId.PREMIUM.value:
         base = (settings.stripe_price_premium_base or "").strip()
+        return base, None
+    if t == TierId.MAX_PRO.value:
+        base = (settings.stripe_price_max_pro_base or "").strip()
         return base, None
     raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid tier.")
 
@@ -168,12 +171,15 @@ async def stripe_webhook(request: Request) -> dict[str, bool]:
 def _tier_from_price_ids(sub_items: list[dict[str, Any]], stripe: Any) -> str | None:
     std_base = (settings.stripe_price_standard_base or "").strip()
     prem_base = (settings.stripe_price_premium_base or "").strip()
+    max_pro_base = (settings.stripe_price_max_pro_base or "").strip()
     for item in sub_items:
         pid = item.get("price", {}).get("id")
         if pid == std_base:
             return TierId.STANDARD.value
         if pid == prem_base:
             return TierId.PREMIUM.value
+        if pid == max_pro_base:
+            return TierId.MAX_PRO.value
     return None
 
 
