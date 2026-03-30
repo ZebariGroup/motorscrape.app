@@ -53,8 +53,8 @@ describe("useSearchStream", () => {
   let rafQueue: FrameRequestCallback[] = [];
   let fetchMock: ReturnType<typeof vi.fn>;
   const streamGraceWaitMs = 2150; // 2000ms grace + 150ms buffer
-  /** Grace + recoverCompletedStream polling (7×300ms) when logs never become terminal */
-  const streamFullErrorPathWaitMs = 4500;
+  /** Grace + extended /search/logs polling while the terminal row catches up. */
+  const streamFullErrorPathWaitMs = 20_000;
 
   beforeEach(() => {
     vi.stubGlobal("EventSource", MockEventSource);
@@ -78,6 +78,7 @@ describe("useSearchStream", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -126,33 +127,35 @@ describe("useSearchStream", () => {
     expect(result.current.search.status).toBe("Search finished · 1 dealerships searched");
   });
 
-  it(
-    "should surface stream error when the connection drops before done",
-    async () => {
+  it("should surface stream error when the connection drops before done", async () => {
+    vi.useFakeTimers();
     const { result } = renderHook(() => useSearchStream());
 
-    act(() => {
-      result.current.form.setLocation("Seattle");
-      result.current.search.startSearch();
-    });
+    try {
+      act(() => {
+        result.current.form.setLocation("Seattle");
+        result.current.search.startSearch();
+      });
 
-    const es = MockEventSource.instances[0];
+      const es = MockEventSource.instances[0];
 
-    act(() => {
-      es.readyState = 0; // CONNECTING (browser would try to reconnect)
-      if (es.onerror) es.onerror();
-    });
+      act(() => {
+        es.readyState = 0; // CONNECTING (browser would try to reconnect)
+        if (es.onerror) es.onerror();
+      });
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, streamFullErrorPathWaitMs));
-    });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(streamFullErrorPathWaitMs);
+      });
 
-    expect(result.current.search.reconnecting).toBe(false);
-    expect(result.current.search.errors).toContain("Connection to search stream lost or failed.");
-    expect(result.current.search.running).toBe(false);
-    },
-    12_000,
-  );
+      expect(es.readyState).toBe(MockEventSource.CLOSED);
+      expect(result.current.search.reconnecting).toBe(false);
+      expect(result.current.search.errors).toContain("Connection to search stream lost or failed.");
+      expect(result.current.search.running).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("should not surface an error if done arrives before stream error grace period", async () => {
     const { result } = renderHook(() => useSearchStream());
@@ -265,6 +268,84 @@ describe("useSearchStream", () => {
     expect(result.current.search.running).toBe(false);
     expect(result.current.search.errors).toHaveLength(0);
     expect(result.current.search.status).toBe("Search finished · 1 dealerships searched");
+  });
+
+  it("should keep polling until a delayed terminal run is persisted", async () => {
+    vi.useFakeTimers();
+    let logPollCount = 0;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/search/logs/")) {
+        logPollCount += 1;
+        if (logPollCount < 10) {
+          return {
+            ok: true,
+            json: async () => ({
+              run: {
+                correlation_id: "srch-test1234",
+                status: "running",
+              },
+            }),
+          };
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            run: {
+              correlation_id: "srch-test1234",
+              location: "Seattle",
+              make: "Ford",
+              model: "",
+              vehicle_category: "car",
+              vehicle_condition: "all",
+              inventory_scope: "all",
+              radius_miles: 25,
+              requested_max_dealerships: 1,
+              requested_max_pages_per_dealer: 1,
+              result_count: 24,
+              status: "success",
+              dealer_discovery_count: 1,
+              dealer_deduped_count: 1,
+              started_at: "2026-03-29T00:00:00Z",
+              completed_at: "2026-03-29T00:00:05Z",
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({}),
+      };
+    });
+
+    const { result } = renderHook(() => useSearchStream());
+
+    try {
+      act(() => {
+        result.current.form.setLocation("Seattle");
+        result.current.form.setMake("Ford");
+        result.current.search.startSearch();
+      });
+
+      const es = MockEventSource.instances[0];
+
+      act(() => {
+        es.readyState = MockEventSource.CONNECTING;
+        if (es.onerror) es.onerror();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(streamFullErrorPathWaitMs);
+      });
+
+      expect(logPollCount).toBeGreaterThanOrEqual(10);
+      expect(es.readyState).toBe(MockEventSource.CLOSED);
+      expect(result.current.search.running).toBe(false);
+      expect(result.current.search.errors).toHaveLength(0);
+      expect(result.current.search.status).toBe("Search finished · 1 dealerships searched");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("should include vehicle category in the stream URL", () => {

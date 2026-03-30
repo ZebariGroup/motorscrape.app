@@ -36,6 +36,13 @@ const TERMINAL_SEARCH_LOG_STATUSES = new Set([
   "canceled",
 ]);
 
+/**
+ * Persisted run rows can lag the SSE close by a few seconds in production, so
+ * keep checking after the browser reports a stream error before surfacing a
+ * generic failure banner to the user.
+ */
+const STREAM_RECOVERY_POLL_SCHEDULE_MS = [0, 300, 300, 500, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000] as const;
+
 function appendUniqueError(list: string[], message: string): string[] {
   return list.includes(message) ? list : [...list, message];
 }
@@ -543,16 +550,16 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
 
   const recoverCompletedStream = useCallback(
     async (correlationId: string, isStaleSession: () => boolean): Promise<boolean> => {
-      /** SSE can close before `done` is delivered; DB row may briefly stay `running` or 404 until finalize commits. */
-      const maxAttempts = 8;
-      const pollMs = 300;
-      const logsUrl = () =>
-        resolveApiUrl(`/search/logs/${encodeURIComponent(correlationId)}?include_events=false`);
+      const logsUrl = resolveApiUrl(`/search/logs/${encodeURIComponent(correlationId)}?include_events=false`);
 
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      for (const delayMs of STREAM_RECOVERY_POLL_SCHEDULE_MS) {
+        if (isStaleSession()) return false;
+        if (delayMs > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+        }
         if (isStaleSession()) return false;
         try {
-          const response = await fetch(logsUrl(), {
+          const response = await fetch(logsUrl, {
             credentials: "include",
           });
           const payload = (await response.json()) as { run?: SearchLogRun };
@@ -577,14 +584,8 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
           ) {
             return false;
           }
-
-          if (attempt < maxAttempts - 1) {
-            await new Promise((r) => window.setTimeout(r, pollMs));
-          }
         } catch {
-          if (attempt < maxAttempts - 1) {
-            await new Promise((r) => window.setTimeout(r, pollMs));
-          }
+          /* retry until the poll schedule is exhausted */
         }
       }
       return false;
@@ -867,6 +868,12 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
               if (isStaleSession() || streamDoneReceivedRef.current || correlationId == null) {
                 return;
               }
+              // After the grace window, stop the browser's automatic reconnect loop.
+              // Recovery happens by polling the persisted search run instead.
+              if (esRef.current === es) {
+                es.close();
+              }
+              setReconnecting(true);
               if (await recoverCompletedStream(correlationId, isStaleSession)) {
                 return;
               }
