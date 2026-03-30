@@ -124,17 +124,18 @@ describe("useSearchStream", () => {
     expect(result.current.search.status).toBe("Search finished · 1 dealerships searched");
   });
 
-  it("should handle reconnecting state", async () => {
+  it("should surface stream error when the connection drops before done", async () => {
     const { result } = renderHook(() => useSearchStream());
 
     act(() => {
+      result.current.form.setLocation("Seattle");
       result.current.search.startSearch();
     });
 
     const es = MockEventSource.instances[0];
 
     act(() => {
-      es.readyState = 0; // CONNECTING
+      es.readyState = 0; // CONNECTING (browser would try to reconnect)
       if (es.onerror) es.onerror();
     });
 
@@ -142,8 +143,9 @@ describe("useSearchStream", () => {
       await Promise.resolve();
     });
 
-    expect(result.current.search.reconnecting).toBe(true);
-    expect(result.current.search.status).toBe("Connection lost. Reconnecting...");
+    expect(result.current.search.reconnecting).toBe(false);
+    expect(result.current.search.errors).toContain("Connection to search stream lost or failed.");
+    expect(result.current.search.running).toBe(false);
   });
 
   it("should not treat as failure when error fires before done in the same turn (stream close race)", async () => {

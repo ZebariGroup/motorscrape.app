@@ -739,15 +739,13 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
 
     es.onerror = () => {
       if (isStaleSession()) return;
-      // EventSource fires `error` when the server closes the stream after a normal `done`, and may
-      // enter CONNECTING while auto-reconnecting. Defer handling so `onDone` can run in the same turn.
+      // EventSource fires `error` when the server closes after `done` and on network/proxy drops.
+      // The browser would auto-reconnect the same URL, but this stream is one-shot — reconnect does
+      // not resume progress and can hit duplicate correlation_id handling. Defer so `onDone` runs first.
       queueMicrotask(() => {
         if (isStaleSession() || streamDoneReceivedRef.current) return;
-        if (es.readyState === EventSource.CONNECTING) {
-          setReconnecting(true);
-          setStatus("Connection lost. Reconnecting...");
-          return;
-        }
+        es.close();
+        setReconnecting(false);
         setErrors((e) => [...e, "Connection to search stream lost or failed."]);
         closeStream();
       });

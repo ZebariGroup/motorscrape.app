@@ -21,7 +21,7 @@ from app.db.account_store import get_account_store
 from app.services.active_searches import cancel_active_search, register_active_search, unregister_active_search
 from app.services.orchestrator import stream_search
 from app.services.scrape_logging import build_correlation_id, create_scrape_run_recorder
-from app.sse import sse_pack
+from app.sse import sse_pack, stream_with_keepalive
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -135,20 +135,23 @@ async def search_stream(
         if current_task is not None:
             register_active_search(correlation_id, current_task)
         try:
-            async for chunk in stream_search(
-                location=location,
-                make=make.strip(),
-                model=model.strip(),
-                vehicle_category=vehicle_category,
-                vehicle_condition=vehicle_condition,
-                radius_miles=eff_radius,
-                inventory_scope=eff_inventory_scope,
-                max_dealerships=eff_max_d,
-                max_pages_per_dealer=eff_pages,
-                outcome_holder=outcome,
-                correlation_id=correlation_id,
-                recorder=recorder,
-                market_region=market_region,
+            async for chunk in stream_with_keepalive(
+                stream_search(
+                    location=location,
+                    make=make.strip(),
+                    model=model.strip(),
+                    vehicle_category=vehicle_category,
+                    vehicle_condition=vehicle_condition,
+                    radius_miles=eff_radius,
+                    inventory_scope=eff_inventory_scope,
+                    max_dealerships=eff_max_d,
+                    max_pages_per_dealer=eff_pages,
+                    outcome_holder=outcome,
+                    correlation_id=correlation_id,
+                    recorder=recorder,
+                    market_region=market_region,
+                ),
+                interval_s=20.0,
             ):
                 yield chunk.encode("utf-8")
         except asyncio.CancelledError:
