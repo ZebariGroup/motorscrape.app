@@ -321,6 +321,28 @@ def test_inventory_url_recovery_candidates_include_ford_family_slash_variant() -
     assert "https://www.chulavistaford.com/inventory/new" in candidates
 
 
+def test_inventory_url_recovery_candidates_add_www_ddc_path_for_express_hosts() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=1.0,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles",),
+        inventory_url_hint="https://express.mbbloomfield.com/new-vehicles/",
+    )
+    candidates = _inventory_url_recovery_candidates(
+        inv_url="https://express.mbbloomfield.com/new-vehicles/",
+        base_url="https://www.mbbloomfield.com/",
+        route=route,
+        make="Mercedes-Benz",
+        model="",
+        vehicle_condition="new",
+    )
+    assert "https://www.mbbloomfield.com/new-inventory/index.htm" in candidates
+
+
 def test_effective_search_concurrency_uses_config_without_managed_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.services.orchestrator_utils.settings.search_concurrency", 7)
     monkeypatch.setattr("app.services.orchestrator_utils.settings.zenrows_api_key", "")
@@ -400,6 +422,18 @@ def test_find_inventory_url_skips_featured_detail_links_for_harley_homepages() -
     """
     assert _find_inventory_url(html, "https://motorcityharley.com/", vehicle_condition="all") == (
         "https://motorcityharley.com/new-inventory"
+    )
+
+
+def test_find_inventory_url_ignores_mailto_links() -> None:
+    html = """
+    <html><body>
+      <a href="mailto:recepcionventaslandrover@movilcar.com">Nuevos vehiculos</a>
+      <a href="/inventory/new">Inventory</a>
+    </body></html>
+    """
+    assert _find_inventory_url(html, "https://movilcar.landrover.es/") == (
+        "https://movilcar.landrover.es/inventory/new"
     )
 
 

@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from app.services.parser import find_next_page_url, infer_inventory_pagination, try_extract_vehicles_without_llm
+import pytest
+
+from app.services.parser import (
+    extract_vehicles_from_html,
+    find_next_page_url,
+    infer_inventory_pagination,
+    try_extract_vehicles_without_llm,
+)
 
 
 def test_infer_inventory_pagination_uses_total_results_over_short_page_number_window() -> None:
@@ -1574,3 +1581,80 @@ def test_try_extract_dealer_inspire_next_data_vehicle_aliases() -> None:
     assert v.model == "Civic"
     assert v.year == 2024
     assert v.listing_url == "https://dealer-inspire.example/used/honda-civic-1"
+
+
+@pytest.mark.asyncio
+async def test_extract_vehicles_from_html_fallback_when_openai_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    html = """
+    <html><body>
+      <a href="/inventory?page=2">Next</a>
+      <p>Showing 1 - 12 of 25 results</p>
+    </body></html>
+    """
+    monkeypatch.setattr("app.services.parser.monolith.settings.openai_api_key", "")
+    monkeypatch.setattr("app.services.parser.monolith._openai_disabled_reason", None)
+
+    result = await extract_vehicles_from_html(
+        page_url="https://dealer.example/inventory?page=1",
+        html=html,
+        make_filter="",
+        model_filter="",
+    )
+
+    assert result.vehicles == []
+    assert result.next_page_url == "https://dealer.example/inventory?page=2"
+    assert result.pagination is not None
+    assert result.pagination.total_results == 25
+
+
+@pytest.mark.asyncio
+async def test_extract_vehicles_from_html_disables_llm_after_quota_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    html = """
+    <html><body>
+      <a href="/inventory?page=2">Next</a>
+      <p>Showing 1 - 12 of 25 results</p>
+    </body></html>
+    """
+    monkeypatch.setattr("app.services.parser.monolith.settings.openai_api_key", "test-key")
+    monkeypatch.setattr("app.services.parser.monolith._openai_disabled_reason", None)
+
+    class _FakeCompletions:
+        async def parse(self, **_: object) -> object:
+            raise RuntimeError("429 insufficient_quota")
+
+    class _FakeChat:
+        completions = _FakeCompletions()
+
+    class _FakeBeta:
+        chat = _FakeChat()
+
+    class _FakeClient:
+        beta = _FakeBeta()
+
+    async def _fake_get_openai_client() -> _FakeClient:
+        return _FakeClient()
+
+    monkeypatch.setattr("app.services.parser.monolith._get_openai_client", _fake_get_openai_client)
+
+    result = await extract_vehicles_from_html(
+        page_url="https://dealer.example/inventory?page=1",
+        html=html,
+        make_filter="",
+        model_filter="",
+    )
+    assert result.next_page_url == "https://dealer.example/inventory?page=2"
+    assert result.vehicles == []
+
+    async def _should_not_be_called() -> _FakeClient:
+        raise AssertionError("_get_openai_client should not be called after quota disable")
+
+    monkeypatch.setattr("app.services.parser.monolith._get_openai_client", _should_not_be_called)
+    second = await extract_vehicles_from_html(
+        page_url="https://dealer.example/inventory?page=1",
+        html=html,
+        make_filter="",
+        model_filter="",
+    )
+    assert second.next_page_url == "https://dealer.example/inventory?page=2"

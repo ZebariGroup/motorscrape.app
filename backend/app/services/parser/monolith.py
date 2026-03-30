@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 _openai_client: AsyncOpenAI | None = None
 _openai_sem: asyncio.Semaphore | None = None
 _openai_init_lock = asyncio.Lock()
+_openai_disabled_reason: str | None = None
 
 
 async def _get_openai_client() -> AsyncOpenAI:
@@ -55,12 +56,93 @@ async def _get_openai_semaphore() -> asyncio.Semaphore:
 
 async def close_openai_client() -> None:
     """Close shared AsyncOpenAI client (app shutdown)."""
-    global _openai_client, _openai_sem
+    global _openai_client, _openai_disabled_reason, _openai_sem
     async with _openai_init_lock:
         if _openai_client is not None:
             await _openai_client.close()
             _openai_client = None
         _openai_sem = None
+        _openai_disabled_reason = None
+
+
+def _openai_error_status_code(error: Exception) -> int | None:
+    status_code = getattr(error, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    response = getattr(error, "response", None)
+    response_status = getattr(response, "status_code", None)
+    if isinstance(response_status, int):
+        return response_status
+    return None
+
+
+def _openai_error_text(error: Exception) -> str:
+    body = getattr(error, "body", None)
+    parts: list[str] = []
+    if body is not None:
+        parts.append(str(body))
+    message = str(error).strip()
+    if message:
+        parts.append(message)
+    return " | ".join(parts).lower()
+
+
+def _is_openai_quota_or_billing_error(error: Exception) -> bool:
+    detail = _openai_error_text(error)
+    if not detail:
+        return False
+    if "insufficient_quota" in detail:
+        return True
+    if "exceeded your current quota" in detail:
+        return True
+    status_code = _openai_error_status_code(error)
+    if status_code == 429 and "billing" in detail:
+        return True
+    return False
+
+
+def _build_no_llm_fallback_result(
+    *,
+    page_url: str,
+    html: str,
+    make_filter: str,
+    model_filter: str,
+    vehicle_category: str,
+) -> ExtractionResult:
+    structured = try_extract_vehicles_without_llm(
+        page_url=page_url,
+        html=html,
+        make_filter=make_filter,
+        model_filter=model_filter,
+        vehicle_category=vehicle_category,
+    )
+    if structured is not None:
+        return structured
+    fallback_page_size = max(
+        len(
+            extract_dom_vehicle_cards(
+                html,
+                page_url,
+                vehicle_category=vehicle_category,
+                model_filter=model_filter,
+            )
+        ),
+        len(_extract_search_result_card_vehicles(html, page_url, vehicle_category=vehicle_category)),
+    )
+    pagination = infer_inventory_pagination(
+        html,
+        page_url,
+        fallback_page_size=fallback_page_size or None,
+    )
+    next_u = (
+        find_next_page_url(html, page_url)
+        or _next_page_url_from_pagination(
+            page_url,
+            pagination,
+            fallback_page_size=fallback_page_size or None,
+        )
+    )
+    return ExtractionResult(vehicles=[], next_page_url=next_u, pagination=pagination)
 
 
 SYSTEM_PROMPT = """You extract motor vehicle inventory from dealership webpage HTML or JSON data.
@@ -3040,8 +3122,29 @@ async def extract_vehicles_from_html(
     model_filter: str,
     vehicle_category: str = "car",
 ) -> ExtractionResult:
+    global _openai_disabled_reason
+    if _openai_disabled_reason:
+        logger.info(
+            "Skipping LLM extraction for %s (%s); using deterministic fallback",
+            page_url,
+            _openai_disabled_reason,
+        )
+        return _build_no_llm_fallback_result(
+            page_url=page_url,
+            html=html,
+            make_filter=make_filter,
+            model_filter=model_filter,
+            vehicle_category=vehicle_category,
+        )
     if not settings.openai_api_key:
-        raise ValueError("OPENAI_API_KEY is not set")
+        logger.info("OPENAI_API_KEY is not set; using deterministic fallback for %s", page_url)
+        return _build_no_llm_fallback_result(
+            page_url=page_url,
+            html=html,
+            make_filter=make_filter,
+            model_filter=model_filter,
+            vehicle_category=vehicle_category,
+        )
 
     snippet = await asyncio.to_thread(
         _prepare_snippet_sync, html, page_url, settings.max_html_chars
@@ -3056,19 +3159,35 @@ async def extract_vehicles_from_html(
         f"HTML (possibly truncated):\n{snippet}"
     )
 
-    sem = await _get_openai_semaphore()
-    async with sem:
-        client = await _get_openai_client()
-        response = await client.beta.chat.completions.parse(
-            model=settings.openai_extraction_model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_msg},
-            ],
-            response_format=ExtractionResult,
-            temperature=0.1,
-            max_completion_tokens=4096,
-        )
+    try:
+        sem = await _get_openai_semaphore()
+        async with sem:
+            client = await _get_openai_client()
+            response = await client.beta.chat.completions.parse(
+                model=settings.openai_extraction_model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_msg},
+                ],
+                response_format=ExtractionResult,
+                temperature=0.1,
+                max_completion_tokens=4096,
+            )
+    except Exception as e:
+        if _is_openai_quota_or_billing_error(e):
+            _openai_disabled_reason = "openai_quota_or_billing_error"
+            logger.warning(
+                "OpenAI extraction disabled for this process after quota/billing error; "
+                "continuing with deterministic parser fallback."
+            )
+            return _build_no_llm_fallback_result(
+                page_url=page_url,
+                html=html,
+                make_filter=make_filter,
+                model_filter=model_filter,
+                vehicle_category=vehicle_category,
+            )
+        raise
 
     parsed = response.choices[0].message.parsed
     if not parsed:

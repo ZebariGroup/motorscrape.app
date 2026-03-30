@@ -228,6 +228,11 @@ def _with_query_params(url: str, updates: dict[str, str]) -> str:
 
 
 def _normalize_inventory_candidate_url(url: str) -> str:
+    if not url:
+        return ""
+    parsed = urlsplit(url)
+    if parsed.scheme and parsed.scheme.lower() not in {"http", "https"}:
+        return ""
     if ".htm&" in url and "?" not in url:
         url = url.replace(".htm&", ".htm?", 1)
 

@@ -230,9 +230,11 @@ def _find_inventory_url(
 
         for a in soup.find_all("a", href=True):
             href_raw = str(a["href"])
+            href_parts = urlsplit(href_raw)
+            if href_parts.scheme and href_parts.scheme.lower() not in {"http", "https"}:
+                continue
             href = href_raw.lower()
             text = a.get_text(strip=True).lower()
-            href_parts = urlsplit(href_raw)
             href_fragment = href_parts.fragment.lower()
             score = 0
 
@@ -375,6 +377,8 @@ def _find_inventory_url(
                 best_score = score
                 absolute_url = urljoin(base_url, href_raw)
                 absolute_parts = urlsplit(absolute_url)
+                if absolute_parts.scheme.lower() not in {"http", "https"}:
+                    continue
                 best_url = urlunsplit(
                     (absolute_parts.scheme, absolute_parts.netloc, absolute_parts.path, absolute_parts.query, "")
                 )
@@ -900,6 +904,29 @@ def _inventory_url_recovery_candidates(
                     if not make_norm or not model_norm:
                         continue
                     add(urlunsplit((parsed_canonical.scheme, parsed_canonical.netloc, f"{path}/{make_norm}-{model_norm}", "", "")))
+
+    # Cross-stack safety net for misdetected inventory routes (common on express.* sites):
+    # try generic OEM and Dealer.com canonical SRP paths on both current and www hosts.
+    try:
+        parsed_inv = urlsplit(inv_url or base_url)
+        candidate_hosts = [parsed_inv.netloc]
+        host_only = parsed_inv.netloc.lower().split("@")[-1].split(":")[0]
+        if host_only.startswith("express."):
+            base_host = host_only.removeprefix("express.")
+            if base_host:
+                candidate_hosts.append(f"www.{base_host}")
+        generic_paths: list[str] = []
+        if condition == "used":
+            generic_paths.extend(("/inventory/used", "/used-inventory/index.htm"))
+        elif condition == "all":
+            generic_paths.extend(("/inventory/new", "/all-inventory/index.htm"))
+        else:
+            generic_paths.extend(("/inventory/new", "/new-inventory/index.htm"))
+        for host in candidate_hosts:
+            for path in generic_paths:
+                add(urlunsplit((parsed_inv.scheme or "https", host, path, "", "")))
+    except Exception:
+        pass
 
     add(guess_franchise_inventory_srp_url(base_url, vehicle_condition))
     return candidates
