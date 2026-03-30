@@ -196,6 +196,10 @@ class UpdateAdminUserBody(BaseModel):
     is_admin: bool | None = None
 
 
+class ResetAdminUserPasswordBody(BaseModel):
+    new_password: str
+
+
 @router.get("/overview")
 def admin_overview(
     _ctx: Annotated[AccessContext, Depends(_get_admin_ctx)],
@@ -278,6 +282,32 @@ def admin_update_user(
         },
     )
     return {"user": _serialize_user(updated, period=_period_utc(), store=store)}
+
+
+@router.post("/users/{user_id}/reset-password")
+def admin_reset_user_password(
+    user_id: str,
+    body: ResetAdminUserPasswordBody,
+    ctx: Annotated[AccessContext, Depends(_get_admin_ctx)],
+) -> dict[str, bool]:
+    new_password = body.new_password.strip()
+    if len(new_password) < 8 or len(new_password) > 128:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Password must be between 8 and 128 characters.")
+    store = get_account_store(settings.accounts_db_path)
+    user = store.get_user_by_id(user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found.")
+    store.update_password(user_id, new_password)
+    store.record_admin_audit_event(
+        actor_user_id=ctx.user_id,
+        actor_email=ctx.email,
+        action="user_password_reset",
+        target_type="user",
+        target_id=user_id,
+        summary=f"Reset password for {user.email}",
+        payload={},
+    )
+    return {"ok": True}
 
 
 @router.get("/users/{user_id}")

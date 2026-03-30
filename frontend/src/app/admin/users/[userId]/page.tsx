@@ -19,6 +19,9 @@ export default function AdminUserDetailPage() {
   const [detail, setDetail] = useState<UserDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const loadDetail = useCallback(async () => {
     if (!params.userId) return;
@@ -43,6 +46,28 @@ export default function AdminUserDetailPage() {
     () => JSON.stringify(detail?.user ?? {}, null, 2),
     [detail],
   );
+
+  const resetPassword = useCallback(async () => {
+    if (!params.userId) return;
+    setPasswordBusy(true);
+    setPasswordMessage(null);
+    try {
+      await fetchAdminJson<{ ok: boolean }>(`/admin/users/${encodeURIComponent(params.userId)}/reset-password`, {
+        method: "POST",
+        body: JSON.stringify({ new_password: newPassword }),
+      });
+      setPasswordMessage({ type: "success", text: "Password updated." });
+      setNewPassword("");
+      await loadDetail();
+    } catch (err) {
+      setPasswordMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "Failed to update password.",
+      });
+    } finally {
+      setPasswordBusy(false);
+    }
+  }, [loadDetail, newPassword, params.userId]);
 
   return (
     <>
@@ -104,6 +129,49 @@ export default function AdminUserDetailPage() {
                   {detail.alert_subscriptions.filter((subscription) => subscription.is_active).length} active subscriptions
                 </p>
               </div>
+            </section>
+
+            <section className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Reset Password</h2>
+              <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
+                Set a new password directly for this user. This takes effect immediately.
+              </p>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+                <label className="flex-1">
+                  <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    New password
+                  </span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    maxLength={128}
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-emerald-500 dark:focus:ring-emerald-900"
+                    placeholder="Enter a new password"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void resetPassword()}
+                  disabled={passwordBusy || newPassword.trim().length < 8}
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  {passwordBusy ? "Updating..." : "Update password"}
+                </button>
+              </div>
+              {passwordMessage ? (
+                <p
+                  className={`mt-3 text-sm ${
+                    passwordMessage.type === "error"
+                      ? "text-red-600 dark:text-red-400"
+                      : "text-emerald-600 dark:text-emerald-400"
+                  }`}
+                >
+                  {passwordMessage.text}
+                </p>
+              ) : null}
             </section>
 
             <section className="mt-8 grid gap-6 xl:grid-cols-2">

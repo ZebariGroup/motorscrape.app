@@ -185,3 +185,33 @@ def test_admin_user_update_appears_in_audit_and_detail(monkeypatch) -> None:
     audit_response = local_client.get("/admin/audit-log")
     assert audit_response.status_code == 200
     assert any(log["target_id"] == target_user_id for log in audit_response.json()["logs"])
+
+
+def test_admin_can_reset_user_password(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "admin_emails", "matthew@zebarigroup.com")
+    admin_client = TestClient(app)
+    admin_signup = admin_client.post("/auth/signup", json={"email": "matthew@zebarigroup.com", "password": "hunter22!!"})
+    assert admin_signup.status_code == 201
+
+    target_client = TestClient(app)
+    target_signup = target_client.post("/auth/signup", json={"email": "customer@example.com", "password": "hunter22!!"})
+    assert target_signup.status_code == 201
+    target_user_id = target_signup.json()["id"]
+
+    reset_response = admin_client.post(
+        f"/admin/users/{target_user_id}/reset-password",
+        json={"new_password": "new-secret-99"},
+    )
+    assert reset_response.status_code == 200
+    assert reset_response.json()["ok"] is True
+
+    login_response = target_client.post(
+        "/auth/login",
+        json={"email": "customer@example.com", "password": "new-secret-99"},
+    )
+    assert login_response.status_code == 200
+
+    detail_response = admin_client.get(f"/admin/users/{target_user_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert any(log["action"] == "user_password_reset" for log in detail["audit_logs"])
