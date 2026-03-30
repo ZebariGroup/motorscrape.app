@@ -189,6 +189,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const pendingListingsRef = useRef<AggregatedListing[]>([]);
   const listingFlushHandleRef = useRef<number | null>(null);
   const sawFirstVehicleBatchRef = useRef(false);
+  const streamErrorTimerRef = useRef<number | null>(null);
 
   const dealerList = useMemo(
     () => Object.values(dealers).sort((a, b) => a.index - b.index),
@@ -480,12 +481,20 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   useEffect(() => {
     return () => {
       pendingListingsRef.current = [];
+      if (streamErrorTimerRef.current != null) {
+        window.clearTimeout(streamErrorTimerRef.current);
+        streamErrorTimerRef.current = null;
+      }
       cancelScheduledPaint(listingFlushHandleRef.current);
       listingFlushHandleRef.current = null;
     };
   }, []);
 
   const closeStream = useCallback(() => {
+    if (streamErrorTimerRef.current != null) {
+      window.clearTimeout(streamErrorTimerRef.current);
+      streamErrorTimerRef.current = null;
+    }
     flushPendingListings();
     streamSessionRef.current += 1;
     esRef.current?.close();
@@ -497,6 +506,10 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
 
   const stopStream = useCallback(async () => {
     flushPendingListings();
+    if (streamErrorTimerRef.current != null) {
+      window.clearTimeout(streamErrorTimerRef.current);
+      streamErrorTimerRef.current = null;
+    }
     const es = esRef.current;
     const correlationId = correlationIdRef.current;
     streamSessionRef.current += 1;
@@ -592,6 +605,10 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const startSearch = useCallback(() => {
     if (running) return; // Prevent double-submit
     void stopStream();
+    if (streamErrorTimerRef.current != null) {
+      window.clearTimeout(streamErrorTimerRef.current);
+      streamErrorTimerRef.current = null;
+    }
     setHistoryView(null);
     pendingListingsRef.current = [];
     cancelScheduledPaint(listingFlushHandleRef.current);
@@ -699,6 +716,10 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     const onDone = (ev: Event) => {
       if (isStaleSession()) return;
       streamDoneReceivedRef.current = true;
+      if (streamErrorTimerRef.current != null) {
+        window.clearTimeout(streamErrorTimerRef.current);
+        streamErrorTimerRef.current = null;
+      }
       const me = ev as MessageEvent;
       try {
         const data = JSON.parse(me.data) as {
@@ -741,13 +762,19 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       if (isStaleSession()) return;
       // EventSource fires `error` when the server closes after `done` and on network/proxy drops.
       // The browser would auto-reconnect the same URL, but this stream is one-shot — reconnect does
-      // not resume progress and can hit duplicate correlation_id handling. Defer so `onDone` runs first.
+      // not resume progress and can hit duplicate correlation_id handling. Defer briefly so `onDone` can arrive.
       queueMicrotask(() => {
         if (isStaleSession() || streamDoneReceivedRef.current) return;
-        es.close();
-        setReconnecting(false);
-        setErrors((e) => [...e, "Connection to search stream lost or failed."]);
-        closeStream();
+        if (streamErrorTimerRef.current != null) {
+          window.clearTimeout(streamErrorTimerRef.current);
+        }
+        streamErrorTimerRef.current = window.setTimeout(() => {
+          if (isStaleSession() || streamDoneReceivedRef.current) return;
+          setReconnecting(false);
+          setErrors((e) => [...e, "Connection to search stream lost or failed."]);
+          closeStream();
+          streamErrorTimerRef.current = null;
+        }, 120);
       });
     };
   }, [

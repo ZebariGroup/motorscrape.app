@@ -140,12 +140,36 @@ describe("useSearchStream", () => {
     });
 
     await act(async () => {
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 150));
     });
 
     expect(result.current.search.reconnecting).toBe(false);
     expect(result.current.search.errors).toContain("Connection to search stream lost or failed.");
     expect(result.current.search.running).toBe(false);
+  });
+
+  it("should not surface an error if done arrives before stream error grace period", async () => {
+    const { result } = renderHook(() => useSearchStream());
+
+    act(() => {
+      result.current.form.setLocation("Seattle");
+      result.current.search.startSearch();
+    });
+
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      if (es.onerror) es.onerror();
+      es.emit("done", { ok: true, dealer_deduped_count: 1, dealer_discovery_count: 1 });
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+
+    expect(result.current.search.running).toBe(false);
+    expect(result.current.search.errors).toHaveLength(0);
+    expect(result.current.search.status).toBe("Search finished · 1 dealerships searched");
   });
 
   it("should not treat as failure when error fires before done in the same turn (stream close race)", async () => {
