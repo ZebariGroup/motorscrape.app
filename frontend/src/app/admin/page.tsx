@@ -73,6 +73,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
+  const [closingRunId, setClosingRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const syncUserDrafts = useCallback((incomingUsers: AdminUser[]) => {
@@ -142,6 +143,28 @@ export default function AdminPage() {
       setDetailLoading(false);
     }
   }, []);
+
+  const closeStuckRun = useCallback(
+    async (correlationId: string) => {
+      setClosingRunId(correlationId);
+      setError(null);
+      try {
+        await fetchAdminJson<{ run: RunsResponse["runs"][number] }>(
+          `/admin/search-runs/${encodeURIComponent(correlationId)}/close-stuck`,
+          { method: "POST" },
+        );
+        await Promise.all([loadOverview(), loadAuditLogs(), loadRuns(runStatus, runsOffset)]);
+        if (selectedRun?.run.correlation_id === correlationId) {
+          await loadRunDetail(correlationId);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to close stuck run.");
+      } finally {
+        setClosingRunId(null);
+      }
+    },
+    [loadAuditLogs, loadOverview, loadRunDetail, loadRuns, runStatus, runsOffset, selectedRun?.run.correlation_id],
+  );
 
   const reloadDashboard = useCallback(async () => {
     setLoading(true);
@@ -493,6 +516,7 @@ export default function AdminPage() {
                   className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                 >
                   <option value="all">All</option>
+                  <option value="running">Running</option>
                   <option value="success">Success</option>
                   <option value="partial_failure">Partial failure</option>
                   <option value="failed">Failed</option>
@@ -532,23 +556,38 @@ export default function AdminPage() {
               </div>
               <div className="mt-4 space-y-3">
                 {runs.map((run) => (
-                  <button
+                  <div
                     key={run.id}
-                    type="button"
-                    onClick={() => void loadRunDetail(run.correlation_id)}
-                    className="w-full rounded-xl border border-zinc-200 p-3 text-left hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+                    className="flex w-full gap-2 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-medium text-zinc-900 dark:text-zinc-50">{formatRunLabel(run)}</p>
-                      <span className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{run.status}</span>
-                    </div>
-                    <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                      {run.user_email ?? "anonymous"} · {formatDateTime(run.started_at)}
-                    </p>
-                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                      results {run.result_count} · errors {run.error_count} · warnings {run.warning_count}
-                    </p>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => void loadRunDetail(run.correlation_id)}
+                      className="min-w-0 flex-1 text-left hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-medium text-zinc-900 dark:text-zinc-50">{formatRunLabel(run)}</p>
+                        <span className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{run.status}</span>
+                      </div>
+                      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                        {run.user_email ?? "anonymous"} · {formatDateTime(run.started_at)}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                        results {run.result_count} · errors {run.error_count} · warnings {run.warning_count}
+                      </p>
+                    </button>
+                    {run.status === "running" ? (
+                      <button
+                        type="button"
+                        title="Mark this run as failed in the database if the stream died without finishing"
+                        onClick={() => void closeStuckRun(run.correlation_id)}
+                        disabled={closingRunId === run.correlation_id}
+                        className="shrink-0 self-center rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200 dark:hover:bg-amber-900/50"
+                      >
+                        {closingRunId === run.correlation_id ? "…" : "Close"}
+                      </button>
+                    ) : null}
+                  </div>
                 ))}
               </div>
             </section>
@@ -616,9 +655,22 @@ export default function AdminPage() {
         </section>
 
         <section className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Run Details</h2>
-            {detailLoading ? <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading...</p> : null}
+            <div className="flex items-center gap-2">
+              {selectedRun?.run.status === "running" ? (
+                <button
+                  type="button"
+                  title="Mark this run as failed in the database if the stream died without finishing"
+                  onClick={() => void closeStuckRun(selectedRun.run.correlation_id)}
+                  disabled={closingRunId === selectedRun.run.correlation_id}
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200 dark:hover:bg-amber-900/50"
+                >
+                  {closingRunId === selectedRun.run.correlation_id ? "Closing…" : "Close stuck run"}
+                </button>
+              ) : null}
+              {detailLoading ? <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading...</p> : null}
+            </div>
           </div>
 
           {!selectedRun ? (

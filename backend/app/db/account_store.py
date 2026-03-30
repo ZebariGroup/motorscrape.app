@@ -625,6 +625,49 @@ class AccountStore:
             ).fetchone()
         return _row_to_scrape_run(row) if row is not None else None
 
+    def admin_close_stuck_running_scrape_run(self, correlation_id: str) -> ScrapeRunRecord:
+        """
+        Mark the latest scrape run for ``correlation_id`` as failed if it is still ``running``.
+
+        Used when the interactive stream died without calling ``finalize`` (e.g. serverless kill,
+        hung worker, or client disconnect without cleanup). Raises ``LookupError`` if no row exists,
+        ``ValueError(status)`` if the run is not ``running``.
+        """
+        run = self.admin_get_scrape_run(correlation_id)
+        if run is None:
+            raise LookupError
+        if run.status != "running":
+            raise ValueError(run.status)
+        msg = "Run left in running state; closed administratively."
+        summary = dict(run.summary) if isinstance(run.summary, dict) else {}
+        summary.update(
+            {
+                "ok": False,
+                "status": "failed",
+                "correlation_id": run.correlation_id,
+                "admin_closed": True,
+                "error_message": msg,
+            }
+        )
+        economics = dict(run.economics) if isinstance(run.economics, dict) else {}
+        return self.finalize_scrape_run(
+            run.id,
+            status="failed",
+            result_count=run.result_count,
+            dealer_discovery_count=run.dealer_discovery_count,
+            dealer_deduped_count=run.dealer_deduped_count,
+            dealerships_attempted=run.dealerships_attempted,
+            dealerships_succeeded=run.dealerships_succeeded,
+            dealerships_failed=run.dealerships_failed,
+            error_count=run.error_count,
+            warning_count=run.warning_count,
+            error_message=msg,
+            summary=summary,
+            economics=economics,
+            completed_at=time.time(),
+            listings_snapshot=run.listings_snapshot,
+        )
+
     def monthly_usage(self, user_id: int | str, period: str) -> tuple[int, int]:
         """Returns (included_searches, overage_searches)."""
         with self._conn() as c:

@@ -323,6 +323,45 @@ def admin_list_search_runs(
     }
 
 
+@router.post("/search-runs/{correlation_id}/close-stuck")
+def admin_close_stuck_search_run(
+    correlation_id: str,
+    ctx: Annotated[AccessContext, Depends(_get_admin_ctx)],
+) -> dict[str, Any]:
+    """
+    Mark a scrape run that is still ``running`` in the database as failed.
+
+    Use when the interactive stream ended without ``finalize`` (e.g. tab closed mid-search,
+    serverless timeout, or hung worker). This only updates the database row; it does not cancel
+    work on another server instance.
+    """
+    store = get_account_store(settings.accounts_db_path)
+    try:
+        updated = store.admin_close_stuck_running_scrape_run(correlation_id)
+    except LookupError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Search run not found.")
+    except ValueError as exc:
+        status_label = str(exc) if exc.args else "unknown"
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"Run is not in running state (status={status_label}).",
+        )
+    user_email = None
+    if updated.user_id:
+        user = store.get_user_by_id(updated.user_id)
+        user_email = user.email if user else None
+    store.record_admin_audit_event(
+        actor_user_id=ctx.user_id,
+        actor_email=ctx.email,
+        action="close_stuck_scrape_run",
+        target_type="scrape_run",
+        target_id=updated.correlation_id,
+        summary=f"Closed stuck running run {updated.correlation_id}",
+        payload={"scrape_run_id": updated.id, "correlation_id": updated.correlation_id},
+    )
+    return {"run": _serialize_run(updated, user_email=user_email)}
+
+
 @router.get("/search-runs/{correlation_id}")
 def admin_get_search_run(
     correlation_id: str,
