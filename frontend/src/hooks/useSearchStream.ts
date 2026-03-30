@@ -47,6 +47,10 @@ function appendUniqueError(list: string[], message: string): string[] {
   return list.includes(message) ? list : [...list, message];
 }
 
+function isTerminalDealerStatus(status: DealershipProgress["status"] | undefined): boolean {
+  return status === "done" || status === "error";
+}
+
 function buildRecoveredSearchStatus(run: SearchLogRun): string {
   if (run.status === "canceled") {
     return "Search canceled.";
@@ -234,6 +238,8 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const listingFlushHandleRef = useRef<number | null>(null);
   const sawFirstVehicleBatchRef = useRef(false);
   const streamErrorTimerRef = useRef<number | null>(null);
+  const dealerStatusesRef = useRef(new Map<string, DealershipProgress["status"]>());
+  const expectedDealerTotalRef = useRef<number | null>(null);
   const streamErrorGraceMs = 2000;
 
   const dealerList = useMemo(
@@ -544,6 +550,8 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     esRef.current?.close();
     esRef.current = null;
     correlationIdRef.current = null;
+    dealerStatusesRef.current.clear();
+    expectedDealerTotalRef.current = null;
     setRunning(false);
     setReconnecting(false);
   }, [flushPendingListings]);
@@ -604,6 +612,8 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     streamSessionRef.current += 1;
     setRunning(false);
     setReconnecting(false);
+    dealerStatusesRef.current.clear();
+    expectedDealerTotalRef.current = null;
     if (correlationId) {
       try {
         await fetch(resolveApiUrl(`/search/stop/${correlationId}`), {
@@ -710,6 +720,8 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     setStatus(null);
     setReconnecting(false);
     streamDoneReceivedRef.current = false;
+    dealerStatusesRef.current.clear();
+    expectedDealerTotalRef.current = null;
     const startedAt = Date.now();
     setNowMs(startedAt);
 
@@ -752,6 +764,10 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       try {
         const d = JSON.parse(ev.data) as DealershipProgress;
         const key = d.website || `${d.name}-${d.index}`;
+        if (Number.isFinite(d.total) && d.total > 0) {
+          expectedDealerTotalRef.current = d.total;
+        }
+        dealerStatusesRef.current.set(key, d.status);
         setDealers((prev) => {
           const prevRow = prev[key];
           const statusChanged = prevRow?.status !== d.status;
@@ -882,6 +898,21 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
                 streamDoneReceivedRef.current ||
                 correlationIdRef.current == null
               ) {
+                return;
+              }
+              const expectedDealerTotal = expectedDealerTotalRef.current;
+              const dealerStatuses = dealerStatusesRef.current;
+              const dealersAllTerminal =
+                expectedDealerTotal != null &&
+                expectedDealerTotal > 0 &&
+                dealerStatuses.size >= expectedDealerTotal &&
+                Array.from(dealerStatuses.values()).every((status) => isTerminalDealerStatus(status));
+              if (dealersAllTerminal) {
+                streamDoneReceivedRef.current = true;
+                setReconnecting(false);
+                setStatus(`Search finished · ${expectedDealerTotal} dealerships searched`);
+                closeStream();
+                onFinishedRef.current?.();
                 return;
               }
               setReconnecting(false);

@@ -206,6 +206,50 @@ describe("useSearchStream", () => {
     expect(result.current.search.status).toBe("Search finished · 1 dealerships searched");
   });
 
+  it("should treat as finished when all dealers are terminal even if done SSE is missed", async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useSearchStream());
+
+    try {
+      act(() => {
+        result.current.form.setLocation("Seattle");
+        result.current.search.startSearch();
+      });
+
+      const es = MockEventSource.instances[0];
+
+      act(() => {
+        es.emit("dealership", {
+          index: 1,
+          total: 2,
+          name: "Ford Seattle",
+          website: "https://ford.example",
+          status: "done",
+        });
+        es.emit("dealership", {
+          index: 2,
+          total: 2,
+          name: "Toyota Seattle",
+          website: "https://toyota.example",
+          status: "error",
+        });
+        es.readyState = MockEventSource.CONNECTING;
+        if (es.onerror) es.onerror();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(streamFullErrorPathWaitMs);
+      });
+
+      expect(result.current.search.running).toBe(false);
+      expect(result.current.search.reconnecting).toBe(false);
+      expect(result.current.search.errors).toHaveLength(0);
+      expect(result.current.search.status).toBe("Search finished · 2 dealerships searched");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("should recover a closed stream from the persisted terminal run status", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
