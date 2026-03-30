@@ -563,7 +563,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     const hitbox = CHARACTER_HITBOX[state.activeCharacter];
     const playerRect: PlayerCollisionRect = {
       left: PLAYER_LEFT + hitbox.insetX,
-      top: h - 16 - state.playerY - hitbox.insetY - hitbox.height,
+      top: h - 16 + state.playerY - hitbox.insetY - hitbox.height,
       width: hitbox.width,
       height: hitbox.height,
     };
