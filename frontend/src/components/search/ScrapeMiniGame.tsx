@@ -17,11 +17,34 @@ import { Snowmobile } from "./Snowmobile";
 
 type CharacterType = "motorcycle" | "racecar" | "boat" | "snowmobile";
 
+type VehicleHitbox = {
+  width: number;
+  height: number;
+  insetX: number;
+  insetY: number;
+};
+
+type PlayerCollisionRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+const VEHICLE_OPTIONS: CharacterType[] = ["motorcycle", "racecar", "boat", "snowmobile"];
+
 const CHARACTERS: Record<CharacterType, React.FC> = {
   motorcycle: memo(Motorcycle),
   racecar: memo(RaceCar),
   boat: memo(Boat),
   snowmobile: memo(Snowmobile),
+};
+
+const CHARACTER_HITBOX: Record<CharacterType, VehicleHitbox> = {
+  motorcycle: { width: 46, height: 32, insetX: 8, insetY: 6 },
+  racecar: { width: 58, height: 30, insetX: 5, insetY: 7 },
+  boat: { width: 62, height: 34, insetX: 5, insetY: 11 },
+  snowmobile: { width: 52, height: 32, insetX: 6, insetY: 7 },
 };
 
 const OBSTACLES = ["🚧", "🕳️", "🛑", "🪨", "🪵"];
@@ -38,10 +61,10 @@ const JUMP_HOLD_GRAVITY_SCALE = 0.68;
 const JUMP_RELEASE_DAMPING = 0.58;
 const LANDING_SQUASH_MS = 110;
 const GROUND_Y = 0;
-const PLAYER_WIDTH = 60;
-const PLAYER_HEIGHT = 40;
-const PLAYER_HIT_INSET = 6;
 const PLAYER_LEFT = 20;
+const HIT_WARNING_RANGE = 84;
+const HIT_WARNING_FLASH_MS = 150;
+const HIT_IMPACT_FLASH_MS = 180;
 const JUMP_BUFFER_MS = 130;
 const SEARCH_DONE_PHRASE = ["YOUR", "SEARCH", "IS", "DONE"] as const;
 const WORD_SPAWN_GAP_MS = 400;
@@ -69,6 +92,33 @@ function getDifficulty(score: number): DifficultyTuning {
   if (score < 110) return { speedTarget: 360, spawnMinMs: 980, spawnMaxMs: 1400 };
   if (score < 175) return { speedTarget: 430, spawnMinMs: 860, spawnMaxMs: 1220 };
   return { speedTarget: 500, spawnMinMs: 760, spawnMaxMs: 1080 };
+}
+
+function intersectsAabb(
+  aLeft: number,
+  aRight: number,
+  aTop: number,
+  aBottom: number,
+  bLeft: number,
+  bRight: number,
+  bTop: number,
+  bBottom: number,
+) {
+  return aLeft < bRight && aRight > bLeft && aTop < bBottom && aBottom > bTop;
+}
+
+function intersectsAabbSweep(
+  prevLeft: number,
+  nextLeft: number,
+  width: number,
+  targetLeft: number,
+  targetRight: number,
+) {
+  const prevRight = prevLeft + width;
+  const nextRight = nextLeft + width;
+  const sweepLeft = Math.min(prevLeft, nextLeft);
+  const sweepRight = Math.max(prevRight, nextRight);
+  return sweepLeft < targetRight && sweepRight > targetLeft;
 }
 
 function randomBetween(min: number, max: number) {
@@ -128,6 +178,9 @@ function drawScene(
     accent: string;
     accentGlow: string;
   },
+  playerRect: PlayerCollisionRect | null,
+  hitWarningMs: number,
+  hitImpactMs: number,
 ) {
   const g = ctx.createLinearGradient(0, 0, 0, h);
   g.addColorStop(0, palette.skyTop);
@@ -197,6 +250,42 @@ function drawScene(
       ctx.fillText(obs.emoji, left + 4, bottom - 2);
     }
   }
+
+  if (playerRect) {
+    const warningAlpha = Math.max(0, Math.min(1, hitWarningMs / HIT_WARNING_FLASH_MS));
+    const impactAlpha = Math.max(0, Math.min(1, hitImpactMs / HIT_IMPACT_FLASH_MS));
+
+    if (warningAlpha > 0.02) {
+      const pulseAlpha = 0.2 + warningAlpha * 0.35;
+      ctx.save();
+      ctx.strokeStyle = `rgba(250, 204, 21, ${pulseAlpha})`;
+      ctx.setLineDash([4, 5]);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(playerRect.left - 1, playerRect.top - 1, playerRect.width + 2, playerRect.height + 2);
+      ctx.restore();
+    }
+
+    if (impactAlpha > 0.02) {
+      const pulseAlpha = 0.15 + impactAlpha * 0.4;
+      ctx.save();
+      ctx.fillStyle = `rgba(239, 68, 68, ${pulseAlpha})`;
+      ctx.fillRect(playerRect.left - 6, playerRect.top - 6, playerRect.width + 12, playerRect.height + 12);
+      ctx.strokeStyle = `rgba(239, 68, 68, ${0.5 + impactAlpha * 0.45})`;
+      ctx.lineWidth = 2.2;
+      ctx.strokeRect(playerRect.left - 2, playerRect.top - 2, playerRect.width + 4, playerRect.height + 4);
+      ctx.restore();
+    }
+
+    if (warningAlpha > 0.2 || impactAlpha > 0.2) {
+      ctx.save();
+      ctx.font = "bold 12px ui-sans-serif, system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillStyle = impactAlpha > warningAlpha ? "rgba(239, 68, 68, 0.85)" : "rgba(250, 204, 21, 0.85)";
+      ctx.fillText(impactAlpha > warningAlpha ? "!" : "⚠", playerRect.left + playerRect.width / 2, playerRect.top - 6);
+      ctx.restore();
+    }
+  }
 }
 
 export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
@@ -212,6 +301,11 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
   const [highScore, setHighScore] = useState(0);
   const [character, setCharacter] = useState<CharacterType>("motorcycle");
   const [doneBanner, setDoneBanner] = useState(false);
+  const characterRef = useRef<CharacterType>("motorcycle");
+
+  useEffect(() => {
+    characterRef.current = character;
+  }, [character]);
 
   const palette = useMemo(
     () =>
@@ -267,15 +361,19 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     jumpHoldMs: 0,
     landingSquashMs: 0,
     obstacles: [] as GameObstacle[],
+    activeCharacter: "motorcycle" as CharacterType,
     speed: BASE_SPEED,
     score: 0,
     lastObstacleTime: 0,
     nextObstacleDelayMs: 1600,
     lastFrameTime: 0,
+    smoothedDtMs: 16,
     animationFrameId: 0,
     roadPhase: 0,
     parallaxPhase: 0,
     scanPhase: 0,
+    hitWarningMs: 0,
+    hitImpactMs: 0,
   });
 
   useEffect(() => {
@@ -283,7 +381,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       const raw = localStorage.getItem(HIGH_SCORE_KEY);
       const n = raw != null ? Number.parseInt(raw, 10) : 0;
       if (Number.isFinite(n) && n >= 0) {
-        startTransition(() => setHighScore(n));
+        setHighScore(n);
       }
     } catch {
       /* ignore */
@@ -407,7 +505,9 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     }
 
     const state = stateRef.current;
-    const dtMs = Math.min(Math.max(frameNow - state.lastFrameTime, 0), FRAME_MS_CAP);
+    const rawDtMs = Math.min(Math.max(frameNow - state.lastFrameTime, 0), FRAME_MS_CAP);
+    const dtMs = state.smoothedDtMs * 0.82 + rawDtMs * 0.18;
+    state.smoothedDtMs = dtMs;
     const dt = dtMs / 1000;
     state.lastFrameTime = frameNow;
 
@@ -460,38 +560,61 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       state.speed = Math.min(state.speed, MAX_SPEED);
     }
 
-    let collision = false;
-    const inset = PLAYER_HIT_INSET;
-    const px = PLAYER_LEFT + inset;
-    const pw = PLAYER_WIDTH - inset * 2;
-    const ph = PLAYER_HEIGHT - inset * 2;
+    const hitbox = CHARACTER_HITBOX[state.activeCharacter];
+    const playerRect: PlayerCollisionRect = {
+      left: PLAYER_LEFT + hitbox.insetX,
+      top: h - 16 - state.playerY - hitbox.insetY - hitbox.height,
+      width: hitbox.width,
+      height: hitbox.height,
+    };
     const groundCanvasY = h - 16;
-    const playerBottomCanvas = groundCanvasY - state.playerY;
-    const playerTopCanvas = playerBottomCanvas - ph;
-    const playerLeft = px;
-    const playerRight = px + pw;
+    const playerBottomCanvas = playerRect.top + playerRect.height;
+    const playerLeft = playerRect.left;
+    const playerRight = playerRect.left + playerRect.width;
+
+    state.hitWarningMs = Math.max(0, state.hitWarningMs - dtMs);
+    state.hitImpactMs = Math.max(0, state.hitImpactMs - dtMs);
+    let collision = false;
+    let showWarning = false;
 
     state.obstacles = state.obstacles.filter((obs) => {
+      const previousLeft = obs.x;
       obs.x -= state.speed * dt;
       const obsLeft = obs.x;
       const obsRight = obs.x + obs.width;
       const obsBottom = groundCanvasY;
       const obsTop = groundCanvasY - obs.height;
+      const playerBottom = playerBottomCanvas;
+      const playerTop = playerRect.top;
+      const overlapsNow = intersectsAabb(
+        playerLeft,
+        playerRight,
+        playerTop,
+        playerBottom,
+        obsLeft,
+        obsRight,
+        obsTop,
+        obsBottom,
+      );
+      const overlapsSwept = intersectsAabbSweep(previousLeft, obs.x, obs.width, playerLeft, playerRight);
+      const verticalOverlap = playerTop < obsBottom && playerBottom > obsTop;
 
-      if (
-        playerLeft < obsRight &&
-        playerRight > obsLeft &&
-        playerTopCanvas < obsBottom &&
-        playerBottomCanvas > obsTop
-      ) {
+      if ((overlapsNow || (overlapsSwept && verticalOverlap)) && verticalOverlap) {
         collision = true;
+      } else if (verticalOverlap && obsLeft < playerRight + HIT_WARNING_RANGE && previousLeft + obs.width > playerLeft - HIT_WARNING_RANGE) {
+        showWarning = true;
       }
       return obs.x + obs.width > -40;
     });
 
+    if (showWarning) {
+      state.hitWarningMs = Math.max(state.hitWarningMs, HIT_WARNING_FLASH_MS);
+    }
+
     if (collision) {
       playingRef.current = false;
       gameOverRef.current = true;
+      state.hitImpactMs = HIT_IMPACT_FLASH_MS;
       const finalScore = Math.floor(state.score);
       setIsGameOver(true);
       setIsPlaying(false);
@@ -513,6 +636,9 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
         state.parallaxPhase,
         state.scanPhase,
         paletteRef.current,
+        playerRect,
+        state.hitWarningMs,
+        state.hitImpactMs,
       );
       return;
     }
@@ -521,9 +647,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     const displayScore = Math.floor(state.score);
     if (displayScore > displayedScoreRef.current) {
       displayedScoreRef.current = displayScore;
-      startTransition(() => {
-        setScore(displayScore);
-      });
+      setScore(displayScore);
     }
 
     drawScene(
@@ -535,6 +659,9 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       state.parallaxPhase,
       state.scanPhase,
       paletteRef.current,
+      playerRect,
+      state.hitWarningMs,
+      state.hitImpactMs,
     );
 
     const playerEl = playerRef.current;
@@ -553,7 +680,10 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     gameLoopRef.current = gameLoop;
   }, [gameLoop]);
 
-  const startGame = useCallback(() => {
+  const startGame = useCallback((nextCharacter?: CharacterType) => {
+    const selectedCharacter = nextCharacter ?? characterRef.current;
+    characterRef.current = selectedCharacter;
+    setCharacter(selectedCharacter);
     playingRef.current = true;
     gameOverRef.current = false;
     setIsPlaying(true);
@@ -570,15 +700,19 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       jumpHoldMs: 0,
       landingSquashMs: 0,
       obstacles: [],
+      activeCharacter: selectedCharacter,
       speed: BASE_SPEED,
       score: 0,
       lastObstacleTime: now,
       nextObstacleDelayMs: 1600,
       lastFrameTime: now,
+      smoothedDtMs: 16,
       animationFrameId: 0,
       roadPhase: 0,
       parallaxPhase: 0,
       scanPhase: 0,
+      hitWarningMs: 0,
+      hitImpactMs: 0,
     };
     resetPlayerTransform();
     rootRef.current?.focus({ preventScroll: true });
@@ -600,6 +734,13 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     s.jumpBufferMs = JUMP_BUFFER_MS;
   }, [startGame, doJumpImpulse]);
 
+  const startWithVehicle = useCallback(
+    (nextCharacter: CharacterType) => {
+      startGame(nextCharacter);
+    },
+    [startGame],
+  );
+
   useEffect(() => {
     const container = containerRef.current;
     const canvas = canvasRef.current;
@@ -613,7 +754,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       const ch = container.clientHeight;
       if (cw <= 0 || ch <= 0) return;
       const s = stateRef.current;
-      drawScene(ctx, cw, ch, [], s.roadPhase, s.parallaxPhase, s.scanPhase, paletteRef.current);
+      drawScene(ctx, cw, ch, [], s.roadPhase, s.parallaxPhase, s.scanPhase, paletteRef.current, null, 0, 0);
     };
 
     const ro = new ResizeObserver(paintStatic);
@@ -714,13 +855,16 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
           <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-zinc-50/88 px-4 text-center backdrop-blur-[2px] dark:bg-zinc-950/84">
             <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">Pick your ride and hit the lane</span>
             <div className="flex flex-wrap items-center justify-center gap-2">
-              {(Object.keys(CHARACTERS) as CharacterType[]).map((c) => (
+              {VEHICLE_OPTIONS.map((c) => (
                 <button
                   key={c}
                   type="button"
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setCharacter(c);
+                    startWithVehicle(c);
                   }}
                   className={`rounded-md px-2.5 py-1 text-[11px] font-semibold capitalize transition ${
                     character === c
@@ -743,13 +887,16 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
               Space or tap to respawn — listings are still in the results panel.
             </span>
             <div className="flex flex-wrap items-center justify-center gap-2">
-              {(Object.keys(CHARACTERS) as CharacterType[]).map((c) => (
+              {VEHICLE_OPTIONS.map((c) => (
                 <button
                   key={c}
                   type="button"
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setCharacter(c);
+                    startWithVehicle(c);
                   }}
                   className={`rounded-md px-2.5 py-1 text-[11px] font-semibold capitalize transition ${
                     character === c
