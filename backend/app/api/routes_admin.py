@@ -65,6 +65,9 @@ def _serialize_user(record: UserRecord, *, period: str, store: Any) -> dict[str,
 
 
 def _serialize_run(record: ScrapeRunRecord, *, user_email: str | None) -> dict[str, Any]:
+    places_metrics = {}
+    if isinstance(record.summary, dict) and isinstance(record.summary.get("places_metrics"), dict):
+        places_metrics = dict(record.summary["places_metrics"])
     return {
         "id": record.id,
         "correlation_id": record.correlation_id,
@@ -91,6 +94,7 @@ def _serialize_run(record: ScrapeRunRecord, *, user_email: str | None) -> dict[s
         "error_count": record.error_count,
         "warning_count": record.warning_count,
         "error_message": record.error_message,
+        "places_metrics": places_metrics,
         "summary": record.summary,
         "economics": record.economics,
         "saved_listings_count": len(record.listings_snapshot) if record.listings_snapshot else 0,

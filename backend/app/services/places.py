@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -13,6 +14,15 @@ import httpx
 from app.config import settings
 from app.schemas import DealershipFound
 from app.services.inventory_filters import normalize_model_text, text_mentions_make
+from app.services.places_cache import (
+    get_cached_geocode_center,
+    get_cached_place_website,
+    get_cached_places_search,
+    places_search_cache_key,
+    set_cached_geocode_center,
+    set_cached_place_website,
+    set_cached_places_search,
+)
 
 # When the UI category is still "car" but the user searches an OEM that only sells through
 # motorcycle/powersports dealers, Google Places' car_dealer type filter returns nothing useful.
@@ -59,20 +69,69 @@ def _effective_places_search_category(vehicle_category: str, make: str) -> str:
 logger = logging.getLogger(__name__)
 
 SEARCH_TEXT_URL = "https://places.googleapis.com/v1/places:searchText"
+GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 # GET https://places.googleapis.com/v1/places/{placeId} — {name} is "places/ChIJ…"
 PLACES_BASE = "https://places.googleapis.com/v1"
 METERS_PER_MILE = 1609.34
 MAX_LOCATION_BIAS_RADIUS_METERS = 50_000
 MAX_LOCATION_BIAS_RADIUS_MILES = int(MAX_LOCATION_BIAS_RADIUS_METERS // METERS_PER_MILE)
 
-# Text Search (New) field mask — websiteUri uses Enterprise SKU; omit if you need to trim billing.
-SEARCH_FIELD_MASK = (
-    "places.id,places.name,places.displayName,places.formattedAddress,places.websiteUri,places.location"
-)
+DISCOVERY_FIELD_MASK = "places.id,places.name,places.displayName,places.formattedAddress,places.location"
+DISCOVERY_FIELD_MASK_WITH_WEBSITE = f"{DISCOVERY_FIELD_MASK},places.websiteUri"
 DETAILS_FIELD_MASK = "websiteUri"
-LOCATION_FIELD_MASK = "places.location"
 SUPPORTED_VEHICLE_CATEGORIES = {"car", "motorcycle", "boat", "other"}
 EARTH_RADIUS_MILES = 3958.8
+
+
+@dataclass(slots=True)
+class PlacesSearchMetrics:
+    search_calls: int = 0
+    details_calls: int = 0
+    location_resolve_calls: int = 0
+    fallback_query_passes: int = 0
+    search_cache_hits: int = 0
+    detail_cache_hits: int = 0
+    geocode_cache_hits: int = 0
+    query_variants_total: int = 0
+    query_variants_used: int = 0
+    detail_candidates_considered: int = 0
+    detail_candidates_resolved: int = 0
+    search_status_code_counts: dict[str, int] = field(default_factory=dict)
+    detail_status_code_counts: dict[str, int] = field(default_factory=dict)
+    geocode_status_code_counts: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def discovery_mode(self) -> str:
+        return "enterprise_with_website" if settings.places_discovery_include_website_uri else "pro_without_website"
+
+    def bump_status(self, bucket: dict[str, int], status_code: int | str) -> None:
+        key = str(status_code)
+        bucket[key] = int(bucket.get(key, 0)) + 1
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "search_calls": self.search_calls,
+            "details_calls": self.details_calls,
+            "location_resolve_calls": self.location_resolve_calls,
+            "fallback_query_passes": self.fallback_query_passes,
+            "search_cache_hits": self.search_cache_hits,
+            "detail_cache_hits": self.detail_cache_hits,
+            "geocode_cache_hits": self.geocode_cache_hits,
+            "query_variants_total": self.query_variants_total,
+            "query_variants_used": self.query_variants_used,
+            "detail_candidates_considered": self.detail_candidates_considered,
+            "detail_candidates_resolved": self.detail_candidates_resolved,
+            "discovery_mode": self.discovery_mode,
+            "search_status_code_counts": dict(sorted(self.search_status_code_counts.items())),
+            "detail_status_code_counts": dict(sorted(self.detail_status_code_counts.items())),
+            "geocode_status_code_counts": dict(sorted(self.geocode_status_code_counts.items())),
+        }
+
+
+def _search_field_mask() -> str:
+    if settings.places_discovery_include_website_uri:
+        return DISCOVERY_FIELD_MASK_WITH_WEBSITE
+    return DISCOVERY_FIELD_MASK
 _CATEGORY_CONTEXT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "car": ("auto", "automotive", "motors", "car", "cars", "truck", "trucks"),
     "motorcycle": (
@@ -338,6 +397,7 @@ async def _search_places_text(
     location_restriction: dict[str, Any] | None = None,
     included_type: str | None = None,
     strict_type_filtering: bool = False,
+    metrics: PlacesSearchMetrics | None = None,
 ) -> list[dict[str, Any]]:
     body: dict[str, Any] = {
         "textQuery": text_query,
@@ -352,9 +412,13 @@ async def _search_places_text(
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": key,
-        "X-Goog-FieldMask": SEARCH_FIELD_MASK,
+        "X-Goog-FieldMask": _search_field_mask(),
     }
+    if metrics is not None:
+        metrics.search_calls += 1
     r = await client.post(SEARCH_TEXT_URL, json=body, headers=headers)
+    if metrics is not None:
+        metrics.bump_status(metrics.search_status_code_counts, r.status_code)
     if r.status_code != 200:
         logger.warning("Places searchText HTTP %s for %r: %s", r.status_code, text_query, r.text[:500])
         raise RuntimeError(
@@ -370,33 +434,39 @@ async def _resolve_location_center(
     key: str,
     *,
     location: str,
+    metrics: PlacesSearchMetrics | None = None,
 ) -> tuple[float, float] | None:
-    body: dict[str, Any] = {
-        "textQuery": location,
-        "pageSize": 1,
-        "languageCode": "en",
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": key,
-        "X-Goog-FieldMask": LOCATION_FIELD_MASK,
-    }
+    cached = get_cached_geocode_center(location)
+    if cached is not None:
+        if metrics is not None:
+            metrics.geocode_cache_hits += 1
+        return cached
+    params = {"address": location, "key": key}
+    if metrics is not None:
+        metrics.location_resolve_calls += 1
     try:
-        r = await client.post(SEARCH_TEXT_URL, json=body, headers=headers)
-        r.raise_for_status()
+        r = await client.get(GEOCODE_URL, params=params)
     except Exception as e:
-        logger.debug("Location bias lookup failed for %r: %s", location, e)
+        logger.debug("Location geocode lookup failed for %r: %s", location, e)
         return None
-
-    places = (r.json() or {}).get("places") or []
-    if not places or not isinstance(places[0], dict):
+    if metrics is not None:
+        metrics.bump_status(metrics.geocode_status_code_counts, r.status_code)
+    if r.status_code != 200:
+        logger.debug("Location geocode HTTP %s for %r: %s", r.status_code, location, r.text[:300])
         return None
-    point = places[0].get("location") or {}
-    lat = point.get("latitude")
-    lng = point.get("longitude")
+    payload = r.json() if r.content else {}
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if not results or not isinstance(results, list) or not isinstance(results[0], dict):
+        return None
+    geometry = results[0].get("geometry") or {}
+    point = geometry.get("location") or {}
+    lat = point.get("lat")
+    lng = point.get("lng")
     if lat is None or lng is None:
         return None
-    return float(lat), float(lng)
+    center = (float(lat), float(lng))
+    set_cached_geocode_center(location, center)
+    return center
 
 
 def _bounding_box_for_radius(*, center_lat: float, center_lng: float, radius_miles: int) -> dict[str, Any]:
@@ -581,7 +651,8 @@ def _build_text_queries(
         if text_query not in seen:
             deduped.append(text_query)
             seen.add(text_query)
-    return deduped
+    cap = max(1, int(settings.places_text_query_variant_cap or 1))
+    return deduped[:cap]
 
 
 def _places_query_stop_target(*, limit: int, make: str, model: str) -> int:
@@ -601,6 +672,7 @@ async def find_dealerships(
     limit: int = 20,
     radius_miles: int = 50,
     market_region: str = "us",
+    metrics: PlacesSearchMetrics | None = None,
 ) -> list[DealershipFound]:
     """
     Find car dealerships near the given location using Places API (New) Text Search,
@@ -617,13 +689,29 @@ async def find_dealerships(
     make_q = make.strip()
     model_q = model.strip()
     requested_radius = max(5, min(int(radius_miles or 25), 250))
+    metrics = metrics or PlacesSearchMetrics()
+    search_cache_key = places_search_cache_key(
+        location=location,
+        make=make_q,
+        model=model_q,
+        vehicle_category=vehicle_category,
+        radius_miles=requested_radius,
+        market_region=market_region,
+    )
+    cached_results = get_cached_places_search(search_cache_key)
+    if cached_results is not None:
+        metrics.search_cache_hits += 1
+        return cached_results
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        location_center = await _resolve_location_center(
-            client,
-            key,
-            location=location,
-        )
+        location_center = None
+        if requested_radius >= max(1, int(settings.places_geocode_min_radius_miles or 0)):
+            location_center = await _resolve_location_center(
+                client,
+                key,
+                location=location,
+                metrics=metrics,
+            )
         location_restriction = None
         if location_center is not None:
             center_lat, center_lng = location_center
@@ -642,11 +730,13 @@ async def find_dealerships(
             model=model_q,
             market_region=market_region,
         )
+        metrics.query_variants_total = len(text_queries)
         query_stop_target = _places_query_stop_target(limit=limit, make=make_q, model=model_q)
 
         places: list[dict[str, Any]] = []
         seen_place_resources: set[str] = set()
         for idx, text_query in enumerate(text_queries):
+            metrics.query_variants_used += 1
             try:
                 found = await _search_places_text(
                     client,
@@ -656,6 +746,7 @@ async def find_dealerships(
                     location_restriction=location_restriction,
                     included_type=config.get("included_type"),
                     strict_type_filtering=bool(config.get("strict_type_filtering")),
+                    metrics=metrics,
                 )
             except Exception:
                 if not places:
@@ -681,8 +772,16 @@ async def find_dealerships(
             if idx >= 1 and len(places) >= query_stop_target:
                 break
 
-        if not places and _CATEGORY_SEARCH_CONFIG[category].get("included_type"):
+        fallback_threshold = max(0, int(settings.places_untyped_fallback_result_threshold or 0))
+        should_try_untyped_fallback = (
+            bool(_CATEGORY_SEARCH_CONFIG[category].get("included_type"))
+            and len(places) <= fallback_threshold
+            and not model_q
+        )
+        if should_try_untyped_fallback:
+            metrics.fallback_query_passes += 1
             for text_query in text_queries:
+                metrics.query_variants_used += 1
                 try:
                     found = await _search_places_text(
                         client,
@@ -690,6 +789,7 @@ async def find_dealerships(
                         text_query=text_query,
                         limit=limit,
                         location_restriction=location_restriction,
+                        metrics=metrics,
                     )
                 except Exception:
                     continue
@@ -731,19 +831,25 @@ async def find_dealerships(
                     "address": address,
                     "pid": pid,
                     "place_resource": place_resource,
-                    "website": website,
+                    "website": _normalize_dealer_website_url(str(website or "")) if website else "",
                 }
             )
 
         detail_sem = asyncio.Semaphore(max(1, settings.places_details_max_concurrency))
+        metrics.detail_candidates_considered = len(candidates)
 
         async def _ensure_website(c: dict[str, Any]) -> None:
             if c.get("website") or not c.get("place_resource"):
                 return
+            cached_website = get_cached_place_website(str(c["place_resource"]))
+            if cached_website is not None:
+                metrics.detail_cache_hits += 1
+                c["website"] = cached_website
+                return
             async with detail_sem:
-                w = await _place_details_website(client, str(c["place_resource"]), key)
-            if w:
-                c["website"] = w
+                w = await _place_details_website(client, str(c["place_resource"]), key, metrics=metrics)
+            set_cached_place_website(str(c["place_resource"]), w)
+            c["website"] = w or ""
 
         await asyncio.gather(
             *(_ensure_website(c) for c in candidates if not c.get("website") and c.get("place_resource"))
@@ -758,6 +864,7 @@ async def find_dealerships(
             if not website:
                 logger.debug("Skipping %s — no website in Places data", name)
                 continue
+            metrics.detail_candidates_resolved += 1
             trusted_national = _is_trusted_national_retailer_match(
                 name,
                 str(website or ""),
@@ -788,13 +895,17 @@ async def find_dealerships(
                 )
             )
 
+        def _finalize(found: list[DealershipFound]) -> list[DealershipFound]:
+            set_cached_places_search(search_cache_key, found)
+            return found
+
         if not make_q:
             if category == "car":
-                return results
+                return _finalize(results)
             category_matches = [
                 d for d in results if _dealer_matches_category_context(d.name, d.website or "", vehicle_category=category)
             ]
-            return category_matches if category_matches else results
+            return _finalize(category_matches if category_matches else results)
 
         if category != "car":
             category_matches = [
@@ -807,7 +918,7 @@ async def find_dealerships(
             ]
             if category_brand_matches:
                 extras = [d for d in category_matches if d not in category_brand_matches]
-                return category_brand_matches + extras[: _generic_category_fallback_cap(category)]
+                return _finalize(category_brand_matches + extras[: _generic_category_fallback_cap(category)])
             # For multi-brand categories (boat, motorcycle) with a specific make that
             # has no brand-name matches in the dealer list, limit how many generic
             # marinas we return.  Google Places already ran brand-specific queries
@@ -816,7 +927,7 @@ async def find_dealerships(
             # on dealers that almost certainly don't carry the brand.
             if category_matches:
                 max_generic = min(len(category_matches), _generic_category_fallback_cap(category))
-                return category_matches[:max_generic]
+                return _finalize(category_matches[:max_generic])
 
         # Include website in the haystack: OEM often appears in the domain/path (e.g. …/shop-brp/can-am)
         # but not in the Google Places display name ("River Raisin Powersports").
@@ -826,7 +937,7 @@ async def find_dealerships(
             if _name_matches_make(" ".join(filter(None, [d.name, d.website or ""])), make_q)
         ]
         # If we found brand-specific dealers, prefer those so searches feel sane to users.
-        return brand_matches if brand_matches else results
+        return _finalize(brand_matches if brand_matches else results)
 
 
 async def find_car_dealerships(
@@ -837,6 +948,7 @@ async def find_car_dealerships(
     limit: int = 20,
     radius_miles: int = 50,
     market_region: str = "us",
+    metrics: PlacesSearchMetrics | None = None,
 ) -> list[DealershipFound]:
     return await find_dealerships(
         location,
@@ -846,6 +958,7 @@ async def find_car_dealerships(
         limit=limit,
         radius_miles=radius_miles,
         market_region=market_region,
+        metrics=metrics,
     )
 
 
@@ -853,6 +966,7 @@ async def _place_details_website(
     client: httpx.AsyncClient,
     place_resource_name: str,
     key: str,
+    metrics: PlacesSearchMetrics | None = None,
 ) -> str | None:
     """
     place_resource_name: `places/ChIJ…` from Text Search `name` field.
@@ -865,7 +979,11 @@ async def _place_details_website(
         "X-Goog-Api-Key": key,
         "X-Goog-FieldMask": DETAILS_FIELD_MASK,
     }
+    if metrics is not None:
+        metrics.details_calls += 1
     r = await client.get(url, headers=headers)
+    if metrics is not None:
+        metrics.bump_status(metrics.detail_status_code_counts, r.status_code)
     if r.status_code != 200:
         logger.debug(
             "Place Details HTTP %s for %s: %s",

@@ -946,6 +946,46 @@ class AccountStore:
             ).fetchall()
         return [_row_to_alert_subscription(row) for row in rows]
 
+    def claim_due_alert_subscriptions(
+        self,
+        *,
+        now_ts: float,
+        limit: int = 25,
+        claim_ttl_seconds: int,
+    ) -> list[AlertSubscriptionRecord]:
+        claim_until_ts = now_ts + max(60, int(claim_ttl_seconds or 0))
+        claimed_keys: list[tuple[Any, Any]] = []
+        with self._conn() as c:
+            c.execute("BEGIN IMMEDIATE")
+            rows = c.execute(
+                """
+                SELECT *
+                FROM alert_subscriptions
+                WHERE is_active = 1 AND next_run_at <= ?
+                ORDER BY next_run_at ASC
+                LIMIT ?
+                """,
+                (now_ts, limit),
+            ).fetchall()
+            for row in rows:
+                updated = c.execute(
+                    """
+                    UPDATE alert_subscriptions
+                    SET next_run_at = ?, last_run_status = ?, updated_at = ?
+                    WHERE id = ? AND user_id = ? AND is_active = 1 AND next_run_at <= ?
+                    """,
+                    (claim_until_ts, "claiming", now_ts, row["id"], row["user_id"], now_ts),
+                )
+                if updated.rowcount:
+                    claimed_keys.append((row["user_id"], row["id"]))
+            c.commit()
+        claimed: list[AlertSubscriptionRecord] = []
+        for user_id, subscription_id in claimed_keys:
+            record = self.get_alert_subscription(user_id, subscription_id)
+            if record is not None:
+                claimed.append(record)
+        return claimed
+
     def admin_list_alert_subscriptions(
         self,
         *,
@@ -1250,6 +1290,37 @@ class AccountStore:
                     (anon_key, limit),
                 ).fetchall()
         return [_row_to_scrape_run(row) for row in rows]
+
+    def count_running_scrape_runs(
+        self,
+        *,
+        user_id: int | str | None = None,
+        anon_key: str | None = None,
+        since_ts: float | None = None,
+    ) -> int:
+        if user_id is None and not anon_key:
+            return 0
+        clauses = ["status = ?"]
+        args: list[Any] = ["running"]
+        if user_id is not None:
+            clauses.append("user_id = ?")
+            args.append(user_id)
+        else:
+            clauses.append("anon_key = ?")
+            args.append(anon_key)
+        if since_ts is not None:
+            clauses.append("started_at >= ?")
+            args.append(since_ts)
+        with self._conn() as c:
+            row = c.execute(
+                f"""
+                SELECT COUNT(*) AS count
+                FROM scrape_runs
+                WHERE {' AND '.join(clauses)}
+                """,
+                args,
+            ).fetchone()
+        return int(row["count"]) if row is not None else 0
 
     def get_scrape_run(
         self,

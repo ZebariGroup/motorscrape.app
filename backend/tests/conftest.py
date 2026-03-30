@@ -17,6 +17,7 @@ def _isolated_accounts_db(tmp_path, monkeypatch):
     """Each test gets a fresh SQLite DB so anonymous quotas do not leak between cases."""
     db = str(tmp_path / "accounts.sqlite3")
     monkeypatch.setattr("app.config.settings.accounts_db_path", db)
+    monkeypatch.setattr("app.config.settings.places_cache_path", str(tmp_path / "places-cache.sqlite3"))
     monkeypatch.setattr("app.config.settings.supabase_url", "")
     monkeypatch.setattr("app.config.settings.supabase_service_key", "")
     import app.db.account_store as account_store_module

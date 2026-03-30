@@ -33,6 +33,14 @@ def _default_platform_cache_path() -> str:
     return str(data_dir / "platform-cache.sqlite3")
 
 
+def _default_places_cache_path() -> str:
+    if os.environ.get("VERCEL") == "1" or bool(os.environ.get("VERCEL_ENV")):
+        return "/tmp/motorscrape-places-cache.sqlite3"
+    data_dir = _BACKEND_ROOT / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir / "places-cache.sqlite3")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(
@@ -55,6 +63,23 @@ class Settings(BaseSettings):
             "GOOGLE_MAPS_API_KEY",
         ),
     )
+    # Remove websiteUri from Text Search by default so discovery stays on the cheaper Pro SKU.
+    places_discovery_include_website_uri: bool = False
+    # Bound how many searchText variants we try per search before we start scraping.
+    places_text_query_variant_cap: int = 4
+    # Only retry car searches without the strict includedType when the first pass returned very little.
+    places_untyped_fallback_result_threshold: int = 0
+    # Multiplier used to gather extra dealership candidates before route/cache scoring trims the list.
+    places_candidate_limit_multiplier: int = 2
+    # Small radii do not benefit enough from a separate center-resolve call to justify the extra spend.
+    places_geocode_min_radius_miles: int = 15
+    places_cache_enabled: bool = True
+    places_cache_path: str = Field(default_factory=_default_places_cache_path)
+    places_search_cache_ttl_seconds: int = 60 * 60 * 12
+    places_details_cache_ttl_seconds: int = 60 * 60 * 24
+    places_geocode_cache_ttl_seconds: int = 60 * 60 * 24
+    search_running_window_seconds: int = 60 * 20
+    alerts_due_claim_ttl_seconds: int = 60 * 10
     openai_api_key: str = ""
     # LLM model used for extraction; keep this fast for stream responsiveness.
     # Override with OPENAI_EXTRACTION_MODEL (e.g. gpt-5.4-nano for lowest latency/cost).

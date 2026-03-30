@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
@@ -80,6 +81,34 @@ async def search_stream(
         logger.warning("Duplicate search stream prevented for correlation_id=%s", correlation_id)
         # Tell EventSource clients to stop retrying this duplicate stream request.
         return Response(status_code=204)
+    running_count = store.count_running_scrape_runs(
+        user_id=ctx.user_id,
+        anon_key=ctx.anon_key,
+        since_ts=time.time() - max(60, int(settings.search_running_window_seconds or 0)),
+    )
+    if running_count >= max(1, int(lim.max_concurrent_searches)):
+        message = "Too many searches are already running for this account. Wait for one to finish and try again."
+
+        async def concurrency_denied() -> AsyncIterator[bytes]:
+            yield sse_pack(
+                "search_error",
+                {
+                    "message": message,
+                    "phase": "quota",
+                    "correlation_id": correlation_id,
+                },
+            ).encode("utf-8")
+            yield sse_pack(
+                "done",
+                {"ok": False, "status": "concurrency_blocked", "correlation_id": correlation_id},
+            ).encode("utf-8")
+
+        return StreamingResponse(
+            concurrency_denied(),
+            status_code=429,
+            media_type="text/event-stream",
+            headers=_SSE_HEADERS,
+        )
     recorder = create_scrape_run_recorder(
         store=store,
         correlation_id=correlation_id,

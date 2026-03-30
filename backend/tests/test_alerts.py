@@ -112,6 +112,40 @@ def test_internal_due_runner_executes_alert(monkeypatch) -> None:
     assert runs[0]["summary"]["correlation_id"] == scrape_runs[0].correlation_id
 
 
+def test_claim_due_alert_subscriptions_prevents_double_claim(monkeypatch) -> None:
+    monkeypatch.setattr("app.config.settings.alerts_internal_secret", "secret-123")
+    client = TestClient(app)
+    user_id = _signup_and_promote(client)
+    create = client.post(
+        "/alerts/subscriptions",
+        json={
+            "name": "Seattle Toyota daily",
+            "criteria": {
+                "location": "Seattle, WA",
+                "make": "Toyota",
+                "model": "Tacoma",
+                "vehicle_condition": "used",
+                "radius_miles": 25,
+                "inventory_scope": "all",
+                "max_dealerships": 8,
+                "max_pages_per_dealer": 3,
+            },
+            "cadence": "daily",
+            "hour_local": 8,
+            "timezone": "UTC",
+        },
+    )
+    subscription_id = create.json()["subscription"]["id"]
+    store = get_account_store(settings.accounts_db_path)
+    store.update_alert_subscription(user_id, subscription_id, next_run_at=0.0)
+
+    first = store.claim_due_alert_subscriptions(now_ts=1.0, limit=25, claim_ttl_seconds=600)
+    second = store.claim_due_alert_subscriptions(now_ts=1.0, limit=25, claim_ttl_seconds=600)
+
+    assert len(first) == 1
+    assert len(second) == 0
+
+
 @pytest.mark.asyncio
 async def test_run_search_once_passes_market_region_to_stream_search() -> None:
     captured: dict[str, object] = {}

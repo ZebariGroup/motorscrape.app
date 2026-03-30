@@ -383,6 +383,45 @@ class SupabaseAccountStore:
         )
         return [_row_to_alert_subscription(row) for row in (res.data or [])]
 
+    def claim_due_alert_subscriptions(
+        self,
+        *,
+        now_ts: float,
+        limit: int = 25,
+        claim_ttl_seconds: int,
+    ) -> list[AlertSubscriptionRecord]:
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now_ts))
+        claim_until_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now_ts + max(60, int(claim_ttl_seconds or 0))))
+        res = (
+            self.client.table("alert_subscriptions")
+            .select("*")
+            .eq("is_active", True)
+            .lte("next_run_at", now_iso)
+            .order("next_run_at")
+            .limit(limit)
+            .execute()
+        )
+        claimed: list[AlertSubscriptionRecord] = []
+        for row in res.data or []:
+            update = (
+                self.client.table("alert_subscriptions")
+                .update(
+                    {
+                        "next_run_at": claim_until_iso,
+                        "last_run_status": "claiming",
+                        "updated_at": now_iso,
+                    }
+                )
+                .eq("id", row["id"])
+                .eq("user_id", row["user_id"])
+                .eq("is_active", True)
+                .eq("next_run_at", row["next_run_at"])
+                .execute()
+            )
+            if update.data:
+                claimed.append(_row_to_alert_subscription(update.data[0]))
+        return claimed
+
     def admin_list_alert_subscriptions(
         self,
         *,
@@ -584,6 +623,26 @@ class SupabaseAccountStore:
             query = query.eq("anon_key", anon_key)
         res = query.execute()
         return [_row_to_scrape_run(row) for row in (res.data or [])]
+
+    def count_running_scrape_runs(
+        self,
+        *,
+        user_id: str | None = None,
+        anon_key: str | None = None,
+        since_ts: float | None = None,
+    ) -> int:
+        if user_id is None and not anon_key:
+            return 0
+        query = self.client.table("scrape_runs").select("id").eq("status", "running")
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
+        else:
+            query = query.eq("anon_key", anon_key)
+        if since_ts is not None:
+            threshold = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since_ts))
+            query = query.gte("started_at", threshold)
+        res = query.execute()
+        return len(res.data or [])
 
     def admin_list_scrape_runs(self, *, limit: int = 20, offset: int = 0, status: str | None = None) -> list[ScrapeRunRecord]:
         query = self.client.table("scrape_runs").select("*").order("started_at", desc=True).range(offset, offset + limit - 1)

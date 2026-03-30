@@ -22,6 +22,9 @@ def _iso(ts: float | None) -> str | None:
 def _serialize_run(record: ScrapeRunRecord) -> dict[str, Any]:
     snap = record.listings_snapshot
     saved_n = len(snap) if snap else 0
+    places_metrics = {}
+    if isinstance(record.summary, dict) and isinstance(record.summary.get("places_metrics"), dict):
+        places_metrics = dict(record.summary["places_metrics"])
     return {
         "id": record.id,
         "correlation_id": record.correlation_id,
@@ -45,6 +48,7 @@ def _serialize_run(record: ScrapeRunRecord) -> dict[str, Any]:
         "error_count": record.error_count,
         "warning_count": record.warning_count,
         "error_message": record.error_message,
+        "places_metrics": places_metrics,
         "summary": record.summary,
         "economics": record.economics,
         "started_at": _iso(record.started_at),

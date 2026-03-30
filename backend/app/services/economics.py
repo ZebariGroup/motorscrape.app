@@ -13,6 +13,7 @@ def build_search_economics(
     *,
     fetch_metrics: dict[str, int],
     extraction_metrics: dict[str, int],
+    places_metrics: dict[str, Any] | None,
     requested_dealerships: int,
     requested_pages: int,
     radius_miles: int,
@@ -35,6 +36,15 @@ def build_search_economics(
     llm_failed = int(extract.get("pages_llm_failed", 0) or 0)
     structured_pages = int(extract.get("pages_structured", 0) or 0)
     provider_pages = int(extract.get("pages_provider", 0) or 0)
+    places = dict(places_metrics or {})
+    places_search_calls = int(places.get("search_calls", 0) or 0)
+    places_detail_calls = int(places.get("details_calls", 0) or 0)
+    places_location_calls = int(places.get("location_resolve_calls", 0) or 0)
+    places_cache_hits = (
+        int(places.get("search_cache_hits", 0) or 0)
+        + int(places.get("detail_cache_hits", 0) or 0)
+        + int(places.get("geocode_cache_hits", 0) or 0)
+    )
 
     # Weights tuned to emphasize third-party fetch + LLM (typical cost drivers).
     cost_driver_units = (
@@ -46,6 +56,10 @@ def build_search_economics(
         + float(llm_failed) * 0.5
         + float(structured_pages) * 0.15
         + float(provider_pages) * 0.1
+        + float(places_search_calls) * 0.8
+        + float(places_detail_calls) * 0.5
+        + float(places_location_calls) * 0.2
+        - float(places_cache_hits) * 0.35
     )
 
     return {
@@ -63,6 +77,7 @@ def build_search_economics(
             "pages_llm_failed": llm_failed,
             "pages_structured": structured_pages,
             "pages_provider": provider_pages,
+            "places_metrics": places,
             "fetch_metrics": fetch,
             "extraction_metrics": extract,
         },

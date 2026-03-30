@@ -44,7 +44,7 @@ from app.services.orchestrator_utils import (
     prefer_https_website_url,
 )
 from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
-from app.services.places import find_car_dealerships, find_dealerships
+from app.services.places import PlacesSearchMetrics, find_car_dealerships, find_dealerships
 from app.services.platform_store import normalize_dealer_domain, platform_store
 from app.services.provider_router import (
     ProviderRoute,
@@ -1134,6 +1134,8 @@ async def stream_search(
     extraction_metrics: dict[str, int] = defaultdict(int)
     warmed_inventory_cache: dict[str, dict[str, Any] | None] = {}
     platform_cache_entries: dict[str, Any] = {}
+    places_metrics = PlacesSearchMetrics()
+    candidate_limit = min(requested_dealerships * max(1, settings.places_candidate_limit_multiplier), 30)
 
     def finalize_done(base: dict[str, Any], *, ok: bool, status: str | None = None) -> dict[str, Any]:
         duration_ms = int((time.perf_counter() - t0) * 1000)
@@ -1145,6 +1147,7 @@ async def stream_search(
         economics = build_search_economics(
             fetch_metrics=dict(fetch_metrics),
             extraction_metrics=dict(extraction_metrics),
+            places_metrics=places_metrics.as_dict(),
             requested_dealerships=md,
             requested_pages=mp,
             radius_miles=rm,
@@ -1157,6 +1160,7 @@ async def stream_search(
             **base,
             **(recorder.summary_metrics() if recorder is not None else {}),
             "duration_ms": duration_ms,
+            "places_metrics": places_metrics.as_dict(),
             "economics": economics,
             "correlation_id": correlation_id,
         }
@@ -1188,9 +1192,10 @@ async def stream_search(
                 location,
                 make=make,
                 model=model,
-                limit=min(requested_dealerships * 3, 30),
+                limit=candidate_limit,
                 radius_miles=radius_miles,
                 market_region=market_region,
+                metrics=places_metrics,
             )
         else:
             dealers = await find_dealerships(
@@ -1198,9 +1203,10 @@ async def stream_search(
                 make=make,
                 model=model,
                 vehicle_category=vehicle_category,
-                limit=min(requested_dealerships * 3, 30),
+                limit=candidate_limit,
                 radius_miles=radius_miles,
                 market_region=market_region,
+                metrics=places_metrics,
             )
     except Exception as e:
         logger.exception(f"{cid_log}Places search failed")
@@ -1210,7 +1216,7 @@ async def stream_search(
                 phase="places",
                 level="error",
                 message=str(e),
-                payload={"error": str(e)},
+                payload={"error": str(e), "places_metrics": places_metrics.as_dict()},
             )
         yield sse_pack("search_error", {"message": str(e), "phase": "places"})
         yield sse_pack("done", finalize_done({"ok": False, "error_message": str(e)}, ok=False))
@@ -1230,6 +1236,7 @@ async def stream_search(
             payload={
                 "dealer_discovery_count": raw_dealer_count,
                 "dealer_deduped_count": deduped_dealer_count,
+                "places_metrics": places_metrics.as_dict(),
             },
         )
     dealer_domains = [normalize_dealer_domain((dealer.website or "").strip()) for dealer in dealers]

@@ -269,7 +269,11 @@ async def run_due_alert_subscriptions(
     if not configured_secret or x_alerts_secret != configured_secret:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid alerts secret.")
     store = get_account_store(settings.accounts_db_path)
-    due = store.list_due_alert_subscriptions(now_ts=datetime.now(UTC).timestamp(), limit=25)
+    due = store.claim_due_alert_subscriptions(
+        now_ts=datetime.now(UTC).timestamp(),
+        limit=25,
+        claim_ttl_seconds=settings.alerts_due_claim_ttl_seconds,
+    )
     runs: list[dict[str, Any]] = []
     for subscription in due:
         user = store.get_user_by_id(subscription.user_id)

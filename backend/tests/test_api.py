@@ -77,6 +77,21 @@ def test_search_stream_duplicate_running_correlation_id_returns_204() -> None:
     mocked_quota.assert_not_called()
 
 
+def test_search_stream_blocks_when_too_many_running_searches() -> None:
+    mocked_store = SimpleNamespace(
+        get_scrape_run=lambda correlation_id, *, user_id=None, anon_key=None: None,
+        count_running_scrape_runs=lambda *, user_id=None, anon_key=None, since_ts=None: 1,
+    )
+    with patch("app.main.get_account_store", return_value=mocked_store):
+        with patch("app.main.create_scrape_run_recorder") as mocked_recorder:
+            with patch("app.main.evaluate_search_start") as mocked_quota:
+                response = client.get("/search/stream", params={"location": "Detroit, MI"})
+    assert response.status_code == 429
+    mocked_recorder.assert_not_called()
+    mocked_quota.assert_not_called()
+    assert "concurrency_blocked" in response.text
+
+
 def test_search_logs_endpoint_returns_run_and_events() -> None:
     with patch(
         "app.services.orchestrator.find_car_dealerships",
@@ -93,11 +108,13 @@ def test_search_logs_endpoint_returns_run_and_events() -> None:
     assert len(runs) == 1
     assert runs[0]["trigger_source"] == "interactive"
     assert runs[0]["status"] == "success"
+    assert "places_metrics" in runs[0]
 
     detail_response = client.get(f"/search/logs/{runs[0]['correlation_id']}")
     assert detail_response.status_code == 200
     detail = detail_response.json()
     assert detail["run"]["correlation_id"] == runs[0]["correlation_id"]
+    assert "places_metrics" in detail["run"]
     assert any(event["event_type"] == "search_started" for event in detail["events"])
     assert any(event["event_type"] == "search_finished" for event in detail["events"])
 

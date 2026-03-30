@@ -11,6 +11,10 @@ from app.services import places
 from httpx import Response
 
 
+def _geocode_response(lat: float, lng: float) -> dict[str, object]:
+    return {"results": [{"geometry": {"location": {"lat": lat, "lng": lng}}}]}
+
+
 @pytest.fixture
 def places_api_key(monkeypatch: pytest.MonkeyPatch) -> str:
     key = "test-google-key"
@@ -206,14 +210,7 @@ async def test_place_details_website_non_200(places_api_key: str) -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_find_car_dealerships_happy_path(places_api_key: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Location bias + text search return places with website; no details call needed."""
-    loc_response = {
-        "places": [
-            {
-                "location": {"latitude": 42.33, "longitude": -83.04},
-            }
-        ]
-    }
+    """Geocoding + text search return places with website; no details call needed."""
     search_response = {
         "places": [
             {
@@ -234,11 +231,9 @@ async def test_find_car_dealerships_happy_path(places_api_key: str, monkeypatch:
             body = {}
         if not isinstance(body, dict):
             return Response(200, json={"places": []})
-        # Bias request has no car_dealer filter
-        if "includedType" not in body:
-            return Response(200, json=loc_response)
         return Response(200, json=search_response)
 
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.33, -83.04)))
     respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
 
     out = await places.find_car_dealerships("Detroit MI", make="Ford", model="", limit=5, radius_miles=25)
@@ -250,13 +245,6 @@ async def test_find_car_dealerships_happy_path(places_api_key: str, monkeypatch:
 @respx.mock
 @pytest.mark.asyncio
 async def test_find_car_dealerships_filters_results_outside_requested_radius(places_api_key: str) -> None:
-    loc_response = {
-        "places": [
-            {
-                "location": {"latitude": 42.3314, "longitude": -83.0458},
-            }
-        ]
-    }
     search_response = {
         "places": [
             {
@@ -287,11 +275,10 @@ async def test_find_car_dealerships_filters_results_outside_requested_radius(pla
             body = {}
         if not isinstance(body, dict):
             return Response(200, json={"places": []})
-        if "includedType" not in body:
-            return Response(200, json=loc_response)
         search_bodies.append(body)
         return Response(200, json=search_response)
 
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.3314, -83.0458)))
     respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
 
     out = await places.find_car_dealerships("Detroit MI", make="Ford", limit=5, radius_miles=25)
@@ -304,7 +291,6 @@ async def test_find_car_dealerships_filters_results_outside_requested_radius(pla
 @pytest.mark.asyncio
 async def test_find_dealerships_boats_uses_untyped_query(places_api_key: str) -> None:
     """Boat discovery should rely on text query matching instead of car_dealer filtering."""
-    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
     search_response = {
         "places": [
             {
@@ -326,11 +312,10 @@ async def test_find_dealerships_boats_uses_untyped_query(places_api_key: str) ->
             body = {}
         if not isinstance(body, dict):
             return Response(200, json={"places": []})
-        if body.get("textQuery") == "Traverse City MI":
-            return Response(200, json=loc_response)
         seen_queries.append(body)
         return Response(200, json=search_response)
 
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.33, -83.04)))
     respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
 
     out = await places.find_dealerships(
@@ -350,7 +335,6 @@ async def test_find_dealerships_boats_uses_untyped_query(places_api_key: str) ->
 @respx.mock
 @pytest.mark.asyncio
 async def test_find_dealerships_motorcycles_prefers_category_context(places_api_key: str) -> None:
-    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
     search_response = {
         "places": [
             {
@@ -378,10 +362,9 @@ async def test_find_dealerships_motorcycles_prefers_category_context(places_api_
             body = {}
         if not isinstance(body, dict):
             return Response(200, json={"places": []})
-        if body.get("textQuery") == "Detroit MI":
-            return Response(200, json=loc_response)
         return Response(200, json=search_response)
 
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.33, -83.04)))
     respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
 
     out = await places.find_dealerships(
@@ -398,7 +381,6 @@ async def test_find_dealerships_motorcycles_prefers_category_context(places_api_
 @respx.mock
 @pytest.mark.asyncio
 async def test_find_dealerships_motorcycles_keeps_multibrand_fallbacks_when_brand_match_exists(places_api_key: str) -> None:
-    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
     search_response = {
         "places": [
             {
@@ -433,10 +415,9 @@ async def test_find_dealerships_motorcycles_keeps_multibrand_fallbacks_when_bran
             body = {}
         if not isinstance(body, dict):
             return Response(200, json={"places": []})
-        if body.get("textQuery") == "Detroit MI":
-            return Response(200, json=loc_response)
         return Response(200, json=search_response)
 
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.33, -83.04)))
     respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
 
     out = await places.find_dealerships(
@@ -456,7 +437,6 @@ async def test_find_dealerships_motorcycles_keeps_multibrand_fallbacks_when_bran
 @respx.mock
 @pytest.mark.asyncio
 async def test_find_dealerships_boats_skips_false_positive_retailers(places_api_key: str) -> None:
-    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
     search_response = {
         "places": [
             {
@@ -484,10 +464,9 @@ async def test_find_dealerships_boats_skips_false_positive_retailers(places_api_
             body = {}
         if not isinstance(body, dict):
             return Response(200, json={"places": []})
-        if body.get("textQuery") == "Detroit MI":
-            return Response(200, json=loc_response)
         return Response(200, json=search_response)
 
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.33, -83.04)))
     respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
 
     out = await places.find_dealerships(
@@ -504,7 +483,6 @@ async def test_find_dealerships_boats_skips_false_positive_retailers(places_api_
 @respx.mock
 @pytest.mark.asyncio
 async def test_find_dealerships_boats_keeps_trusted_national_retailers_with_local_results(places_api_key: str) -> None:
-    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
     search_response = {
         "places": [
             {
@@ -532,10 +510,9 @@ async def test_find_dealerships_boats_keeps_trusted_national_retailers_with_loca
             body = {}
         if not isinstance(body, dict):
             return Response(200, json={"places": []})
-        if body.get("textQuery") == "Detroit MI":
-            return Response(200, json=loc_response)
         return Response(200, json=search_response)
 
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.33, -83.04)))
     respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
 
     out = await places.find_dealerships(
@@ -552,7 +529,6 @@ async def test_find_dealerships_boats_keeps_trusted_national_retailers_with_loca
 @respx.mock
 @pytest.mark.asyncio
 async def test_find_dealerships_cars_genesis_skips_false_positive_named_businesses(places_api_key: str) -> None:
-    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
     search_response = {
         "places": [
             {
@@ -587,10 +563,9 @@ async def test_find_dealerships_cars_genesis_skips_false_positive_named_business
             body = {}
         if not isinstance(body, dict):
             return Response(200, json={"places": []})
-        if body.get("textQuery") == "Detroit MI":
-            return Response(200, json=loc_response)
         return Response(200, json=search_response)
 
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.33, -83.04)))
     respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
 
     out = await places.find_dealerships(
@@ -607,7 +582,6 @@ async def test_find_dealerships_cars_genesis_skips_false_positive_named_business
 @respx.mock
 @pytest.mark.asyncio
 async def test_find_dealerships_motorcycles_caps_generic_fallback_candidates(places_api_key: str) -> None:
-    loc_response = {"places": [{"location": {"latitude": 42.33, "longitude": -83.04}}]}
     search_response = {
         "places": [
             {
@@ -629,10 +603,9 @@ async def test_find_dealerships_motorcycles_caps_generic_fallback_candidates(pla
             body = {}
         if not isinstance(body, dict):
             return Response(200, json={"places": []})
-        if body.get("textQuery") == "Detroit MI":
-            return Response(200, json=loc_response)
         return Response(200, json=search_response)
 
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.33, -83.04)))
     respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
 
     out = await places.find_dealerships(
@@ -650,7 +623,46 @@ async def test_find_dealerships_motorcycles_caps_generic_fallback_candidates(pla
 async def test_resolve_location_center_returns_none_on_http_error(places_api_key: str) -> None:
     import httpx
 
-    respx.post(places.SEARCH_TEXT_URL).mock(return_value=Response(500))
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(500))
     async with httpx.AsyncClient() as client:
         center = await places._resolve_location_center(client, places_api_key, location="Nowhere")
     assert center is None
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_find_car_dealerships_uses_search_cache(places_api_key: str) -> None:
+    search_calls = 0
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.33, -83.04)))
+
+    def _route(_request: object) -> Response:
+        nonlocal search_calls
+        search_calls += 1
+        return Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "ChIJcache",
+                        "name": "places/ChIJcache",
+                        "displayName": {"text": "Cached Dealer"},
+                        "formattedAddress": "123 Main",
+                        "websiteUri": "https://cached-dealer.example/",
+                    }
+                ]
+            },
+        )
+
+    respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
+    metrics_one = places.PlacesSearchMetrics()
+    metrics_two = places.PlacesSearchMetrics()
+
+    first = await places.find_car_dealerships("Detroit MI", make="Ford", limit=5, radius_miles=25, metrics=metrics_one)
+    second = await places.find_car_dealerships("Detroit MI", make="Ford", limit=5, radius_miles=25, metrics=metrics_two)
+
+    assert len(first) == 1
+    assert len(second) == 1
+    assert search_calls == metrics_one.search_calls
+    assert metrics_one.search_calls >= 1
+    assert metrics_two.search_calls == 0
+    assert metrics_two.search_cache_hits == 1
