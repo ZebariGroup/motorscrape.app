@@ -227,7 +227,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const listingFlushHandleRef = useRef<number | null>(null);
   const sawFirstVehicleBatchRef = useRef(false);
   const streamErrorTimerRef = useRef<number | null>(null);
-  const streamErrorGraceMs = 500;
+  const streamErrorGraceMs = 2000;
 
   const dealerList = useMemo(
     () => Object.values(dealers).sort((a, b) => a.index - b.index),
@@ -543,7 +543,10 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
 
   const recoverCompletedStream = useCallback(
     async (correlationId: string, isStaleSession: () => boolean, stream: EventSource): Promise<boolean> => {
-      if (isStaleSession() || stream.readyState !== EventSource.CLOSED) {
+      // Skip only when the connection is still live — OPEN means `done` hasn't arrived yet.
+      // CONNECTING (auto-reconnect) and CLOSED are both valid states when the server finishes
+      // and the browser detects the close before dispatching the buffered `done` message event.
+      if (isStaleSession() || stream.readyState === EventSource.OPEN) {
         return false;
       }
       try {

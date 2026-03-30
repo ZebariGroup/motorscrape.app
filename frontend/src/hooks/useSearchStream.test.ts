@@ -52,7 +52,7 @@ class MockEventSource {
 describe("useSearchStream", () => {
   let rafQueue: FrameRequestCallback[] = [];
   let fetchMock: ReturnType<typeof vi.fn>;
-  const streamGraceWaitMs = 650;
+  const streamGraceWaitMs = 2150; // 2000ms grace + 150ms buffer
 
   beforeEach(() => {
     vi.stubGlobal("EventSource", MockEventSource);
