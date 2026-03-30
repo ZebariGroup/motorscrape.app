@@ -542,33 +542,52 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   }, [flushPendingListings]);
 
   const recoverCompletedStream = useCallback(
-    async (correlationId: string, isStaleSession: () => boolean, stream: EventSource): Promise<boolean> => {
-      // Skip only when the connection is still live — OPEN means `done` hasn't arrived yet.
-      // CONNECTING (auto-reconnect) and CLOSED are both valid states when the server finishes
-      // and the browser detects the close before dispatching the buffered `done` message event.
-      if (isStaleSession() || stream.readyState === EventSource.OPEN) {
-        return false;
-      }
-      try {
-        const response = await fetch(resolveApiUrl(`/search/logs/${correlationId}?include_events=false`), {
-          credentials: "include",
-        });
-        if (!response.ok) return false;
-        const payload = (await response.json()) as { run?: SearchLogRun };
-        const run = payload.run;
-        if (!run || isStaleSession() || !TERMINAL_SEARCH_LOG_STATUSES.has(run.status)) {
-          return false;
+    async (correlationId: string, isStaleSession: () => boolean): Promise<boolean> => {
+      /** SSE can close before `done` is delivered; DB row may briefly stay `running` or 404 until finalize commits. */
+      const maxAttempts = 8;
+      const pollMs = 300;
+      const logsUrl = () =>
+        resolveApiUrl(`/search/logs/${encodeURIComponent(correlationId)}?include_events=false`);
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (isStaleSession()) return false;
+        try {
+          const response = await fetch(logsUrl(), {
+            credentials: "include",
+          });
+          const payload = (await response.json()) as { run?: SearchLogRun };
+          const run = payload.run;
+          if (isStaleSession()) return false;
+
+          if (response.ok && run && TERMINAL_SEARCH_LOG_STATUSES.has(run.status)) {
+            setStatus(buildRecoveredSearchStatus(run));
+            if (run.error_message?.trim()) {
+              setErrors((e) => appendUniqueError(e, run.error_message!.trim()));
+            }
+            closeStream();
+            onFinishedRef.current?.();
+            return true;
+          }
+
+          if (
+            response.ok &&
+            run &&
+            run.status !== "running" &&
+            !TERMINAL_SEARCH_LOG_STATUSES.has(run.status)
+          ) {
+            return false;
+          }
+
+          if (attempt < maxAttempts - 1) {
+            await new Promise((r) => window.setTimeout(r, pollMs));
+          }
+        } catch {
+          if (attempt < maxAttempts - 1) {
+            await new Promise((r) => window.setTimeout(r, pollMs));
+          }
         }
-        setStatus(buildRecoveredSearchStatus(run));
-        if (run.error_message?.trim()) {
-          setErrors((e) => appendUniqueError(e, run.error_message!.trim()));
-        }
-        closeStream();
-        onFinishedRef.current?.();
-        return true;
-      } catch {
-        return false;
       }
+      return false;
     },
     [closeStream],
   );
@@ -848,7 +867,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
               if (isStaleSession() || streamDoneReceivedRef.current || correlationId == null) {
                 return;
               }
-              if (await recoverCompletedStream(correlationId, isStaleSession, es)) {
+              if (await recoverCompletedStream(correlationId, isStaleSession)) {
                 return;
               }
               if (

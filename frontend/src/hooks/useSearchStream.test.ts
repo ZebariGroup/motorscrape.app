@@ -53,6 +53,8 @@ describe("useSearchStream", () => {
   let rafQueue: FrameRequestCallback[] = [];
   let fetchMock: ReturnType<typeof vi.fn>;
   const streamGraceWaitMs = 2150; // 2000ms grace + 150ms buffer
+  /** Grace + recoverCompletedStream polling (7×300ms) when logs never become terminal */
+  const streamFullErrorPathWaitMs = 4500;
 
   beforeEach(() => {
     vi.stubGlobal("EventSource", MockEventSource);
@@ -124,7 +126,9 @@ describe("useSearchStream", () => {
     expect(result.current.search.status).toBe("Search finished · 1 dealerships searched");
   });
 
-  it("should surface stream error when the connection drops before done", async () => {
+  it(
+    "should surface stream error when the connection drops before done",
+    async () => {
     const { result } = renderHook(() => useSearchStream());
 
     act(() => {
@@ -140,13 +144,15 @@ describe("useSearchStream", () => {
     });
 
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, streamGraceWaitMs));
+      await new Promise((resolve) => setTimeout(resolve, streamFullErrorPathWaitMs));
     });
 
     expect(result.current.search.reconnecting).toBe(false);
     expect(result.current.search.errors).toContain("Connection to search stream lost or failed.");
     expect(result.current.search.running).toBe(false);
-  });
+    },
+    12_000,
+  );
 
   it("should not surface an error if done arrives before stream error grace period", async () => {
     const { result } = renderHook(() => useSearchStream());
