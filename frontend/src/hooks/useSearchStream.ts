@@ -22,6 +22,43 @@ export type SearchHistoryView = {
   correlationId: string;
 };
 
+type SearchLogRun = SearchHistoryRunRow & {
+  dealer_discovery_count?: number | null;
+  dealer_deduped_count?: number | null;
+  error_message?: string | null;
+};
+
+const TERMINAL_SEARCH_LOG_STATUSES = new Set([
+  "success",
+  "partial_failure",
+  "failed",
+  "quota_blocked",
+  "canceled",
+]);
+
+function appendUniqueError(list: string[], message: string): string[] {
+  return list.includes(message) ? list : [...list, message];
+}
+
+function buildRecoveredSearchStatus(run: SearchLogRun): string {
+  if (run.status === "canceled") {
+    return "Search canceled.";
+  }
+  if (run.status === "quota_blocked") {
+    return run.error_message?.trim() || "Search blocked by quota.";
+  }
+  if (run.status === "failed") {
+    return run.error_message?.trim() || "Search failed.";
+  }
+  const dealerPart =
+    run.dealer_discovery_count != null && run.dealer_deduped_count != null
+      ? `${run.dealer_deduped_count} dealerships searched`
+      : run.requested_max_dealerships != null
+        ? `${run.requested_max_dealerships} dealerships searched`
+        : null;
+  return dealerPart ? `Search finished · ${dealerPart}` : "Search finished.";
+}
+
 function parseVehicleCategory(raw: string | undefined): VehicleCategory {
   const v = (raw ?? "").trim().toLowerCase();
   if (v === "car" || v === "motorcycle" || v === "boat" || v === "other") return v;
@@ -451,7 +488,6 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   useEffect(() => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
       // Collapse filters on small viewports on first mount (UX preference).
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional initial UI state from viewport
       setFiltersExpanded(false);
     }
   }, []);
@@ -504,6 +540,35 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     setRunning(false);
     setReconnecting(false);
   }, [flushPendingListings]);
+
+  const recoverCompletedStream = useCallback(
+    async (correlationId: string, isStaleSession: () => boolean, stream: EventSource): Promise<boolean> => {
+      if (isStaleSession() || stream.readyState !== EventSource.CLOSED) {
+        return false;
+      }
+      try {
+        const response = await fetch(resolveApiUrl(`/search/logs/${correlationId}?include_events=false`), {
+          credentials: "include",
+        });
+        if (!response.ok) return false;
+        const payload = (await response.json()) as { run?: SearchLogRun };
+        const run = payload.run;
+        if (!run || isStaleSession() || !TERMINAL_SEARCH_LOG_STATUSES.has(run.status)) {
+          return false;
+        }
+        setStatus(buildRecoveredSearchStatus(run));
+        if (run.error_message?.trim()) {
+          setErrors((e) => appendUniqueError(e, run.error_message!.trim()));
+        }
+        closeStream();
+        onFinishedRef.current?.();
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [closeStream],
+  );
 
   const stopStream = useCallback(async () => {
     flushPendingListings();
@@ -773,19 +838,34 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
         if (streamErrorTimerRef.current != null) {
           window.clearTimeout(streamErrorTimerRef.current);
         }
-        streamErrorTimerRef.current = window.setTimeout(() => {
-          if (
-            isStaleSession() ||
-            streamDoneReceivedRef.current ||
-            correlationIdRef.current == null
-          ) {
-            return;
-          }
-          setReconnecting(false);
-          setErrors((e) => [...e, "Connection to search stream lost or failed."]);
-          closeStream();
-          streamErrorTimerRef.current = null;
+        const timerId = window.setTimeout(() => {
+          void (async () => {
+            try {
+              const correlationId = correlationIdRef.current;
+              if (isStaleSession() || streamDoneReceivedRef.current || correlationId == null) {
+                return;
+              }
+              if (await recoverCompletedStream(correlationId, isStaleSession, es)) {
+                return;
+              }
+              if (
+                isStaleSession() ||
+                streamDoneReceivedRef.current ||
+                correlationIdRef.current == null
+              ) {
+                return;
+              }
+              setReconnecting(false);
+              setErrors((e) => appendUniqueError(e, "Connection to search stream lost or failed."));
+              closeStream();
+            } finally {
+              if (streamErrorTimerRef.current === timerId) {
+                streamErrorTimerRef.current = null;
+              }
+            }
+          })();
         }, streamErrorGraceMs);
+        streamErrorTimerRef.current = timerId;
       });
     };
   }, [
@@ -796,6 +876,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     maxDealerships,
     model,
     radiusMiles,
+    recoverCompletedStream,
     stopStream,
     vehicleCategory,
     vehicleCondition,
