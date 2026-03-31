@@ -195,6 +195,44 @@ def test_detect_platform_profile_nissan_host_not_ford_family_when_ford_is_substr
     assert profile.platform_id == "nissan_infiniti_inventory"
 
 
+def test_detect_platform_profile_vw_path_not_misclassified_as_ford_family() -> None:
+    html = """
+    <html><body>
+      <div class="si-vehicle-box"></div>
+      <div class="inventory_listing"></div>
+      <a href="/viewdetails/new/abc123/2025-foo">View Details</a>
+      <footer>Also visit our Ford location in another city.</footer>
+      <script>var unlockCTADiscountData = {};</script>
+    </body></html>
+    """
+    profile = detect_platform_profile(
+        html,
+        page_url="https://www.glinicke.de/autohaus/erfurt/volkswagen/",
+    )
+    assert profile is None or profile.platform_id != "ford_family_inventory"
+
+
+def test_detect_platform_profile_vw_path_not_misclassified_as_gm_kia_or_hyundai() -> None:
+    html = """
+    <html><body>
+      <div class="si-vehicle-box"></div>
+      <div class="inventory_listing"></div>
+      <a href="/viewdetails/new/abc123/2025-foo">View Details</a>
+      <footer>Compare models from Cadillac, Kia, and Hyundai.</footer>
+      <script>var unlockCTADiscountData = {};</script>
+    </body></html>
+    """
+    profile = detect_platform_profile(
+        html,
+        page_url="https://www.loehrgruppe.de/standorte/volkswagen-zentrum-mainz",
+    )
+    assert profile is None or profile.platform_id not in {
+        "gm_family_inventory",
+        "kia_inventory",
+        "hyundai_inventory_search",
+    }
+
+
 def test_detect_platform_profile_alfa_host_not_toyota_lexus_when_footer_mentions_toyota_lexus() -> None:
     """DDC Alfa hosts mention Toyota/Lexus in copy; Toyota OEM routing must not apply."""
     html = """

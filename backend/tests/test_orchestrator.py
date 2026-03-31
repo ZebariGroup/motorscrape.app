@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.config import settings
 from app.db.account_store import get_account_store
-from app.schemas import DealershipFound, VehicleListing
+from app.schemas import DealershipFound, ExtractionResult, VehicleListing
 from app.services.orchestrator import (
     _bounded_phase_timeout,
     _dealer_inspire_model_inventory_urls,
@@ -526,6 +526,91 @@ def test_find_inventory_url_eu_prefers_oem_used_search_over_news_model_pages() -
         vehicle_condition="all",
         market_region="eu",
     ) == "https://gebrauchtwagen.mercedes-benz.de/hammer"
+
+
+@pytest.mark.asyncio
+async def test_stream_search_does_not_skip_make_when_dealer_context_matches() -> None:
+    dealers = [
+        DealershipFound(
+            name="Volkswagen Zentrum Example",
+            place_id="p1",
+            address="100 Main St",
+            website="https://www.example-vw.de/",
+        )
+    ]
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        if url == "https://www.example-vw.de/" and page_kind == "homepage":
+            return '<html><body><a href="/inventar">Inventar</a></body></html>', "direct"
+        if page_kind == "inventory":
+            # Intentionally no explicit "Volkswagen" token in HTML to exercise make gating fallback.
+            return "<html><body><div>Fahrzeugliste</div></body></html>", "direct"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.set_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch(
+            "app.services.orchestrator.detect_or_lookup_provider",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.extract_with_provider",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+            return_value=ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2023,
+                        make="Volkswagen",
+                        model="Golf",
+                        price=24995,
+                        listing_url="https://www.example-vw.de/vdp/golf-1",
+                    )
+                ],
+                next_page_url=None,
+                pagination=None,
+            ),
+        ) as mock_llm,
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "Germany",
+            "Volkswagen",
+            "",
+            market_region="eu",
+            max_dealerships=1,
+            max_pages_per_dealer=1,
+        ):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert mock_llm.await_count == 1
+    assert "https://www.example-vw.de/vdp/golf-1" in tail
+    assert '"listings_found": 1' in tail
 
 
 @pytest.mark.asyncio
@@ -1815,6 +1900,112 @@ async def test_stream_search_oneaudi_all_condition_fans_out_to_new_and_used() ->
     assert "https://www.audidealer.example/vdp/q5-new" in tail
     assert "https://www.audidealer.example/vdp/q7-used" in tail
     assert '"listings_found": 2' in tail
+
+
+@pytest.mark.asyncio
+async def test_stream_search_oneaudi_all_condition_keeps_localized_non_inventory_path() -> None:
+    dealers = [
+        DealershipFound(
+            name="Audi Berlin Example",
+            place_id="p1",
+            address="100 Main St",
+            website="https://www.audi-zentrum-berlin.example/de/",
+        )
+    ]
+    route = ProviderRoute(
+        platform_id="oneaudi_falcon",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory/new", "inventory/used"),
+        inventory_url_hint="https://www.audi-zentrum-berlin.example/de/neuwagen/",
+    )
+    fetched_inventory_urls: list[str] = []
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        if url == "https://www.audi-zentrum-berlin.example/de/" and page_kind == "homepage":
+            return '<html><body><a href="/de/neuwagen/">Neuwagen</a></body></html>', "direct"
+        if page_kind == "inventory":
+            fetched_inventory_urls.append(url)
+            return "<html><body><div>Inventory</div></body></html>", "direct"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    def fake_structured(*, page_url: str, **_kwargs):
+        if page_url.endswith("/de/neuwagen/"):
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2025,
+                        make="Audi",
+                        model="A4",
+                        price=45995,
+                        listing_url="https://www.audi-zentrum-berlin.example/vdp/a4-new",
+                    )
+                ],
+                next_page_url=None,
+                pagination=None,
+            )
+        return None
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.set_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch(
+            "app.services.orchestrator.detect_or_lookup_provider",
+            return_value=route,
+        ),
+        patch(
+            "app.services.orchestrator.resolve_inventory_url_for_provider",
+            return_value="https://www.audi-zentrum-berlin.example/de/neuwagen/",
+        ),
+        patch(
+            "app.services.orchestrator.extract_with_provider",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            side_effect=fake_structured,
+        ),
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+        ) as mock_llm,
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "Berlin, Germany",
+            "Audi",
+            "",
+            vehicle_condition="all",
+            market_region="eu",
+            max_dealerships=1,
+            max_pages_per_dealer=3,
+        ):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert mock_llm.await_count == 0
+    assert "https://www.audi-zentrum-berlin.example/de/neuwagen/" in fetched_inventory_urls
+    assert all("/inventory/" not in u for u in fetched_inventory_urls)
+    assert "https://www.audi-zentrum-berlin.example/vdp/a4-new" in tail
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,6 @@
 from app.schemas import VehicleListing
 from app.services.inventory_filters import (
+    apply_eu_make_default_from_dealer_context,
     infer_vehicle_condition_from_page,
     listing_matches_filters,
     make_filter_variants,
@@ -59,3 +60,39 @@ def test_listing_matches_filters_uses_make_aliases() -> None:
         listing_url="https://example.test/listing/1",
     )
     assert listing_matches_filters(listing, "BMW Motorrad", "")
+
+
+def test_apply_eu_make_default_from_dealer_context_uses_domain() -> None:
+    listing = VehicleListing(
+        year=2024,
+        make=None,
+        model="Golf",
+        raw_title="Golf 2.0 TDI",
+        listing_url="https://example.test/vdp/1",
+    )
+    out = apply_eu_make_default_from_dealer_context(
+        listing,
+        requested_make="Volkswagen",
+        dealer_domain="mahag-volkswagen.de",
+        dealer_name="MAHAG Group",
+        market_region="eu",
+    )
+    assert out.make == "Volkswagen"
+
+
+def test_apply_eu_make_default_from_dealer_context_uses_dealer_name_when_domain_missing_make() -> None:
+    listing = VehicleListing(
+        year=2024,
+        make=None,
+        model="Tiguan",
+        raw_title="Tiguan Life",
+        listing_url="https://example.test/vdp/2",
+    )
+    out = apply_eu_make_default_from_dealer_context(
+        listing,
+        requested_make="Volkswagen",
+        dealer_domain="loehrgruppe.de",
+        dealer_name="Volkswagen Zentrum Mainz Auto-Kraft GmbH",
+        market_region="eu",
+    )
+    assert out.make == "Volkswagen"

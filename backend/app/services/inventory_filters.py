@@ -173,6 +173,7 @@ def apply_eu_make_default_from_dealer_context(
     *,
     requested_make: str,
     dealer_domain: str,
+    dealer_name: str = "",
     market_region: str,
 ) -> VehicleListing:
     """When titles omit the brand (common on EU sites), infer make from the dealer hostname."""
@@ -183,7 +184,7 @@ def apply_eu_make_default_from_dealer_context(
         return v
     if (v.make or "").strip():
         return v
-    dom_norm = normalize_model_text(dealer_domain)
+    dom_norm = normalize_model_text(f"{dealer_domain} {dealer_name}")
     make_norm = normalize_model_text(mk)
     if len(make_norm) >= 2 and make_norm in dom_norm:
         return v.model_copy(update={"make": mk})

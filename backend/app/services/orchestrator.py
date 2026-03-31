@@ -2351,11 +2351,14 @@ async def stream_search(
                     async with metrics_lock:
                         fetch_metrics["inventory_url_scoped"] += 1
             elif route and route.platform_id == "oneaudi_falcon" and vehicle_condition == "all" and current_url:
-                oneaudi_inventory_urls = _oneaudi_all_inventory_urls(current_url)
-                if oneaudi_inventory_urls:
-                    current_url = oneaudi_inventory_urls[0]
-                    queued_urls = {current_url}
-                    pending_urls = [u for u in oneaudi_inventory_urls[1:] if u not in queued_urls]
+                # Only fan out new/used when we are already on OneAudi inventory routes.
+                # Localized EU paths like /de/neuwagen can 404 when coerced into /inventory/new.
+                if "/inventory/" in urlsplit(current_url).path.lower():
+                    oneaudi_inventory_urls = _oneaudi_all_inventory_urls(current_url)
+                    if oneaudi_inventory_urls:
+                        current_url = oneaudi_inventory_urls[0]
+                        queued_urls = {current_url}
+                        pending_urls = [u for u in oneaudi_inventory_urls[1:] if u not in queued_urls]
             emitted_listing_keys: set[str] = set()
             dealer_inspire_fallback_urls = (
                 _dealer_inspire_model_inventory_urls(
@@ -2454,7 +2457,16 @@ async def stream_search(
                             "toyota_lexus_oem_inventory",
                         }
                     )
-                    if make.strip() and not html_mentions_make(current_html, make) and not is_family_inventory_route:
+                    make_signal = bool(
+                        make.strip()
+                        and (
+                            html_mentions_make(current_html, make)
+                            or html_mentions_make(d.name, make)
+                            or html_mentions_make(current_url or "", make)
+                            or html_mentions_make(website, make)
+                        )
+                    )
+                    if make.strip() and not make_signal and not is_family_inventory_route:
                         logger.info(
                             "Skipping extraction for %s: no make mention (%r) in HTML",
                             current_url,
@@ -2577,6 +2589,7 @@ async def stream_search(
                         w,
                         requested_make=make,
                         dealer_domain=domain or "",
+                        dealer_name=d.name,
                         market_region=market_region,
                     )
                     normalized_vehicles.append(w)

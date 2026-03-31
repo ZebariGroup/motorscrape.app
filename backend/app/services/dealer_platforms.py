@@ -656,24 +656,33 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
 
 def _ford_lincoln_allowed(html_lower: str, page_url: str) -> bool:
     """Ford/Lincoln OEM stack: host may contain ford/lincoln; body/URL must not match via substrings like 'affordable'."""
-    host = urlsplit(page_url).netloc.lower()
+    parsed = urlsplit(page_url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
     if "ford" in host or "lincoln" in host:
         return True
+    if "ford" in path or "lincoln" in path:
+        return True
     blob = f"{html_lower} {page_url.lower()}"
-    return bool(_FORD_LINCOLN_BODY_RE.search(blob) or _LINCOLN_BODY_RE.search(blob))
+    return bool(
+        (_FORD_LINCOLN_BODY_RE.search(blob) or _LINCOLN_BODY_RE.search(blob))
+        and not any(token in path for token in ("volkswagen", "vw", "audi", "skoda", "seat", "cupra", "bmw", "mini"))
+    )
 
 
 def _family_stack_allowed_for_target(platform_id: str, html_lower: str, page_url: str) -> bool:
-    host = urlsplit(page_url).netloc.lower()
+    parsed = urlsplit(page_url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
     target = html_lower + " " + page_url.lower()
     infiniti_or_nissan_host = "infiniti" in host or "nissan" in host
     if platform_id == "nissan_infiniti_inventory":
-        return any(token in host or token in target for token in ("nissan", "infiniti"))
+        return any(token in host or token in path for token in ("nissan", "infiniti"))
     if platform_id == "honda_acura_inventory":
         # Shared Sonic markers (si-vehicle-box, etc.) must not classify INFINITI/Nissan dealers as Honda/Acura.
         if infiniti_or_nissan_host:
             return False
-        return any(token in host or token in target for token in ("honda", "acura"))
+        return any(token in host or token in path for token in ("honda", "acura"))
     if platform_id == "ford_family_inventory":
         if infiniti_or_nissan_host and "ford" not in host and "lincoln" not in host:
             return False
@@ -728,14 +737,14 @@ def _family_stack_allowed_for_target(platform_id: str, html_lower: str, page_url
                 "tesla",
                 "byd",
             )
-            if any(token in host for token in non_ford_oem):
+            if any(token in host or token in path for token in non_ford_oem):
                 return False
         return _ford_lincoln_allowed(html_lower, page_url)
     if platform_id == "gm_family_inventory":
         if infiniti_or_nissan_host:
             return False
         return any(
-            token in host or token in target
+            token in host or token in path
             for token in ("chevrolet", "chevy", "gmc", "buick", "cadillac")
         )
     if platform_id == "toyota_lexus_oem_inventory":
@@ -745,9 +754,9 @@ def _family_stack_allowed_for_target(platform_id: str, html_lower: str, page_url
         # footers or comparison copy; body-text matching misroutes to /inventory/new/... SRPs.
         return "toyota" in host or "lexus" in host
     if platform_id == "hyundai_inventory_search":
-        return "hyundai" in host or "hyundai" in target
+        return "hyundai" in host or "hyundai" in path
     if platform_id == "kia_inventory":
-        return "kia" in host or "kia" in target
+        return "kia" in host or "kia" in path
     if platform_id == "harley_digital_showroom":
         # National H-D template: /new-inventory and /used-inventory on harley* dealer domains.
         return "harley" in host and (
