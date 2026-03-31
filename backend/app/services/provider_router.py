@@ -222,6 +222,11 @@ def _looks_like_inventory_detail_url(url: str) -> bool:
     # Treat these as VDP/detail pages, not SRP listing entry points.
     if re.search(r"/inventory/\d+(?:/|$)", path):
         return True
+    if (
+        re.search(r"/\d{4,}(?:/|$)", path)
+        and any(token in path for token in ("/inventory/", "/fahrzeugsuche/"))
+    ):
+        return True
     if "detail" in path:
         return True
     return bool(re.search(r"(?:^|[-_/])(?:19|20)\d{2}(?:[-_/]|$)", path))
@@ -254,6 +259,77 @@ def _normalize_inventory_candidate_url(url: str) -> str:
         url = urlunsplit((parts.scheme, parts.netloc, parts.path + "/", parts.query, parts.fragment))
 
     return url
+
+
+_GENERIC_INVENTORY_URL_TOKENS: tuple[str, ...] = (
+    "/inventory",
+    "fahrzeugsuche",
+    "/fahrzeuge",
+    "fahrzeug-shop",
+    "trefferliste",
+    "verfuegbare-fahrzeuge",
+    "gebrauchtwagen",
+    "neuwagen/fahrzeugsuche",
+    "new-inventory",
+    "used-inventory",
+    "all-inventory",
+    "new-vehicles",
+    "used-vehicles",
+    "searchnew.aspx",
+    "searchused.aspx",
+    "/search/inventory",
+    "stock",
+)
+
+
+def _looks_like_generic_inventory_url(url: str) -> bool:
+    parts = urlsplit(url)
+    blob = f"{parts.path.lower()} {parts.query.lower()}"
+    return any(token in blob for token in _GENERIC_INVENTORY_URL_TOKENS)
+
+
+def _looks_like_map_or_location_url(url: str) -> bool:
+    parts = urlsplit(url)
+    host = parts.netloc.lower()
+    path = parts.path.lower()
+    if "google." in host and ("maps" in host or "/maps" in path or "/place/" in path):
+        return True
+    if "maps.apple.com" in host:
+        return True
+    return False
+
+
+def _looks_like_non_inventory_marketing_url(url: str) -> bool:
+    parts = urlsplit(url)
+    path = parts.path.lower()
+    return any(
+        token in path
+        for token in (
+            "/aktuelles",
+            "/aktionen",
+            "/angebote",
+            "/news",
+            "/modelle",
+            "/ansprechpartner",
+            "/probefahrt",
+            "/service",
+        )
+    )
+
+
+def _looks_like_model_scoped_inventory_path(url: str, make_norm: str) -> bool:
+    if not make_norm:
+        return False
+    segments = [segment for segment in urlsplit(url).path.lower().split("/") if segment]
+    for idx, segment in enumerate(segments):
+        if _norm(segment) != make_norm:
+            continue
+        if idx + 1 >= len(segments):
+            continue
+        prefix = "/".join(segments[: idx + 1])
+        if any(token in prefix for token in ("inventory", "fahrzeugsuche", "new-inventory", "used-inventory")):
+            return True
+    return False
 
 
 def _drop_query_keys(url: str, keys: set[str]) -> str:
@@ -1009,7 +1085,8 @@ def detect_or_lookup_provider(
         return _route_from_cache(cached, cache_status="hit")
 
     profile = detect_platform_profile(homepage_html, page_url=website)
-    if not profile and website:
+    homepage_blank = not (homepage_html or "").strip()
+    if website and (not profile or homepage_blank):
         # Homepage fetches are sometimes blocked, but the recovered/discovered inventory URL
         # still carries a strong platform signature (/search/inventory, /inventory/new, etc.).
         path = urlsplit(website).path.lower()
@@ -1256,6 +1333,16 @@ def resolve_inventory_url_for_provider(
             score += 35
         if "inventory" in href_lower or "inventory" in text:
             score += 20
+        if not route and _looks_like_generic_inventory_url(href):
+            score += 70
+        if not route and urlsplit(href).path.lower().rstrip("/") in {"", "/", "/de", "/de.html"}:
+            score -= 90
+        if not route and _looks_like_non_inventory_marketing_url(href):
+            score -= 140
+        if _looks_like_map_or_location_url(href):
+            score -= 220
+        if make_norm and not model_norm and _looks_like_model_scoped_inventory_path(href, make_norm):
+            score -= 90
         if _is_oem_inventory_jump_target(href_host, href_path):
             score += 80
         if any(
@@ -1539,7 +1626,25 @@ def resolve_inventory_url_for_provider(
         best_norm = _normalize_inventory_candidate_url(best_url)
         if best_norm and best_norm.rstrip("/") != fallback_norm.rstrip("/"):
             best_combined_norm = _norm(best_norm)
-            if make_norm not in best_combined_norm:
+            if _looks_like_map_or_location_url(best_norm) and fallback_norm:
+                best_url = fallback_norm
+            elif _looks_like_model_scoped_inventory_path(best_norm, make_norm) and fallback_norm:
+                best_url = fallback_norm
+            elif _looks_like_inventory_detail_url(best_norm) and fallback_norm:
+                best_url = fallback_norm
+            elif (
+                fallback_norm
+                and _looks_like_generic_inventory_url(fallback_norm)
+                and not _looks_like_generic_inventory_url(best_norm)
+            ):
+                best_url = fallback_norm
+            elif (
+                fallback_norm
+                and _looks_like_generic_inventory_url(fallback_norm)
+                and _looks_like_non_inventory_marketing_url(best_norm)
+            ):
+                best_url = fallback_norm
+            elif make_norm not in best_combined_norm and not _looks_like_generic_inventory_url(best_norm):
                 best_url = fallback_norm
 
     if not route and make_norm and model_norm:

@@ -356,6 +356,81 @@ def test_resolve_inventory_url_for_provider_prefers_requested_brand_collection()
     assert url == "https://www.examplemarine.com/michigan-all-bayliner-boat-inventory/"
 
 
+def test_resolve_inventory_url_for_provider_make_only_keeps_inventory_search_without_make_token() -> None:
+    html = """
+    <html><body>
+      <a href="/volkswagen/">Volkswagen Brand</a>
+      <a href="/fahrzeuge/fahrzeugsuche/">Fahrzeugsuche</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.volkswagen-frankfurt.de/",
+        None,
+        fallback_url="https://www.volkswagen-frankfurt.de/fahrzeuge/fahrzeugsuche/",
+        make="Volkswagen",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.volkswagen-frankfurt.de/fahrzeuge/fahrzeugsuche/"
+
+
+def test_resolve_inventory_url_for_provider_make_only_avoids_google_maps_place_links() -> None:
+    html = """
+    <html><body>
+      <a href="https://www.google.com/maps/place/Volkswagen+Zentrum+Leverkusen/">Maps</a>
+      <a href="/cms/fahrzeuge.html">Fahrzeuge</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://leverkusen-gebrauchtwagen.de/start_38.html",
+        None,
+        fallback_url="https://leverkusen-gebrauchtwagen.de/cms/fahrzeuge.html",
+        make="Volkswagen",
+        vehicle_condition="all",
+    )
+    assert url == "https://leverkusen-gebrauchtwagen.de/cms/fahrzeuge.html"
+
+
+def test_resolve_inventory_url_for_provider_make_only_avoids_marketing_news_links() -> None:
+    html = """
+    <html><body>
+      <a href="/neuwagen/volkswagen/aktuelles-aktionen-vw">Aktuelles & Aktionen</a>
+      <a href="/gebrauchtwagen/fahrzeugsuche/">Fahrzeugsuche</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.volkswagen-frankfurt.de/",
+        None,
+        fallback_url="https://www.volkswagen-frankfurt.de/gebrauchtwagen/fahrzeugsuche/",
+        make="Volkswagen",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.volkswagen-frankfurt.de/gebrauchtwagen/fahrzeugsuche/"
+
+
+def test_resolve_inventory_url_for_provider_make_only_avoids_detail_pages() -> None:
+    html = """
+    <html><body>
+      <a href="/fahrzeugsuche/volkswagen/caddy/7239698/">Caddy Detail</a>
+      <a href="/fahrzeugsuche/">Fahrzeugsuche</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.glinicke.de/autohaus/erfurt/volkswagen/",
+        None,
+        fallback_url="https://www.glinicke.de/fahrzeugsuche/?tx_cartvehicles_products%5Bmake%5D=716",
+        make="Volkswagen",
+        vehicle_condition="all",
+    )
+    assert url in {
+        "https://www.glinicke.de/fahrzeugsuche/?tx_cartvehicles_products%5Bmake%5D=716",
+        "https://www.glinicke.de/fahrzeugsuche/",
+    }
+
+
 def test_resolve_inventory_url_for_provider_generic_make_search_keeps_fallback_when_best_url_has_other_brand() -> None:
     html = """
     <html><body>
