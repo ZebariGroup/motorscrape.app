@@ -813,6 +813,20 @@ def _canonical_oneaudi_inventory_url(url: str, condition: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join(path_segments) + "/", "", ""))
 
 
+def _is_oem_inventory_jump_target(host: str, path: str) -> bool:
+    host_l = (host or "").lower()
+    path_l = (path or "").lower()
+    if host_l == "gebrauchtwagen.mercedes-benz.de":
+        return True
+    if host_l == "traumsterne.mercedes-benz.de":
+        return True
+    if host_l.endswith("audi.de") and (
+        "neuwagenboerse" in path_l or "gebrauchtwagenboerse" in path_l
+    ):
+        return True
+    return False
+
+
 def _canonical_team_velocity_filtered_inventory_url(
     base_url: str,
     *,
@@ -1152,6 +1166,7 @@ def resolve_inventory_url_for_provider(
         href = _normalize_inventory_candidate_url(str(a["href"]))
         href_lower = href.lower()
         href_path = urlsplit(href).path.lower().rstrip("/")
+        href_host = urlsplit(href).netloc.lower()
         text = a.get_text(strip=True).lower()
         combined_norm = _norm(f"{text} {href_lower}")
         score = 0
@@ -1241,6 +1256,13 @@ def resolve_inventory_url_for_provider(
             score += 35
         if "inventory" in href_lower or "inventory" in text:
             score += 20
+        if _is_oem_inventory_jump_target(href_host, href_path):
+            score += 80
+        if any(
+            token in href_path
+            for token in ("/passengercars/news/", "/news/models/", "/company-news", "/offers/offers-new-vehicles")
+        ):
+            score -= 120
         if route and route.platform_id == "dealer_on" and not model_norm:
             score += _dealer_on_path_score(href, condition)
             if _dealer_on_condition_matches(href, condition):
@@ -1323,7 +1345,10 @@ def resolve_inventory_url_for_provider(
             parsed_href = urlsplit(href)
             if parsed_href.netloc:
                 base_netloc = urlsplit(base_url).netloc
-                if not parsed_href.netloc.endswith(base_netloc.replace("www.", "")):
+                if not parsed_href.netloc.endswith(base_netloc.replace("www.", "")) and not _is_oem_inventory_jump_target(
+                    parsed_href.netloc,
+                    parsed_href.path,
+                ):
                     score -= 50
         except Exception:
             pass
@@ -1472,7 +1497,13 @@ def resolve_inventory_url_for_provider(
             best_url if best_score > 0 else (route.inventory_url_hint if route else None) or fallback_url
         )
         if generic_base:
-            best_url = _canonical_oneaudi_inventory_url(generic_base, "new")
+            generic_path = urlsplit(generic_base).path.lower()
+            # Some EU Audi retailers expose stock under localized paths (/de/neuwagen, OEM-hosted boerse)
+            # and 404 on forced /inventory/new canonicals.
+            if "/inventory/" in generic_path:
+                best_url = _canonical_oneaudi_inventory_url(generic_base, "new")
+            else:
+                best_url = generic_base
 
     if route and not model_norm and route.platform_id == "dealer_spike":
         generic_base = _normalize_inventory_candidate_url(

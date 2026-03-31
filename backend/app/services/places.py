@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -216,6 +217,14 @@ _TRUSTED_NATIONAL_RETAILER_NAME_HINTS: dict[str, tuple[str, ...]] = {
         "cabelas boating center",
     ),
 }
+_CORPORATE_NON_DEALER_NAME_HINTS: tuple[str, ...] = (
+    "main office",
+    "corporate office",
+    "headquarters",
+    "head office",
+    "national office",
+    "home office",
+)
 _CAR_BRAND_CONFLICT_TOKENS: frozenset[str] = frozenset(
     {
         "acura",
@@ -349,6 +358,13 @@ def _is_trusted_national_retailer_match(
     if any(token in hay for token in _TRUSTED_NATIONAL_RETAILER_NAME_HINTS.get(category, ())):
         return True
     return False
+
+
+def _looks_like_corporate_non_dealer(name: str) -> bool:
+    hay = (name or "").strip().lower()
+    if not hay:
+        return False
+    return any(token in hay for token in _CORPORATE_NON_DEALER_NAME_HINTS)
 
 
 def _looks_like_false_positive_make_match(
@@ -506,12 +522,13 @@ def _place_within_radius(
     center_lat: float,
     center_lng: float,
     radius_miles: int,
+    require_coordinates: bool = False,
 ) -> bool:
     point = place.get("location") or {}
     lat = point.get("latitude")
     lng = point.get("longitude")
     if lat is None or lng is None:
-        return True
+        return not require_coordinates
     return _haversine_distance_miles(center_lat, center_lng, float(lat), float(lng)) <= float(radius_miles)
 
 
@@ -621,6 +638,13 @@ def _normalize_dealer_website_url(website: str) -> str:
 def _normalize_vehicle_category(vehicle_category: str) -> str:
     normalized = (vehicle_category or "car").strip().lower()
     return normalized if normalized in SUPPORTED_VEHICLE_CATEGORIES else "other"
+
+
+def _looks_like_us_zip_location(location: str) -> bool:
+    value = (location or "").strip()
+    if not value:
+        return False
+    return bool(re.fullmatch(r"\d{5}(?:-\d{4})?", value))
 
 
 def _build_text_queries(
@@ -756,6 +780,12 @@ async def find_dealerships(
         )
         metrics.query_variants_total = len(text_queries)
         query_stop_target = _places_query_stop_target(limit=limit, make=make_q, model=model_q)
+        require_precise_radius_coordinates = bool(
+            location_center is not None
+            and category != "car"
+            and make_q
+            and _looks_like_us_zip_location(location)
+        )
 
         places: list[dict[str, Any]] = []
         seen_place_resources: set[str] = set()
@@ -782,6 +812,7 @@ async def find_dealerships(
                     center_lat=center_lat,
                     center_lng=center_lng,
                     radius_miles=requested_radius,
+                    require_coordinates=require_precise_radius_coordinates,
                 ):
                     continue
                 place_resource = str(place.get("name") or "")
@@ -823,6 +854,7 @@ async def find_dealerships(
                         center_lat=center_lat,
                         center_lng=center_lng,
                         radius_miles=requested_radius,
+                        require_coordinates=require_precise_radius_coordinates,
                     ):
                         continue
                     place_resource = str(place.get("name") or "")
@@ -887,6 +919,9 @@ async def find_dealerships(
 
             if not website:
                 logger.debug("Skipping %s — no website in Places data", name)
+                continue
+            if _looks_like_corporate_non_dealer(name):
+                logger.debug("Skipping %s — appears to be corporate office, not local dealer", name)
                 continue
             metrics.detail_candidates_resolved += 1
             trusted_national = _is_trusted_national_retailer_match(

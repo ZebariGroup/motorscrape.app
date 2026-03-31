@@ -68,6 +68,36 @@ def test_resolve_inventory_url_for_provider_canonicalizes_oneaudi_all_to_generic
     assert url == "https://www.audicarlsbad.com/en/inventory/new/"
 
 
+def test_resolve_inventory_url_for_provider_oneaudi_all_keeps_localized_non_inventory_path() -> None:
+    route = ProviderRoute(
+        platform_id="oneaudi_falcon",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory/new", "inventory/used"),
+        inventory_url_hint="https://www.audi-zentrum-berlin-charlottenburg.audi/de/neuwagen/",
+    )
+    html = """
+    <html><body>
+      <a href="/de/neuwagen/">Neuwagen</a>
+      <a href="/de/gebrauchtwagen/">Gebrauchtwagen</a>
+      <a href="/passengercars/news/models/suv/model-x.html">Model News</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.audi-zentrum-berlin-charlottenburg.audi/de/",
+        route,
+        fallback_url="https://www.audi-zentrum-berlin-charlottenburg.audi/de/neuwagen/",
+        make="Audi",
+        model="",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.audi-zentrum-berlin-charlottenburg.audi/de/neuwagen/"
+
+
 def test_resolve_inventory_url_for_provider_prefers_dealer_spike_inventory_over_model_list() -> None:
     route = ProviderRoute(
         platform_id="dealer_spike",

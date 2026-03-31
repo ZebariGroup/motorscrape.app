@@ -47,6 +47,20 @@ def test_inventory_render_plan_keeps_oneaudi_instructions_for_both_playwright_an
     assert "wait_for_selector" in plan.playwright_instructions
 
 
+def test_detect_platform_profile_does_not_treat_generic_audi_de_links_as_oneaudi() -> None:
+    html = """
+    <html><body>
+      <a href="https://www.audi.de/de/neuwagenboerse/">Neuwagensuche</a>
+      <a href="https://www.audi.de/de/gebrauchtwagenboerse/">Gebrauchtwagensuche</a>
+    </body></html>
+    """
+    profile = detect_platform_profile(
+        html,
+        page_url="https://www.audi-zentrum-berlin-charlottenburg.audi/de/",
+    )
+    assert profile is None
+
+
 def test_playwright_inventory_instructions_cover_render_required_platforms() -> None:
     instructions = playwright_inventory_instructions_for_url(
         "https://dealer.example/searchnew.aspx",

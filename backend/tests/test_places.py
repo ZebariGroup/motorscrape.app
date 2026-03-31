@@ -153,6 +153,12 @@ def test_false_positive_genesis_make_match_excludes_other_oems_and_generic_group
     )
 
 
+def test_corporate_non_dealer_filter_detects_main_office_keywords() -> None:
+    assert places._looks_like_corporate_non_dealer("Bennington Pontoon Boats Main Office")
+    assert places._looks_like_corporate_non_dealer("ACME Marine Corporate Office")
+    assert not places._looks_like_corporate_non_dealer("White's Marine Center")
+
+
 def test_normalize_dealer_website_url_strips_tracking() -> None:
     u = places._normalize_dealer_website_url("https://dealer.com/?gclid=1&utm_source=email")
     assert "gclid" not in u
@@ -531,6 +537,101 @@ async def test_find_dealerships_boats_keeps_trusted_national_retailers_with_loca
     )
     assert len(out) == 1
     assert out[0].name == "Bass Pro Shops Boating Center Auburn Hills"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_find_dealerships_boats_make_search_requires_place_coordinates_when_radius_filtered(
+    places_api_key: str,
+) -> None:
+    search_response = {
+        "places": [
+            {
+                "id": "ChIJmissing",
+                "name": "places/ChIJmissing",
+                "displayName": {"text": "Unknown Location Marina"},
+                "formattedAddress": "Anywhere, MI",
+                "websiteUri": "https://unknown-location-marina.example/",
+            },
+            {
+                "id": "ChIJnear",
+                "name": "places/ChIJnear",
+                "displayName": {"text": "Local Harbor Marine"},
+                "formattedAddress": "Detroit, MI",
+                "websiteUri": "https://local-harbor-marine.example/",
+                "location": {"latitude": 42.355, "longitude": -83.05},
+            },
+        ]
+    }
+
+    def _route(request: object) -> Response:
+        try:
+            raw = request.content.decode() if getattr(request, "content", None) else "{}"  # type: ignore[union-attr]
+            body = json.loads(raw) if raw else {}
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return Response(200, json={"places": []})
+        return Response(200, json=search_response)
+
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.3314, -83.0458)))
+    respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
+
+    out = await places.find_dealerships(
+        "48234",
+        vehicle_category="boat",
+        make="Bennington",
+        limit=10,
+        radius_miles=25,
+    )
+    assert [dealer.name for dealer in out] == ["Local Harbor Marine"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_find_dealerships_skips_corporate_main_office_candidates(places_api_key: str) -> None:
+    search_response = {
+        "places": [
+            {
+                "id": "ChIJcorp",
+                "name": "places/ChIJcorp",
+                "displayName": {"text": "Bennington Pontoon Boats Main Office"},
+                "formattedAddress": "Elkhart, IN",
+                "websiteUri": "https://www.benningtonmarine.com/",
+                "location": {"latitude": 41.68, "longitude": -85.98},
+            },
+            {
+                "id": "ChIJdealer",
+                "name": "places/ChIJdealer",
+                "displayName": {"text": "White's Marine Center"},
+                "formattedAddress": "Harrison Township, MI",
+                "websiteUri": "https://www.whitesmarinecenter.com/",
+                "location": {"latitude": 42.58, "longitude": -82.83},
+            },
+        ]
+    }
+
+    def _route(request: object) -> Response:
+        try:
+            raw = request.content.decode() if getattr(request, "content", None) else "{}"  # type: ignore[union-attr]
+            body = json.loads(raw) if raw else {}
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return Response(200, json={"places": []})
+        return Response(200, json=search_response)
+
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.3314, -83.0458)))
+    respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
+
+    out = await places.find_dealerships(
+        "Detroit MI",
+        vehicle_category="boat",
+        make="Bennington",
+        limit=10,
+        radius_miles=250,
+    )
+    assert [dealer.name for dealer in out] == ["White's Marine Center"]
 
 
 @respx.mock

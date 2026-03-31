@@ -490,6 +490,44 @@ def test_find_inventory_url_ignores_mailto_links() -> None:
     )
 
 
+def test_find_inventory_url_all_condition_prefers_unscoped_inventory_over_preowned_empty_filters() -> None:
+    html = """
+    <html><body>
+      <a href="/inventory/?type=&amp;make=&amp;condition=pre-owned">Used Inventory</a>
+      <a href="/inventory/">All Inventory</a>
+    </body></html>
+    """
+    assert _find_inventory_url(html, "https://www.koopersmarine.com/", vehicle_condition="all") == (
+        "https://www.koopersmarine.com/inventory/"
+    )
+
+
+def test_find_inventory_url_all_condition_sanitizes_preowned_empty_query_when_only_option_exists() -> None:
+    html = """
+    <html><body>
+      <a href="/inventory/?type=&amp;make=&amp;condition=pre-owned">Inventory</a>
+    </body></html>
+    """
+    assert _find_inventory_url(html, "https://www.koopersmarine.com/", vehicle_condition="all") == (
+        "https://www.koopersmarine.com/inventory/"
+    )
+
+
+def test_find_inventory_url_eu_prefers_oem_used_search_over_news_model_pages() -> None:
+    html = """
+    <html><body>
+      <a href="/passengercars/news/models/suv/der-neue-vollelektrische-mercedes-benz-glc.html">Der neue GLC</a>
+      <a href="https://gebrauchtwagen.mercedes-benz.de/hammer">Gebrauchtwagensuche</a>
+    </body></html>
+    """
+    assert _find_inventory_url(
+        html,
+        "https://www.mercedes-benz-hammer.de/",
+        vehicle_condition="all",
+        market_region="eu",
+    ) == "https://gebrauchtwagen.mercedes-benz.de/hammer"
+
+
 @pytest.mark.asyncio
 async def test_stream_search_places_error_surfaces_search_error() -> None:
     with patch(

@@ -377,7 +377,7 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
     ),
     PlatformDefinition(
         platform_id="oneaudi_falcon",
-        markers=("oneaudi-falcon", "audi.com", "vtpimages.audi.com"),
+        markers=("oneaudi-falcon", "vtpimages.audi.com"),
         inventory_path_hints=(
             "new-inventory",
             "used-inventory",

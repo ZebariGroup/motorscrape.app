@@ -228,12 +228,27 @@ def _find_inventory_url(
         condition = (vehicle_condition or "all").strip().lower()
         eu = (market_region or "").strip().lower() == "eu"
 
+        def _is_oem_inventory_jump_target(host: str, path: str) -> bool:
+            host_l = (host or "").lower()
+            path_l = (path or "").lower()
+            if host_l == "gebrauchtwagen.mercedes-benz.de":
+                return True
+            if host_l == "traumsterne.mercedes-benz.de":
+                return True
+            if host_l.endswith("audi.de") and (
+                "neuwagenboerse" in path_l or "gebrauchtwagenboerse" in path_l
+            ):
+                return True
+            return False
+
         for a in soup.find_all("a", href=True):
             href_raw = str(a["href"])
             href_parts = urlsplit(href_raw)
             if href_parts.scheme and href_parts.scheme.lower() not in {"http", "https"}:
                 continue
             href = href_raw.lower()
+            href_query = {k.lower(): v.lower() for k, v in parse_qsl(href_parts.query, keep_blank_values=True)}
+            href_path = href_parts.path.lower()
             text = a.get_text(strip=True).lower()
             href_fragment = href_parts.fragment.lower()
             score = 0
@@ -242,6 +257,7 @@ def _find_inventory_url(
                 continue
 
             if eu:
+                # EU OEM sites often expose stock via localized SRPs or OEM-hosted inventory hubs.
                 if any(
                     tok in href
                     for tok in (
@@ -282,6 +298,10 @@ def _find_inventory_url(
                     )
                 ):
                     score += 24
+                if any(tok in href for tok in ("neuwagenboerse", "gebrauchtwagenboerse", "fahrzeugsuche")):
+                    score += 90
+                if any(tok in href_path for tok in ("/de/neuwagen", "/de/gebrauchtwagen")):
+                    score += 45
 
             if "inventory" in href or "inventory" in text:
                 score += 20
@@ -303,6 +323,11 @@ def _find_inventory_url(
                 score += 30
             if any(token in href for token in ("manufacturer-models", "model-list")) or "model list" in text:
                 score -= 80
+            if any(
+                token in href_path
+                for token in ("/passengercars/news/", "/news/models/", "/company-news", "/offers/offers-new-vehicles")
+            ):
+                score -= 120
             if "showroom" in href or "showroom" in text:
                 score -= 15
             if href_fragment:
@@ -344,6 +369,16 @@ def _find_inventory_url(
                     score += 5
                 if "certified-inventory" in href or "certified" in text:
                     score -= 20
+                # Avoid over-scoped inventory links for "all" searches (they often 404 or hide stock).
+                condition_value = href_query.get("condition", "").strip().lower()
+                if condition_value in {"pre-owned", "preowned", "used", "new"}:
+                    score -= 10
+                scoped_filter_keys = {"make", "model", "type", "category", "subcategory", "year"}
+                empty_scoped_filters = sum(
+                    1 for key in scoped_filter_keys if key in href_query and not href_query.get(key, "").strip()
+                )
+                if empty_scoped_filters:
+                    score -= min(15, empty_scoped_filters * 5)
 
             # Penalize non-inventory links
             if any(x in href for x in ["service", "parts", "finance", "contact", "about", "specials", "privacy"]):
@@ -354,6 +389,9 @@ def _find_inventory_url(
             try:
                 parsed_href = urlparse(a['href'])
                 if parsed_href.netloc:
+                    is_oem_inventory_jump = _is_oem_inventory_jump_target(parsed_href.netloc, parsed_href.path)
+                    if is_oem_inventory_jump:
+                        score += 80
                     if (
                         parsed_href.netloc.endswith("onewaterinventory.com")
                         and parsed_href.path.rstrip("/").lower() == "/search"
@@ -368,6 +406,7 @@ def _find_inventory_url(
                             parsed_href.netloc.endswith("onewaterinventory.com")
                             and parsed_href.path.rstrip("/").lower() == "/search"
                         )
+                        and not is_oem_inventory_jump
                     ):
                         score -= 50
             except Exception:
@@ -383,6 +422,64 @@ def _find_inventory_url(
                     (absolute_parts.scheme, absolute_parts.netloc, absolute_parts.path, absolute_parts.query, "")
                 )
 
+        if condition == "all" and best_url:
+            best_parts = urlsplit(best_url)
+            best_query = {k.lower(): v.lower() for k, v in parse_qsl(best_parts.query, keep_blank_values=True)}
+            if best_query:
+                non_structural_keys = set(best_query) - {
+                    "make",
+                    "model",
+                    "type",
+                    "condition",
+                    "category",
+                    "subcategory",
+                    "year",
+                    "page",
+                    "pg",
+                }
+                condition_value = best_query.get("condition", "").strip().lower()
+                has_empty_filter = any(
+                    key in best_query and not (best_query.get(key) or "").strip()
+                    for key in ("make", "model", "type", "category", "subcategory", "year")
+                )
+                if not non_structural_keys and (
+                    has_empty_filter or condition_value in {"pre-owned", "preowned", "used", "new"}
+                ):
+                    best_url = urlunsplit((best_parts.scheme, best_parts.netloc, best_parts.path, "", ""))
+        if condition == "all" and best_url.rstrip("/") == base_url.rstrip("/"):
+            # If scoring failed to pick a candidate but we did see inventory links, prefer
+            # a broad inventory entrypoint over returning the homepage.
+            for a in soup.find_all("a", href=True):
+                abs_url = urljoin(base_url, str(a["href"]))
+                parts = urlsplit(abs_url)
+                if parts.scheme.lower() not in {"http", "https"}:
+                    continue
+                if "inventory" not in (parts.path or "").lower():
+                    continue
+                query = {k.lower(): v.lower() for k, v in parse_qsl(parts.query, keep_blank_values=True)}
+                if query:
+                    non_structural_keys = set(query) - {
+                        "make",
+                        "model",
+                        "type",
+                        "condition",
+                        "category",
+                        "subcategory",
+                        "year",
+                        "page",
+                        "pg",
+                    }
+                    if non_structural_keys:
+                        continue
+                    condition_value = query.get("condition", "").strip().lower()
+                    if any(not (query.get(k) or "").strip() for k in ("make", "model", "type")) or condition_value in {
+                        "pre-owned",
+                        "preowned",
+                        "used",
+                        "new",
+                    }:
+                        return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+                return urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
         return best_url
     except Exception as e:
         logger.warning("Failed to parse inventory URL: %s", e)
@@ -1486,6 +1583,7 @@ async def stream_search(
                 and route.platform_id == "oneaudi_falcon"
                 and vehicle_condition == "all"
                 and primary_url
+                and "/inventory/" in urlsplit(primary_url).path.lower()
             ):
                 return False
             for retry_url in _oneaudi_all_inventory_urls(primary_url):
