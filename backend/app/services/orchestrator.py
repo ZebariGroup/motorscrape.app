@@ -521,6 +521,23 @@ def _needs_vdp_attribute_enrichment(vehicles: list[VehicleListing]) -> bool:
     return missing_fields >= max(1, len(vehicles) // 2)
 
 
+def _needs_vdp_usage_enrichment(vehicles: list[VehicleListing]) -> bool:
+    if not vehicles:
+        return False
+    candidates = [v for v in vehicles if v.listing_url]
+    if not candidates:
+        return False
+    missing_usage = 0
+    for v in candidates:
+        if (v.usage_value is not None) or (v.mileage is not None):
+            continue
+        condition = (v.vehicle_condition or "").strip().lower()
+        if condition and condition != "used":
+            continue
+        missing_usage += 1
+    return missing_usage >= max(1, len(candidates) // 2)
+
+
 def _price_fill_rate(listings: list[dict[str, Any]]) -> float:
     if not listings:
         return 0.0
@@ -2504,6 +2521,42 @@ async def stream_search(
                             *[_enrich_vehicle_from_vdp(v) for v in filtered[:enrich_limit]]
                         )
                         filtered = list(enriched_prefix) + filtered[enrich_limit:]
+                if (
+                    route
+                    and route.platform_id == "dealer_dot_com"
+                    and vehicle_condition in {"used", "all"}
+                    and _needs_vdp_usage_enrichment(filtered)
+                ):
+                    seconds_remaining = dealer_timeout - (time.perf_counter() - dealer_started_at)
+                    candidate_indexes = [
+                        i
+                        for i, listing in enumerate(filtered)
+                        if listing.listing_url
+                        and listing.usage_value is None
+                        and listing.mileage is None
+                        and (
+                            not listing.vehicle_condition
+                            or listing.vehicle_condition == "used"
+                        )
+                    ]
+                    enrich_limit = min(6, len(candidate_indexes))
+                    if seconds_remaining < 40.0:
+                        enrich_limit = 0
+                    elif seconds_remaining < 60.0:
+                        enrich_limit = min(enrich_limit, 3)
+                    if enrich_limit == 0:
+                        logger.info(
+                            "Skipping Dealer.com usage VDP enrichment for %s due to low remaining budget (%.1fs)",
+                            d.name,
+                            seconds_remaining,
+                        )
+                    else:
+                        target_indexes = candidate_indexes[:enrich_limit]
+                        enriched_listings = await asyncio.gather(
+                            *[_enrich_vehicle_from_vdp(filtered[idx]) for idx in target_indexes]
+                        )
+                        for idx, enriched_listing in zip(target_indexes, enriched_listings, strict=False):
+                            filtered[idx] = enriched_listing
                 page_progress_payload = _pagination_progress_payload(
                     latest_pagination,
                     pages_scraped=pages_scraped + 1,

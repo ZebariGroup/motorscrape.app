@@ -233,10 +233,17 @@ _VEHICLE_FULL_REGEX = re.compile(
     r'(?:.*?\\"vdpUrl\\":\\"(?P<vdpUrl>[^\\]*)\\")?',
 )
 _TEXT_PRICE_RE = re.compile(r"\$([0-9][0-9,]{2,})(?:\.\d{2})?")
-_TEXT_MILEAGE_LABELED_RE = re.compile(r"\bmileage\s*:\s*([0-9][0-9,]{0,6})\b", re.I)
+_TEXT_MILEAGE_LABELED_RE = re.compile(
+    r"\bmileage\b(?:\s*(?::|#|-|\bis\b))?\s*([0-9][0-9,]{0,6})\b",
+    re.I,
+)
+_TEXT_MILES_LABELED_RE = re.compile(
+    r"\bmiles?\b(?:\s*(?::|#|-|\bis\b))?\s*([0-9][0-9,]{0,6})\b",
+    re.I,
+)
 _TEXT_MILEAGE_UNITS_RE = re.compile(r"\b([0-9][0-9,]{0,6})\s*(?:mi|miles?)\b", re.I)
 _TEXT_ODOMETER_LABELED_RE = re.compile(
-    r"\b(?:odometer|odo)\s*:\s*([0-9][0-9,]{0,6})\b",
+    r"\b(?:odometer|odo)\b(?:\s*(?::|#|-|\bis\b))?\s*([0-9][0-9,]{0,6})\b",
     re.I,
 )
 _TEXT_VIN_RE = re.compile(r"\b([A-HJ-NPR-Z0-9]{17})\b")
@@ -790,6 +797,43 @@ def _mileage_int_from_dict(d: dict[str, Any]) -> int | None:
             m = _mileage_int_from_flat_dict(sub)
             if m is not None:
                 return m
+    for nested_key in (
+        "specs",
+        "specifications",
+        "attributes",
+        "details",
+        "facts",
+        "vehicleDetails",
+        "vehicle_details",
+    ):
+        rows = d.get(nested_key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            label = str(
+                row.get("label")
+                or row.get("name")
+                or row.get("title")
+                or row.get("key")
+                or row.get("type")
+                or ""
+            ).strip().lower()
+            if not label:
+                continue
+            if any(token in label for token in ("mpg", "gallon", "fuel economy", "range")):
+                continue
+            if not (
+                any(token in label for token in ("mileage", "odometer", "odo"))
+                or label in {"mile", "miles", "mi"}
+            ):
+                continue
+            for value_key in ("value", "displayValue", "display", "text", "content", "raw", "amount"):
+                raw = row.get(value_key)
+                miles = _coerce_int(_unwrap_quantitative_value(raw))
+                if miles is not None:
+                    return miles
     return None
 
 
@@ -801,6 +845,10 @@ def _extract_mileage_from_text(text: str | None) -> int | None:
         if miles is not None:
             return miles
     for match in _TEXT_ODOMETER_LABELED_RE.finditer(text):
+        miles = _coerce_int(match.group(1))
+        if miles is not None:
+            return miles
+    for match in _TEXT_MILES_LABELED_RE.finditer(text):
         miles = _coerce_int(match.group(1))
         if miles is not None:
             return miles

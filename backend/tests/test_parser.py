@@ -177,6 +177,33 @@ def test_try_extract_dom_vehicle_card_reads_data_mileage_attributes() -> None:
     assert v.usage_unit == "miles"
 
 
+def test_try_extract_inventory_anchor_card_parses_mileage_label_without_colon() -> None:
+    html = """
+    <html><body>
+      <section class="inventory-item">
+        <h2>Used 2022 Toyota Camry LE</h2>
+        <div>Stock U12345</div>
+        <div>Mileage 45,215</div>
+        <div>$25,995</div>
+        <p>One-owner sedan with service records available.</p>
+        <a href="/inventory/123/used-2022-toyota-camry-le">MORE INFO</a>
+      </section>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/inventory/used",
+        html=html,
+        make_filter="Toyota",
+        model_filter="Camry",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.mileage == 45215
+    assert v.usage_value == 45215
+    assert v.usage_unit == "miles"
+
+
 def test_try_extract_embedded_json_odometer_miles_maps_to_mileage() -> None:
     # Inline JSON scripts are only parsed when long enough (see monolith _extract_json_inventory).
     pad = "x" * 220
@@ -199,6 +226,31 @@ def test_try_extract_embedded_json_odometer_miles_maps_to_mileage() -> None:
     v = result.vehicles[0]
     assert v.mileage == 45215
     assert v.vin == "4T1B11HK5KU123456"
+
+
+def test_try_extract_embedded_json_specs_mileage_label_maps_to_mileage() -> None:
+    pad = "x" * 220
+    html = f"""
+    <html><body>
+    <script type="application/json">
+    {{"vehicles":[{{"make":"Honda","model":"CR-V","year":2021,
+    "specifications":[{{"name":"Mileage","value":"58,901"}}],
+    "vdpUrl":"/inventory/h2","_pad":"{pad}"}}]}}
+    </script>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://dealer.example/inventory",
+        html=html,
+        make_filter="Honda",
+        model_filter="CR-V",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.mileage == 58901
+    assert v.usage_value == 58901
+    assert v.usage_unit == "miles"
 
 
 def test_try_extract_team_velocity_mileage_from_vehicle_specs_row() -> None:

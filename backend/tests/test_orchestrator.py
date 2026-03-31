@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.config import settings
 from app.db.account_store import get_account_store
-from app.schemas import DealershipFound
+from app.schemas import DealershipFound, VehicleListing
 from app.services.orchestrator import (
     _bounded_phase_timeout,
     _dealer_inspire_model_inventory_urls,
@@ -18,6 +18,7 @@ from app.services.orchestrator import (
     _effective_max_pages_for_route,
     _find_inventory_url,
     _inventory_url_recovery_candidates,
+    _needs_vdp_usage_enrichment,
     _oneaudi_all_inventory_urls,
     _room58_detail_overlay,
     _team_velocity_inventory_url_from_model_hub,
@@ -88,6 +89,58 @@ def test_effective_dealer_timeout_scales_for_deep_searches(monkeypatch: pytest.M
     assert _effective_dealer_timeout(3) == 150.0
     assert _effective_dealer_timeout(5) == 195.0
     assert _effective_dealer_timeout(10) == 240.0
+
+
+def test_needs_vdp_usage_enrichment_flags_used_listings_missing_mileage() -> None:
+    listings = [
+        VehicleListing(
+            vehicle_category="car",
+            year=2022,
+            make="Toyota",
+            model="Camry",
+            vehicle_condition="used",
+            listing_url="https://dealer.example/used/1",
+            usage_value=None,
+            mileage=None,
+        ),
+        VehicleListing(
+            vehicle_category="car",
+            year=2021,
+            make="Toyota",
+            model="Camry",
+            vehicle_condition="used",
+            listing_url="https://dealer.example/used/2",
+            usage_value=None,
+            mileage=None,
+        ),
+    ]
+    assert _needs_vdp_usage_enrichment(listings) is True
+
+
+def test_needs_vdp_usage_enrichment_ignores_new_listings_missing_mileage() -> None:
+    listings = [
+        VehicleListing(
+            vehicle_category="car",
+            year=2026,
+            make="Toyota",
+            model="Camry",
+            vehicle_condition="new",
+            listing_url="https://dealer.example/new/1",
+            usage_value=None,
+            mileage=None,
+        ),
+        VehicleListing(
+            vehicle_category="car",
+            year=2026,
+            make="Toyota",
+            model="Camry",
+            vehicle_condition="new",
+            listing_url="https://dealer.example/new/2",
+            usage_value=None,
+            mileage=None,
+        ),
+    ]
+    assert _needs_vdp_usage_enrichment(listings) is False
 
 
 def test_effective_max_pages_for_route_caps_render_heavy_dealer_platforms() -> None:
