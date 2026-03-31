@@ -53,12 +53,12 @@ const HIGH_SCORE_KEY = "motorscrape-minigame-highscore";
 const FRAME_MS_CAP = 32;
 const BASE_SPEED = 250;
 const MAX_SPEED = 520;
-const GRAVITY = 1680;
-const JUMP_VELOCITY = -500;
-const MAX_JUMP_HEIGHT = 76;
-const JUMP_HOLD_MS = 110;
-const JUMP_HOLD_GRAVITY_SCALE = 0.68;
-const JUMP_RELEASE_DAMPING = 0.58;
+const GRAVITY = 1320;
+const JUMP_VELOCITY = -478;
+const MAX_JUMP_HEIGHT = 82;
+const JUMP_HOLD_MS = 165;
+const JUMP_HOLD_GRAVITY_SCALE = 0.52;
+const JUMP_RELEASE_DAMPING = 0.62;
 const LANDING_SQUASH_MS = 110;
 const GROUND_Y = 0;
 const PLAYER_LEFT = 20;
@@ -119,6 +119,29 @@ function intersectsAabbSweep(
   const sweepLeft = Math.min(prevLeft, nextLeft);
   const sweepRight = Math.max(prevRight, nextRight);
   return sweepLeft < targetRight && sweepRight > targetLeft;
+}
+
+/** Collision AABB aligned to how obstacles are drawn (emoji baseline / text box), not the full spawn width × height. */
+function getObstacleHitRect(obs: GameObstacle, groundY: number) {
+  const bottom = groundY;
+  if (obs.text) {
+    const padX = 10;
+    const padTop = 5;
+    const padBottom = 8;
+    const left = obs.x + padX;
+    const right = obs.x + obs.width - padX;
+    const top = bottom - obs.height + padTop;
+    const hitBottom = bottom - padBottom;
+    return { left, right, top, bottom: hitBottom };
+  }
+  const insetX = 7;
+  const riseTop = 5;
+  const sinkBottom = 3;
+  const left = obs.x + insetX;
+  const right = obs.x + obs.width - insetX;
+  const top = bottom - obs.height + riseTop;
+  const hitBottom = bottom - sinkBottom;
+  return { left, right, top, bottom: hitBottom };
 }
 
 function randomBetween(min: number, max: number) {
@@ -580,10 +603,9 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     state.obstacles = state.obstacles.filter((obs) => {
       const previousLeft = obs.x;
       obs.x -= state.speed * dt;
-      const obsLeft = obs.x;
-      const obsRight = obs.x + obs.width;
-      const obsBottom = groundCanvasY;
-      const obsTop = groundCanvasY - obs.height;
+      const hit = getObstacleHitRect(obs, groundCanvasY);
+      const hitWidth = hit.right - hit.left;
+      const hitPrevLeft = hit.left - (obs.x - previousLeft);
       const playerBottom = playerBottomCanvas;
       const playerTop = playerRect.top;
       const overlapsNow = intersectsAabb(
@@ -591,17 +613,21 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
         playerRight,
         playerTop,
         playerBottom,
-        obsLeft,
-        obsRight,
-        obsTop,
-        obsBottom,
+        hit.left,
+        hit.right,
+        hit.top,
+        hit.bottom,
       );
-      const overlapsSwept = intersectsAabbSweep(previousLeft, obs.x, obs.width, playerLeft, playerRight);
-      const verticalOverlap = playerTop < obsBottom && playerBottom > obsTop;
+      const overlapsSwept = intersectsAabbSweep(hitPrevLeft, hit.left, hitWidth, playerLeft, playerRight);
+      const verticalOverlap = playerTop < hit.bottom && playerBottom > hit.top;
 
       if ((overlapsNow || (overlapsSwept && verticalOverlap)) && verticalOverlap) {
         collision = true;
-      } else if (verticalOverlap && obsLeft < playerRight + HIT_WARNING_RANGE && previousLeft + obs.width > playerLeft - HIT_WARNING_RANGE) {
+      } else if (
+        verticalOverlap &&
+        hit.left < playerRight + HIT_WARNING_RANGE &&
+        hitPrevLeft + hitWidth > playerLeft - HIT_WARNING_RANGE
+      ) {
         showWarning = true;
       }
       return obs.x + obs.width > -40;
