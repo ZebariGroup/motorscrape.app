@@ -183,6 +183,13 @@ def test_normalize_dealer_website_url_rejects_aggregator_profiles() -> None:
     assert places._normalize_dealer_website_url("https://www.mydealer.com/inventory") != ""
 
 
+def test_normalize_dealer_website_url_rejects_social_profiles() -> None:
+    assert places._normalize_dealer_website_url("https://www.facebook.com/complex.powersports/") == ""
+    assert places._normalize_dealer_website_url("https://instagram.com/somepowersportsdealer") == ""
+    assert places._normalize_dealer_website_url("https://www.linkedin.com/company/dealer-group") == ""
+    assert places._normalize_dealer_website_url("https://www.realdealer.com/") != ""
+
+
 @respx.mock
 @pytest.mark.asyncio
 async def test_place_details_website_ok(places_api_key: str) -> None:

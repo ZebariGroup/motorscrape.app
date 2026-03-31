@@ -1124,6 +1124,21 @@ def test_detect_or_lookup_provider_bypasses_cached_dealer_inspire_when_team_velo
     assert route.cache_status == "refresh"
 
 
+def test_detect_or_lookup_provider_uses_inventory_url_hint_when_homepage_html_is_blank() -> None:
+    with patch("app.services.provider_router.platform_store.get", return_value=None), patch(
+        "app.services.provider_router.platform_store.upsert",
+    ):
+        route = detect_or_lookup_provider(
+            domain="nordride.com",
+            website="https://www.nordride.com/search/inventory",
+            homepage_html="",
+        )
+    assert route is not None
+    assert route.platform_id == "dealer_spike"
+    assert route.cache_status == "detected"
+    assert route.detection_source == "url_hint"
+
+
 def test_resolve_inventory_url_for_provider_prefers_d2c_search_pages() -> None:
     route = ProviderRoute(
         platform_id="d2c_media",

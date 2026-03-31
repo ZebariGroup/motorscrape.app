@@ -995,6 +995,36 @@ def detect_or_lookup_provider(
         return _route_from_cache(cached, cache_status="hit")
 
     profile = detect_platform_profile(homepage_html, page_url=website)
+    if not profile and website:
+        # Homepage fetches are sometimes blocked, but the recovered/discovered inventory URL
+        # still carries a strong platform signature (/search/inventory, /inventory/new, etc.).
+        path = urlsplit(website).path.lower()
+        inventoryish_url = any(
+            token in path
+            for token in (
+                "/search/inventory",
+                "/inventory/new",
+                "/inventory/used",
+                "/new-inventory/index.htm",
+                "/used-inventory/index.htm",
+                "searchnew.aspx",
+                "searchused.aspx",
+                "default.asp?page=xallinventory",
+                "default.asp?page=xnewinventory",
+                "default.asp?page=xpreownedinventory",
+            )
+        )
+        if inventoryish_url:
+            url_only = detect_platform_profile("", page_url=website)
+            if url_only:
+                profile = PlatformProfile(
+                    platform_id=url_only.platform_id,
+                    confidence=url_only.confidence,
+                    extraction_mode=url_only.extraction_mode,
+                    requires_render=url_only.requires_render,
+                    inventory_path_hints=url_only.inventory_path_hints,
+                    detection_source="url_hint",
+                )
     if not profile:
         if cached:
             return _route_from_cache(cached, cache_status="stale")

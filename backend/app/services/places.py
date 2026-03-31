@@ -575,6 +575,30 @@ def _normalize_dealer_website_url(website: str) -> str:
     if host in _AGGREGATOR_HOSTS:
         return ""
 
+    # Social/profile URLs are discovery dead ends: Places sometimes returns a dealership's
+    # Facebook or Instagram page instead of the actual inventory site.
+    _SOCIAL_PROFILE_HOSTS = {
+        "facebook.com",
+        "www.facebook.com",
+        "m.facebook.com",
+        "instagram.com",
+        "www.instagram.com",
+        "x.com",
+        "www.x.com",
+        "twitter.com",
+        "www.twitter.com",
+        "tiktok.com",
+        "www.tiktok.com",
+        "youtube.com",
+        "www.youtube.com",
+        "linkedin.com",
+        "www.linkedin.com",
+        "linktr.ee",
+        "www.linktr.ee",
+    }
+    if host in _SOCIAL_PROFILE_HOSTS:
+        return ""
+
     tracking_prefixes = ("utm_",)
     tracking_keys = {
         "gclid",

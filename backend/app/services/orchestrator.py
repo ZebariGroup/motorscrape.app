@@ -1796,30 +1796,48 @@ async def stream_search(
             route = None
             inv_url = seed_inventory_url or base_url
 
-            if homepage_html is not None and seed_inventory_url is None:
-                route = detect_or_lookup_provider(domain=domain, website=base_url, homepage_html=homepage_html)
+            if homepage_html is not None:
+                detection_url = seed_inventory_url or base_url
+                route = detect_or_lookup_provider(domain=domain, website=detection_url, homepage_html=homepage_html)
                 if route:
                     async with metrics_lock:
                         fetch_metrics[f"platform_{route.platform_id}"] += 1
                         fetch_metrics[f"platform_source_{route.cache_status}"] += 1
-                inv_url = resolve_inventory_url_for_provider(
-                    homepage_html,
-                    base_url,
-                    route,
-                    fallback_url=_find_inventory_url(
+                if seed_inventory_url is None:
+                    inv_url = resolve_inventory_url_for_provider(
                         homepage_html,
                         base_url,
+                        route,
+                        fallback_url=_find_inventory_url(
+                            homepage_html,
+                            base_url,
+                            vehicle_condition=vehicle_condition,
+                            market_region=market_region,
+                        ),
+                        make=make,
+                        model=model,
                         vehicle_condition=vehicle_condition,
-                        market_region=market_region,
-                    ),
-                    make=make,
-                    model=model,
-                    vehicle_condition=vehicle_condition,
-                )
+                    )
             if inv_url == base_url and domain in inv_url_cache:
                 cached = inv_url_cache[domain]
                 if cached and cached.rstrip("/") != base_url.rstrip("/"):
                     inv_url = cached
+            if route is None and inv_url and inv_url != base_url:
+                route = detect_or_lookup_provider(domain=domain, website=inv_url, homepage_html="")
+                if route:
+                    async with metrics_lock:
+                        fetch_metrics[f"platform_{route.platform_id}"] += 1
+                        fetch_metrics[f"platform_source_{route.cache_status}"] += 1
+                    if homepage_html is not None and seed_inventory_url is None:
+                        inv_url = resolve_inventory_url_for_provider(
+                            homepage_html,
+                            base_url,
+                            route,
+                            fallback_url=inv_url,
+                            make=make,
+                            model=model,
+                            vehicle_condition=vehicle_condition,
+                        )
             if inv_url == base_url:
                 try:
                     sm_timeout = httpx.Timeout(min(settings.scrape_timeout, 30.0))
