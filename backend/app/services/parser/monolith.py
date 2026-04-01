@@ -233,7 +233,10 @@ _VEHICLE_FULL_REGEX = re.compile(
     r'(?:.*?\\"vin\\":\\"(?P<vin>[^\\]*)\\")?'
     r'(?:.*?\\"vdpUrl\\":\\"(?P<vdpUrl>[^\\]*)\\")?',
 )
-_TEXT_PRICE_RE = re.compile(r"\$([0-9][0-9,]{2,})(?:\.\d{2})?")
+# Negative lookbehind for '-' so that deduction/rebate labels like "-$1,000" are not
+# picked up as the vehicle sale price. The minus sign appears immediately before '$'
+# in Team Velocity / dealer-site cards that display incentive amounts as deductions.
+_TEXT_PRICE_RE = re.compile(r"(?<!-)\$([0-9][0-9,]{2,})(?:\.\d{2})?")
 _TEXT_EURO_PRICE_RE = re.compile(
     r"(?:€\s*)?[0-9]{1,3}(?:\.[0-9]{3})+(?:,\d{2}|,-)?\s*€(?:\*+)?",
     re.I,
@@ -1541,6 +1544,26 @@ def _vehicle_merge_key(v: VehicleListing) -> str:
     return f"{v.listing_url or ''}|{v.raw_title or ''}"
 
 
+def _vehicle_aliases(v: VehicleListing) -> list[str]:
+    """Return all plausible lookup keys for a listing so records extracted via different
+    paths (GA4 datalayer keyed by VIN, DOM cards keyed by stock number) can find each
+    other and collapse into a single entry."""
+    aliases: list[str] = []
+    if v.vin and len(v.vin) == 17:
+        aliases.append(f"vin:{v.vin}")
+    if v.vehicle_identifier:
+        aliases.append(f"id:{v.vehicle_identifier}")
+        # If the identifier looks like a VIN, also add the vin: key.
+        if len(v.vehicle_identifier) == 17 and v.vehicle_identifier.isalnum():
+            aliases.append(f"vin:{v.vehicle_identifier}")
+    return aliases
+
+
+def _register_vehicle_aliases(v: VehicleListing, canonical_key: str, alias_to_key: dict[str, str]) -> None:
+    for alias in _vehicle_aliases(v):
+        alias_to_key.setdefault(alias, canonical_key)
+
+
 def _normalize_listing_for_category(v: VehicleListing, *, vehicle_category: str) -> VehicleListing:
     usage_value = v.usage_value
     usage_unit = v.usage_unit
@@ -2179,6 +2202,13 @@ def _extract_inventory_anchor_card_vehicles(
         ]
         current_price = min(card_prices) if card_prices else None
         msrp_price = max(card_prices) if len(card_prices) >= 2 else None
+        # Safety net: if the apparent "sale price" is less than 15% of the other price
+        # on the card, it is almost certainly a dealer incentive or bonus-cash amount
+        # (e.g. VW Driver Access Bonus "$1,000") rather than the vehicle sale price.
+        # In that case discard it and fall back to the higher price as the price.
+        if current_price is not None and msrp_price is not None and current_price < 0.15 * msrp_price:
+            current_price = msrp_price
+            msrp_price = None
 
         vehicle = VehicleListing(
             vehicle_category=vehicle_category,
@@ -3266,11 +3296,43 @@ def try_extract_vehicles_without_llm(
 
         dicts = inventory_parser_for_platform(platform_id).normalize_pricing_dicts(dicts)
     by_key: dict[str, VehicleListing] = {}
+    # Secondary index: maps known VINs and stock numbers to the canonical primary key so
+    # that records from different extraction paths (e.g. GA4 datalayer keyed by VIN and
+    # DOM anchor cards keyed by stock number) collapse into a single record instead of
+    # appearing as duplicate listings.
+    alias_to_key: dict[str, str] = {}
+
+    def _merge_vehicle(v: VehicleListing) -> None:
+        key = _vehicle_merge_key(v)
+        # Try to find an existing record via the secondary alias index first.
+        for alias in _vehicle_aliases(v):
+            if alias in alias_to_key:
+                existing_key = alias_to_key[alias]
+                if existing_key in by_key:
+                    by_key[existing_key] = _prefer_vehicle_fields(by_key[existing_key], v)
+                    # Register the new key as an alias pointing to the canonical key.
+                    alias_to_key[key] = existing_key
+                    _register_vehicle_aliases(v, existing_key, alias_to_key)
+                    return
+        if key in by_key:
+            by_key[key] = _prefer_vehicle_fields(by_key[key], v)
+        else:
+            by_key[key] = v
+        _register_vehicle_aliases(v, key, alias_to_key)
+
     for d in dicts:
         v = dict_to_vehicle_listing(d, page_url, vehicle_category=vehicle_category)
         if v:
-            key = _vehicle_merge_key(v)
-            by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
+            _merge_vehicle(v)
+            # Register additional identifiers that live in the raw dict but may not
+            # make it into vehicle_identifier (e.g. stock number when VIN is preferred).
+            # This lets DOM card records keyed by stock number merge with GA4 records
+            # keyed by VIN for the same vehicle.
+            canonical = alias_to_key.get(_vehicle_merge_key(v), _vehicle_merge_key(v))
+            for raw_stock_key in ("stock", "stockNo", "stockNumber", "item_number", "stock_number"):
+                sv = str(d.get(raw_stock_key) or "").strip()
+                if sv and len(sv) < 17:
+                    alias_to_key.setdefault(f"id:{sv}", canonical)
 
     for v in extract_dom_vehicle_cards(
         html,
@@ -3278,16 +3340,13 @@ def try_extract_vehicles_without_llm(
         vehicle_category=vehicle_category,
         model_filter=model_filter,
     ):
-        key = _vehicle_merge_key(v)
-        by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
+        _merge_vehicle(v)
 
     for v in _extract_search_result_card_vehicles(html, page_url, vehicle_category=vehicle_category):
-        key = _vehicle_merge_key(v)
-        by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
+        _merge_vehicle(v)
 
     for v in _extract_inventory_anchor_card_vehicles(html, page_url, vehicle_category=vehicle_category):
-        key = _vehicle_merge_key(v)
-        by_key[key] = _prefer_vehicle_fields(by_key[key], v) if key in by_key else v
+        _merge_vehicle(v)
 
     all_vehicles = [
         _normalize_listing_for_category(

@@ -310,6 +310,52 @@ def test_try_extract_dom_msrp_and_discount_from_attributes() -> None:
     assert v.days_on_lot == 18
 
 
+def test_incentive_deduction_label_not_mistaken_for_vehicle_price() -> None:
+    """
+    Team Velocity SRP cards display incentive amounts like the VW Driver Access Bonus
+    as '<span> -$1,000</span>' inside each .si-vehicle-box. The '-$X' pattern must not
+    be picked up as the vehicle sale price, and the cards must deduplicate against the
+    matching GA4 datalayer record so only one result appears per vehicle.
+    """
+    pad = "x" * 220
+    html = f"""
+    <html><body>
+      <script>
+        var ga4ASCDataLayerVehicle = '[{{"item_make":"Volkswagen","item_model":"Tiguan","item_year":2026,
+          "item_id":"3VVER7RM5TM029331","item_price":37697,"item_condition":"new",
+          "item_number":"26V6491","_pad":"{pad}"}}]';
+      </script>
+      <section id="srp">
+        <div class="si-vehicle-box">
+          <h2>2026 Volkswagen Tiguan 2.0T S</h2>
+          <span>Stock: 26V6491</span>
+          <span>MSRP: $37,697</span>
+          <span> -$1,000</span>
+          <a href="/viewdetails/new/3VVER7RM5TM029331/2026-volkswagen-tiguan">View Details</a>
+        </div>
+      </section>
+      <p>Showing 1 - 1 of 12 results</p>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.lafontainevolkswagen.com/new-inventory/index.htm?Make=Volkswagen&Model=Tiguan",
+        html=html,
+        make_filter="Volkswagen",
+        model_filter="Tiguan",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1, (
+        f"Expected 1 vehicle (deduplication), got {len(result.vehicles)}: "
+        f"{[(v.raw_title, v.price) for v in result.vehicles]}"
+    )
+    v = result.vehicles[0]
+    assert v.price is not None and v.price > 5000, (
+        f"Price {v.price} looks like an incentive amount, not a vehicle price"
+    )
+    # Must not be the $1,000 rebate amount
+    assert v.price != pytest.approx(1000)
+
+
 def test_try_extract_team_velocity_vdp_prefers_cash_price_and_keeps_lease_payment(monkeypatch: pytest.MonkeyPatch) -> None:
     pad = "x" * 220
     html = f"""
