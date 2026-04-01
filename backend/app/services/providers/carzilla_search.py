@@ -16,7 +16,10 @@ from app.services.parser import try_extract_vehicles_without_llm
 logger = logging.getLogger(__name__)
 
 _REQUEST_HEADERS = {"User-Agent": "Mozilla/5.0"}
-_REST_SERVICE_URL_RE = re.compile(r'RestServiceUrl\s*=\s*"([^"]+)"')
+_REST_SERVICE_URL_RES = (
+    re.compile(r'RestServiceUrl\s*=\s*"([^"]+)"'),
+    re.compile(r"RestServiceUrl\s*=\s*'([^']+)'"),
+)
 _ORDER_FIELD_RE = re.compile(r'data-params="[^"]*of=([^"&]+)')
 
 
@@ -24,9 +27,26 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
 
 
+def _extract_typo3_type_id(html: str) -> str | None:
+    text = html or ""
+    match = re.search(r"\?type=(\d+)", text)
+    if match:
+        return match.group(1)
+    return None
+
+
 def _extract_rest_service_url(html: str) -> str | None:
-    match = _REST_SERVICE_URL_RE.search(html or "")
-    return match.group(1).strip() if match else None
+    text = html or ""
+    for pattern in _REST_SERVICE_URL_RES:
+        match = pattern.search(text)
+        if match:
+            return match.group(1).strip()
+    lower = text.lower()
+    if "carzillasearchinstance" in lower or "querystringdetailsearch" in lower:
+        type_id = _extract_typo3_type_id(text)
+        if type_id:
+            return f"/?type={type_id}"
+    return None
 
 
 def _extract_order_field(html: str) -> str:
@@ -83,6 +103,17 @@ def _fetch_text(url: str) -> str:
     return response.text
 
 
+def _fetch_direct_html(url: str) -> str | None:
+    try:
+        response = requests.get(url, headers=_REQUEST_HEADERS, timeout=25)
+        response.raise_for_status()
+        text = response.text or ""
+        return text if len(text) > 200 else None
+    except Exception as exc:
+        logger.debug("Carzilla direct HTML fetch failed for %s: %s", url, exc)
+        return None
+
+
 def extract_inventory(
     *,
     page_url: str,
@@ -108,7 +139,15 @@ def extract_inventory(
         result.vehicles = [vehicle for vehicle in result.vehicles if listing_matches_filters(vehicle, make_filter, model_filter)]
         return result if result.vehicles else None
 
-    rest_service_url = _extract_rest_service_url(html)
+    work_html = html or ""
+    rest_service_url = _extract_rest_service_url(work_html)
+    if not rest_service_url:
+        direct_html = _fetch_direct_html(page_url)
+        if direct_html:
+            rest_service_url = _extract_rest_service_url(direct_html)
+            if rest_service_url:
+                work_html = direct_html
+
     if not rest_service_url:
         return None
 
@@ -119,7 +158,7 @@ def extract_inventory(
                 "method": "GetInitialData",
                 "search": "1",
                 "ca": "",
-                "of": _extract_order_field(html),
+                "of": _extract_order_field(work_html),
             },
         )
         initial_data = _fetch_json(initial_data_url)
@@ -128,7 +167,7 @@ def extract_inventory(
         return None
 
     results_url = _results_page_url(page_url)
-    query: dict[str, Any] = {"of": _extract_order_field(html)}
+    query: dict[str, Any] = {"of": _extract_order_field(work_html)}
     if make_filter.strip():
         make_id = _make_id_from_initial_data(initial_data or {}, make_filter)
         if make_id:

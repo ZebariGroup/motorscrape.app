@@ -16,7 +16,20 @@ logger = logging.getLogger(__name__)
 
 _AHP6_API_BASE = "https://apps.autohausen.de/ahp6/api"
 _DEFAULT_LIMIT = 50
-_PUBLIC_KEY_RE = re.compile(r"publicKey:\s*'([^']+)'")
+# Homepages often expose only publicKeyUsedVehicles / publicKeyNewVehicles (no bare publicKey).
+_PUBLIC_KEY_RES = (
+    re.compile(r"publicKey\s*:\s*'([^']+)'"),
+    re.compile(r'publicKey\s*:\s*"([^"]+)"'),
+    re.compile(r"publicKeyUsedVehicles\s*:\s*'([^']+)'"),
+    re.compile(r'publicKeyUsedVehicles\s*:\s*"([^"]+)"'),
+    re.compile(r"publicKeyNewVehicles\s*:\s*'([^']+)'"),
+    re.compile(r'publicKeyNewVehicles\s*:\s*"([^"]+)"'),
+)
+_AHP6_INVENTORY_FALLBACK_PATHS = (
+    "/gebrauchtwagen/fahrzeugsuche/",
+    "/gebrauchtwagen/fahrzeugsuche",
+    "/fahrzeugsuche/",
+)
 _DETAIL_PAGE_URI_RE = re.compile(r"detailPageUri:\s*'([^']+)'")
 _FILTER_ARRAY_RE = {
     "typeextendedcode": re.compile(r"typeextendedcode:\s*\[([^\]]+)\]"),
@@ -26,6 +39,7 @@ _REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Content-Type": "application/json",
 }
+_GET_HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
 def _norm(text: str) -> str:
@@ -33,8 +47,34 @@ def _norm(text: str) -> str:
 
 
 def _extract_public_key(html: str) -> str | None:
-    match = _PUBLIC_KEY_RE.search(html or "")
-    return match.group(1).strip() if match else None
+    text = html or ""
+    for pattern in _PUBLIC_KEY_RES:
+        match = pattern.search(text)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _html_looks_like_ahp6_shell(html: str) -> bool:
+    h = (html or "").lower()
+    return "vgrdapps.autohausen.ag" in h or "ahp6.render" in h or "apps.autohausen.de/ahp6" in h
+
+
+def _fetch_inventory_html_for_public_key(page_url: str) -> tuple[str, str] | None:
+    """Some fetches (CDN / ZenRows) omit inline widget config; inventory SRP usually includes keys."""
+    for path in _AHP6_INVENTORY_FALLBACK_PATHS:
+        candidate = urljoin(page_url, path)
+        if candidate.rstrip("/") == page_url.rstrip("/"):
+            continue
+        try:
+            response = requests.get(candidate, headers=_GET_HEADERS, timeout=22)
+            response.raise_for_status()
+            body = response.text or ""
+            if _extract_public_key(body):
+                return body, candidate
+        except Exception as exc:
+            logger.debug("AHP6 fallback fetch skipped for %s: %s", candidate, exc)
+    return None
 
 
 def _extract_detail_page_uri(html: str) -> str:
@@ -253,18 +293,25 @@ def extract_inventory(
     if vehicle_category != "car":
         return None
 
-    public_key = _extract_public_key(html)
+    work_html = html or ""
+    effective_url = page_url
+    public_key = _extract_public_key(work_html)
+    if not public_key and _html_looks_like_ahp6_shell(work_html):
+        recovered = _fetch_inventory_html_for_public_key(page_url)
+        if recovered:
+            work_html, effective_url = recovered
+            public_key = _extract_public_key(work_html)
     if not public_key:
         return None
 
     try:
         form_payload = _post_json("/form", {"publicKey": public_key})
     except Exception as exc:
-        logger.warning("AHP6 form fetch failed for %s: %s", page_url, exc)
+        logger.warning("AHP6 form fetch failed for %s: %s", effective_url, exc)
         return None
 
     makes_by_id, make_ids_by_norm, models_by_make, model_ids_by_make_norm = _catalog_maps(form_payload)
-    default_filter = _extract_default_filter(html)
+    default_filter = _extract_default_filter(work_html)
     filter_payload = _make_filter_payload(
         make_filter=make_filter,
         model_filter=model_filter,
@@ -272,7 +319,7 @@ def extract_inventory(
         model_ids_by_make_norm=model_ids_by_make_norm,
         default_filter=default_filter,
     )
-    offset = _page_offset(page_url)
+    offset = _page_offset(effective_url)
 
     try:
         list_payload = {
@@ -289,18 +336,18 @@ def extract_inventory(
         rows_response = _post_json("/list", list_payload)
         count_response = _post_json("/count", count_payload)
     except Exception as exc:
-        logger.warning("AHP6 inventory fetch failed for %s: %s", page_url, exc)
+        logger.warning("AHP6 inventory fetch failed for %s: %s", effective_url, exc)
         return None
 
     rows = rows_response.get("data")
     if not isinstance(rows, list):
         return None
 
-    detail_page_uri = _extract_detail_page_uri(html)
+    detail_page_uri = _extract_detail_page_uri(work_html)
     vehicles = [
         _build_vehicle(
             row=row,
-            page_url=page_url,
+            page_url=effective_url,
             detail_page_uri=detail_page_uri,
             makes_by_id=makes_by_id,
             models_by_make=models_by_make,
@@ -314,7 +361,7 @@ def extract_inventory(
 
     total_results = _to_int(count_response.get("meta", {}).get("total"))
     next_offset = offset + _DEFAULT_LIMIT
-    next_page_url = _with_page_offset(page_url, next_offset) if total_results and next_offset < total_results else None
+    next_page_url = _with_page_offset(effective_url, next_offset) if total_results and next_offset < total_results else None
 
     return ExtractionResult(
         vehicles=vehicles,

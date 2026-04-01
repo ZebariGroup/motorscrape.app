@@ -104,6 +104,63 @@ def test_autohausen_ahp6_extract_inventory_maps_api_rows_and_paginates() -> None
     assert result.pagination.page_size == 50
 
 
+def test_autohausen_ahp6_extract_inventory_accepts_public_key_used_vehicles_only() -> None:
+    html = """
+    <html><body>
+      <script src="https://vgrdapps.autohausen.ag/ahp6/snippet/main.js"></script>
+      <script>
+        ahp6.renderQuickSearch('ahp6-quick-search', {
+          publicKeyUsedVehicles: 'pk-used',
+          publicKeyNewVehicles: 'pk-used',
+        })
+      </script>
+    </body></html>
+    """
+
+    def _fake_post(url: str, *, json=None, headers=None, timeout=None):  # type: ignore[override]
+        assert headers is not None
+        if url.endswith("/form"):
+            return _FakeResponse(
+                json_data={
+                    "make": [{"value": "52", "label": "Volkswagen"}],
+                    "model": {},
+                }
+            )
+        if url.endswith("/count"):
+            return _FakeResponse(json_data={"meta": {"total": 1}})
+        if url.endswith("/list"):
+            assert json is not None and json.get("publicKey") == "pk-used"
+            return _FakeResponse(
+                json_data={
+                    "data": [
+                        {
+                            "vehicleid": 1,
+                            "make": 52,
+                            "model": None,
+                            "typeextendedcode": 2,
+                            "shortdescription": "Golf",
+                            "customerprice": "20000",
+                            "images": [],
+                        }
+                    ]
+                }
+            )
+        raise AssertionError(url)
+
+    with patch("app.services.providers.autohausen_ahp6.requests.post", side_effect=_fake_post):
+        result = extract_autohausen_ahp6(
+            page_url="https://www.volkswagen-frankfurt.de/",
+            html=html,
+            make_filter="Volkswagen",
+            model_filter="",
+            vehicle_category="car",
+        )
+
+    assert result is not None
+    assert len(result.vehicles) == 1
+    assert result.vehicles[0].make == "Volkswagen"
+
+
 def test_carzilla_search_extract_inventory_fetches_trefferliste_results() -> None:
     shell_html = """
     <html><body>
@@ -180,3 +237,64 @@ def test_carzilla_search_extract_inventory_fetches_trefferliste_results() -> Non
         "https://www.gottfried-schultz.de/fahrzeuge/fahrzeugsuche/detailansicht/fahrzeug/"
         "volkswagen/e-up/gebrauchtfahrzeug/8861640/?ma=69&of=SalePrice"
     )
+
+
+def test_carzilla_search_accepts_single_quoted_rest_service_url() -> None:
+    shell_html = """
+    <html><body>
+      <script>
+        var carzillaSearchInstance1 = {};
+        carzillaSearchInstance1.RestServiceUrl = '/?type=17911';
+      </script>
+      <div class="vehicle--counter" data-params="of=SalePrice"></div>
+    </body></html>
+    """
+    results_html = """
+    <html><body>
+      <div class="cc-vehicle card mb-4">
+        <div class="vehicle-image">
+          <a class="cc-link-vehicle-detail" href="/fahrzeuge/fahrzeugsuche/detailansicht/fahrzeug/volkswagen/golf/gebrauchtfahrzeug/1/?ma=69&of=SalePrice">
+            <img data-src="https://images.example.com/golf.jpg" />
+          </a>
+        </div>
+        <div class="card-body">
+          <h5 class="card-title mb-3">
+            <a class="cc-link-vehicle-detail" href="/fahrzeuge/fahrzeugsuche/detailansicht/fahrzeug/volkswagen/golf/gebrauchtfahrzeug/1/?ma=69&of=SalePrice">
+              Volkswagen Golf
+            </a>
+          </h5>
+          <div class="vehicle-price__price">18.000,- €</div>
+        </div>
+      </div>
+    </body></html>
+    """
+
+    def _fake_get(url: str, *, headers=None, timeout=None):  # type: ignore[override]
+        assert headers is not None
+        if "GetInitialData" in url:
+            return _FakeResponse(
+                json_data={
+                    "d": {
+                        "SearchCatalog": {
+                            "Makes": [
+                                {"Name": "Volkswagen", "Identifier": "69"},
+                            ]
+                        }
+                    }
+                }
+            )
+        if "/fahrzeuge/fahrzeugsuche/trefferliste/" in url:
+            return _FakeResponse(text=results_html)
+        raise AssertionError(url)
+
+    with patch("app.services.providers.carzilla_search.requests.get", side_effect=_fake_get):
+        result = extract_carzilla_search(
+            page_url="https://www.gottfried-schultz.de/fahrzeuge/fahrzeugsuche/",
+            html=shell_html,
+            make_filter="Volkswagen",
+            model_filter="",
+            vehicle_category="car",
+        )
+
+    assert result is not None
+    assert len(result.vehicles) == 1
