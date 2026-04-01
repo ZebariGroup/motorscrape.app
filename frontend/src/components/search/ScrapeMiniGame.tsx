@@ -80,6 +80,17 @@ type GameObstacle = {
 
 type PendingWord = { spawnAt: number; text: string };
 
+type Particle = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  color: string;
+  size: number;
+};
+
 type DifficultyTuning = {
   speedTarget: number;
   spawnMinMs: number;
@@ -187,6 +198,7 @@ function drawScene(
   w: number,
   h: number,
   obstacles: GameObstacle[],
+  particles: Particle[],
   roadPhase: number,
   parallaxPhase: number,
   scanPhase: number,
@@ -204,7 +216,18 @@ function drawScene(
   playerRect: PlayerCollisionRect | null,
   hitWarningMs: number,
   hitImpactMs: number,
+  screenShake: number,
+  score: number,
+  highScore: number,
+  scorePop: number,
 ) {
+  ctx.save();
+  if (screenShake > 0) {
+    const dx = (Math.random() - 0.5) * screenShake;
+    const dy = (Math.random() - 0.5) * screenShake;
+    ctx.translate(dx, dy);
+  }
+
   const g = ctx.createLinearGradient(0, 0, 0, h);
   g.addColorStop(0, palette.skyTop);
   g.addColorStop(1, palette.skyBot);
@@ -309,6 +332,55 @@ function drawScene(
       ctx.restore();
     }
   }
+
+  // Draw particles
+  for (const p of particles) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+    ctx.fillStyle = p.color;
+    ctx.translate(p.x, p.y);
+    ctx.beginPath();
+    ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Draw Score
+  ctx.save();
+  ctx.textAlign = "right";
+  ctx.textBaseline = "top";
+  
+  // Background pill for score
+  ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(w - 140, 10, 130, 56, 8);
+    ctx.fill();
+  } else {
+    ctx.fillRect(w - 140, 10, 130, 56);
+  }
+
+  // High score
+  ctx.font = "bold 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+  ctx.fillText(`HI ${highScore.toString().padStart(5, "0")}`, w - 20, 18);
+  
+  // Current score
+  const scoreScale = 1 + scorePop * 0.2;
+  ctx.translate(w - 20, 36);
+  ctx.scale(scoreScale, scoreScale);
+  ctx.font = "bold 20px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+  
+  // Score shadow/glow
+  ctx.shadowColor = palette.accentGlow;
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = palette.accent;
+  ctx.fillText(Math.floor(score).toString().padStart(5, "0"), 0, 0);
+  
+  ctx.restore();
+
+  // Restore screen shake
+  ctx.restore();
 }
 
 export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
@@ -375,6 +447,11 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
   const lastProcessedTickRef = useRef(0);
   const timeoutIdsRef = useRef<number[]>([]);
   const displayedScoreRef = useRef(0);
+  const highScoreRef = useRef(0);
+
+  useEffect(() => {
+    highScoreRef.current = highScore;
+  }, [highScore]);
 
   const stateRef = useRef({
     playerY: 0,
@@ -384,6 +461,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     jumpHoldMs: 0,
     landingSquashMs: 0,
     obstacles: [] as GameObstacle[],
+    particles: [] as Particle[],
     activeCharacter: "motorcycle" as CharacterType,
     speed: BASE_SPEED,
     score: 0,
@@ -397,6 +475,8 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     scanPhase: 0,
     hitWarningMs: 0,
     hitImpactMs: 0,
+    screenShake: 0,
+    scorePop: 0,
   });
 
   useEffect(() => {
@@ -490,6 +570,26 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     s.jumpBufferMs = 0;
     s.jumpHoldMs = 0;
     s.landingSquashMs = 0;
+
+    // Spawn jump dust
+    const container = containerRef.current;
+    const h = container ? container.clientHeight : 220;
+    const hitbox = CHARACTER_HITBOX[s.activeCharacter];
+    const playerBottom = h - 16 + s.playerY - hitbox.insetY;
+    const playerCenterX = PLAYER_LEFT + hitbox.insetX + hitbox.width / 2;
+
+    for (let i = 0; i < 6; i++) {
+      s.particles.push({
+        x: playerCenterX + (Math.random() - 0.5) * 20,
+        y: playerBottom,
+        vx: (Math.random() - 0.5) * 60 - s.speed * 0.2,
+        vy: Math.random() * -80 - 20,
+        life: 400 + Math.random() * 200,
+        maxLife: 600,
+        color: paletteRef.current.emojiGround,
+        size: Math.random() * 3 + 2,
+      });
+    }
   }, []);
 
   const releaseJump = useCallback(() => {
@@ -565,6 +665,21 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       state.jumpHoldMs = 0;
       if (wasAirborne) {
         state.landingSquashMs = LANDING_SQUASH_MS;
+        const hitbox = CHARACTER_HITBOX[state.activeCharacter];
+        const playerBottom = h - 16 - hitbox.insetY;
+        const playerCenterX = PLAYER_LEFT + hitbox.insetX + hitbox.width / 2;
+        for (let i = 0; i < 8; i++) {
+          state.particles.push({
+            x: playerCenterX + (Math.random() - 0.5) * 30,
+            y: playerBottom,
+            vx: (Math.random() - 0.5) * 120 - state.speed * 0.3,
+            vy: Math.random() * -60 - 10,
+            life: 300 + Math.random() * 200,
+            maxLife: 500,
+            color: paletteRef.current.emojiGround,
+            size: Math.random() * 4 + 2,
+          });
+        }
       }
       if (state.jumpBufferMs > 0) {
         doJumpImpulse();
@@ -641,6 +756,23 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       playingRef.current = false;
       gameOverRef.current = true;
       state.hitImpactMs = HIT_IMPACT_FLASH_MS;
+      state.screenShake = 15;
+      
+      const playerCenterX = playerRect.left + playerRect.width / 2;
+      const playerCenterY = playerRect.top + playerRect.height / 2;
+      for (let i = 0; i < 30; i++) {
+        state.particles.push({
+          x: playerCenterX + (Math.random() - 0.5) * playerRect.width,
+          y: playerCenterY + (Math.random() - 0.5) * playerRect.height,
+          vx: (Math.random() - 0.5) * 400,
+          vy: (Math.random() - 0.5) * 400,
+          life: 500 + Math.random() * 500,
+          maxLife: 1000,
+          color: Math.random() > 0.5 ? "rgba(239, 68, 68, 0.8)" : "rgba(250, 204, 21, 0.8)",
+          size: Math.random() * 6 + 3,
+        });
+      }
+
       const finalScore = Math.floor(state.score);
       setIsGameOver(true);
       setIsPlaying(false);
@@ -658,6 +790,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
         w,
         h,
         state.obstacles,
+        state.particles,
         state.roadPhase,
         state.parallaxPhase,
         state.scanPhase,
@@ -665,6 +798,10 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
         playerRect,
         state.hitWarningMs,
         state.hitImpactMs,
+        state.screenShake,
+        state.score,
+        highScoreRef.current,
+        state.scorePop
       );
       return;
     }
@@ -674,6 +811,23 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     if (displayScore > displayedScoreRef.current) {
       displayedScoreRef.current = displayScore;
       setScore(displayScore);
+      if (displayScore % 10 === 0) {
+        state.scorePop = 1.0;
+      }
+    }
+    
+    state.scorePop = Math.max(0, state.scorePop - dt * 3);
+    state.screenShake = Math.max(0, state.screenShake - dt * 60);
+
+    // Update particles
+    for (let i = state.particles.length - 1; i >= 0; i--) {
+      const p = state.particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.life -= dtMs;
+      if (p.life <= 0) {
+        state.particles.splice(i, 1);
+      }
     }
 
     drawScene(
@@ -681,6 +835,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       w,
       h,
       state.obstacles,
+      state.particles,
       state.roadPhase,
       state.parallaxPhase,
       state.scanPhase,
@@ -688,6 +843,10 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       playerRect,
       state.hitWarningMs,
       state.hitImpactMs,
+      state.screenShake,
+      state.score,
+      highScoreRef.current,
+      state.scorePop
     );
 
     const playerEl = playerRef.current;
@@ -726,6 +885,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       jumpHoldMs: 0,
       landingSquashMs: 0,
       obstacles: [],
+      particles: [],
       activeCharacter: selectedCharacter,
       speed: BASE_SPEED,
       score: 0,
@@ -739,6 +899,8 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       scanPhase: 0,
       hitWarningMs: 0,
       hitImpactMs: 0,
+      screenShake: 0,
+      scorePop: 0,
     };
     resetPlayerTransform();
     rootRef.current?.focus({ preventScroll: true });
@@ -780,7 +942,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       const ch = container.clientHeight;
       if (cw <= 0 || ch <= 0) return;
       const s = stateRef.current;
-      drawScene(ctx, cw, ch, [], s.roadPhase, s.parallaxPhase, s.scanPhase, paletteRef.current, null, 0, 0);
+      drawScene(ctx, cw, ch, [], [], s.roadPhase, s.parallaxPhase, s.scanPhase, paletteRef.current, null, 0, 0, 0, 0, highScoreRef.current, 0);
     };
 
     const ro = new ResizeObserver(paintStatic);
@@ -851,9 +1013,6 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <div className="text-xs font-mono font-semibold tabular-nums text-zinc-600 dark:text-zinc-300">
-              HI {highScore.toString().padStart(5, "0")} · {score.toString().padStart(5, "0")}
-            </div>
             <button
               type="button"
               onClick={(e) => {

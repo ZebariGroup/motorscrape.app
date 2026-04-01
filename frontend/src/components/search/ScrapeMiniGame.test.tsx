@@ -28,6 +28,12 @@ function createMockContext(): CanvasRenderingContext2D {
     setTransform: vi.fn(),
     stroke: vi.fn(),
     strokeRect: vi.fn(),
+    translate: vi.fn(),
+    scale: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    rect: vi.fn(),
+    roundRect: vi.fn(),
   } as unknown as CanvasRenderingContext2D;
 }
 
