@@ -211,7 +211,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     if (typeof window === "undefined") return "us";
     return parseMarketRegion(localStorage.getItem(MARKET_REGION_STORAGE_KEY));
   });
-  const [inventoryScope, setInventoryScope] = useState("exclude_shared");
+  const [inventoryScope, setInventoryScope] = useState("all");
   const [maxDealerships, setMaxDealerships] = useState("8");
   const [status, setStatus] = useState<string | null>(null);
   const [dealers, setDealers] = useState<Record<string, DealershipProgress>>({});
@@ -640,7 +640,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     setModel((run.model ?? "").trim());
     setVehicleCondition(run.vehicle_condition || "all");
     setRadiusMiles(String(run.radius_miles ?? 25));
-    setInventoryScope(run.inventory_scope || "exclude_shared");
+    setInventoryScope(run.inventory_scope || "all");
     if (run.requested_max_dealerships != null) {
       setMaxDealerships(String(run.requested_max_dealerships));
     }
