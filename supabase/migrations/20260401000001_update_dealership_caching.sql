@@ -18,9 +18,9 @@ CREATE OR REPLACE FUNCTION public.find_cached_dealerships(
     distance_meters DOUBLE PRECISION
 ) AS $$
 DECLARE
-    v_center geography(Point, 4326);
+    v_center extensions.geography(Point, 4326);
 BEGIN
-    v_center := ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography;
+    v_center := ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::extensions.geography;
     
     RETURN QUERY
     SELECT 

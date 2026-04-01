@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS public.dealerships (
     website TEXT,
     lat DOUBLE PRECISION NOT NULL,
     lng DOUBLE PRECISION NOT NULL,
-    location geography(Point, 4326) NOT NULL,
+    location extensions.geography(Point, 4326) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS public.search_regions (
     vehicle_category TEXT NOT NULL DEFAULT 'car',
     lat DOUBLE PRECISION NOT NULL,
     lng DOUBLE PRECISION NOT NULL,
-    center geography(Point, 4326) NOT NULL,
+    center extensions.geography(Point, 4326) NOT NULL,
     radius_meters INTEGER NOT NULL,
     last_searched_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
@@ -52,10 +52,10 @@ CREATE OR REPLACE FUNCTION public.is_search_covered(
     p_max_age_days INTEGER DEFAULT 30
 ) RETURNS BOOLEAN AS $$
 DECLARE
-    v_new_center geography(Point, 4326);
+    v_new_center extensions.geography(Point, 4326);
     v_is_covered BOOLEAN;
 BEGIN
-    v_new_center := ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography;
+    v_new_center := ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::extensions.geography;
     
     SELECT EXISTS (
         SELECT 1 
@@ -87,9 +87,9 @@ CREATE OR REPLACE FUNCTION public.find_cached_dealerships(
     distance_meters DOUBLE PRECISION
 ) AS $$
 DECLARE
-    v_center geography(Point, 4326);
+    v_center extensions.geography(Point, 4326);
 BEGIN
-    v_center := ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography;
+    v_center := ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::extensions.geography;
     
     RETURN QUERY
     SELECT 
