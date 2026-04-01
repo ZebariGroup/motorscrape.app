@@ -1295,6 +1295,12 @@ def _merge_pricing_enrichment(
 
 
 _TEAM_VELOCITY_PAYMENTS_API_URL = "https://teamvelocityportal.com/OfferManager/Service/OfferManagerAPI/GetPayments"
+_TEAM_VELOCITY_ACCOUNT_RE = re.compile(r"""paymentsaccountid\s*=\s*["'](?P<value>[^"']+)["']""", re.I)
+
+
+def _extract_team_velocity_account_id(html: str) -> str | None:
+    m = _TEAM_VELOCITY_ACCOUNT_RE.search(html or "")
+    return m.group("value").strip() if m else None
 
 
 def _extract_team_velocity_payment_context(html: str, page_url: str) -> tuple[str, str, str] | None:
@@ -3390,6 +3396,79 @@ def try_extract_vehicles_without_llm(
     return ExtractionResult(vehicles=vehicles, next_page_url=next_u, pagination=pagination)
 
 
+async def _enrich_team_velocity_srp_pricing(
+    html: str,
+    page_url: str,
+    vehicles: list[VehicleListing],
+) -> list[VehicleListing]:
+    """
+    For Team Velocity SRP pages, concurrently fetch payment quotes for each extracted
+    VIN and enrich the vehicle records with the authoritative cash/purchase price and
+    the advertised monthly lease payment.  VDP pages are already handled by the
+    synchronous path (_apply_team_velocity_vdp_pricing) and are skipped here.
+    Failures are silently ignored so that a slow or unavailable payment API never
+    blocks the core extraction result.
+    """
+    if not vehicles:
+        return vehicles
+    # Skip VDP pages — already handled by the sync enrichment path.
+    if _INVENTORY_DETAIL_PATH_RE.search(urlsplit(page_url).path):
+        return vehicles
+    account_id = _extract_team_velocity_account_id(html)
+    if not account_id:
+        return vehicles
+    vehicle_type_match = re.search(r"""vehicleType\s*=\s*["'](?P<value>[^"']+)["']""", html, re.I)
+    vehicle_type = vehicle_type_match.group("value").strip().lower() if vehicle_type_match else "new"
+
+    # Collect index + VIN pairs for vehicles that have a 17-char VIN.
+    indexed: list[tuple[int, str]] = [
+        (i, vin)
+        for i, v in enumerate(vehicles)
+        if (vin := str(v.vin or v.vehicle_identifier or "").strip().upper())
+        and len(vin) == 17
+        and vin.isalnum()
+    ]
+    if not indexed:
+        return vehicles
+
+    sem = asyncio.Semaphore(6)
+
+    async def _fetch(vin: str) -> dict[str, Any] | None:
+        async with sem:
+            try:
+                return await asyncio.to_thread(
+                    _fetch_team_velocity_payment_quote, account_id, vin, vehicle_type
+                )
+            except Exception as exc:
+                logger.debug("Team Velocity SRP payment fetch failed for %s: %s", vin, exc)
+                return None
+
+    quotes = await asyncio.gather(*(_fetch(vin) for _, vin in indexed))
+    vehicle_list = list(vehicles)
+    for (idx, _vin), quote in zip(indexed, quotes):
+        if not isinstance(quote, dict):
+            continue
+        v = vehicle_list[idx]
+        merged = v.model_dump()
+        purchase_price = _coerce_float(quote.get("purchase_price"))
+        msrp = _coerce_float(quote.get("msrp"))
+        lease_payment = _coerce_float(quote.get("lease_monthly_payment"))
+        lease_term = _coerce_int(quote.get("lease_term_months"))
+        if purchase_price is not None and purchase_price > 0:
+            merged["price"] = purchase_price
+        if msrp is not None and msrp > 0:
+            merged["msrp"] = msrp
+        if lease_payment is not None and lease_payment > 0:
+            merged["lease_monthly_payment"] = lease_payment
+        if lease_term is not None and lease_term > 0:
+            merged["lease_term_months"] = lease_term
+        final_price = _coerce_float(merged.get("price"))
+        if msrp is not None and final_price is not None and msrp - final_price >= 50:
+            merged["dealer_discount"] = msrp - final_price
+        vehicle_list[idx] = VehicleListing(**merged)
+    return vehicle_list
+
+
 async def extract_vehicles_from_html(
     *,
     page_url: str,
@@ -3398,6 +3477,19 @@ async def extract_vehicles_from_html(
     model_filter: str,
     vehicle_category: str = "car",
 ) -> ExtractionResult:
+    async def _fallback() -> ExtractionResult:
+        r = _build_no_llm_fallback_result(
+            page_url=page_url,
+            html=html,
+            make_filter=make_filter,
+            model_filter=model_filter,
+            vehicle_category=vehicle_category,
+        )
+        enriched = await _enrich_team_velocity_srp_pricing(html, page_url, r.vehicles)
+        if enriched is not r.vehicles:
+            r = r.model_copy(update={"vehicles": enriched})
+        return r
+
     global _openai_disabled_reason
     if _openai_disabled_reason:
         logger.info(
@@ -3405,22 +3497,10 @@ async def extract_vehicles_from_html(
             page_url,
             _openai_disabled_reason,
         )
-        return _build_no_llm_fallback_result(
-            page_url=page_url,
-            html=html,
-            make_filter=make_filter,
-            model_filter=model_filter,
-            vehicle_category=vehicle_category,
-        )
+        return await _fallback()
     if not settings.openai_api_key:
         logger.info("OPENAI_API_KEY is not set; using deterministic fallback for %s", page_url)
-        return _build_no_llm_fallback_result(
-            page_url=page_url,
-            html=html,
-            make_filter=make_filter,
-            model_filter=model_filter,
-            vehicle_category=vehicle_category,
-        )
+        return await _fallback()
 
     snippet = await asyncio.to_thread(
         _prepare_snippet_sync, html, page_url, settings.max_html_chars
@@ -3456,13 +3536,7 @@ async def extract_vehicles_from_html(
                 "OpenAI extraction disabled for this process after quota/billing error; "
                 "continuing with deterministic parser fallback."
             )
-            return _build_no_llm_fallback_result(
-                page_url=page_url,
-                html=html,
-                make_filter=make_filter,
-                model_filter=model_filter,
-                vehicle_category=vehicle_category,
-            )
+            return await _fallback()
         raise
 
     parsed = response.choices[0].message.parsed
@@ -3476,6 +3550,9 @@ async def extract_vehicles_from_html(
             ]
         }
     )
+    enriched_llm = await _enrich_team_velocity_srp_pricing(html, page_url, parsed.vehicles)
+    if enriched_llm is not parsed.vehicles:
+        parsed = parsed.model_copy(update={"vehicles": enriched_llm})
     fallback_page_size = max(
         len(parsed.vehicles),
         len(
