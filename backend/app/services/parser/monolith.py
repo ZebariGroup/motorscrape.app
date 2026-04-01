@@ -2097,6 +2097,7 @@ def extract_dom_vehicle_cards(
     selectors = (
         ".vehicle-card",
         ".inventory-card",
+        ".widget-inventory-item",
         ".cc-vehicle",
         ".inventoryList-bike",
         "li.featuredVehicle",
@@ -2155,9 +2156,21 @@ def extract_dom_vehicle_cards(
         room58_vin = card.select_one(".mm-wmbp-button[vin]")
         room58_stock = _text_or_none(card.select_one(".inventoryModel-keyDetails-item-description[aria-label='Stock number']"))
         room58_color = _text_or_none(card.select_one(".inventoryModel-keyDetails-item-description[aria-label='Color']"))
-        tv_current_price = _text_or_none(card.select_one(".vehicle-price--current .vehicle-price__price"))
-        tv_old_price = _text_or_none(card.select_one(".vehicle-price--old .vehicle-price__price"))
-        tv_savings = _text_or_none(card.select_one(".vehicle-price--savings .vehicle-price__price"))
+        tv_price_node = card.select_one("[data-getpricecurrent], [data-getfirstpriceplain]")
+        tv_current_price = (
+            _text_or_none(card.select_one(".vehicle-price--current .vehicle-price__price"))
+            or _text_or_none(card.select_one(".row-current .price-holder"))
+            or (tv_price_node.get("data-getpricecurrent") if tv_price_node is not None else None)
+        )
+        tv_old_price = (
+            _text_or_none(card.select_one(".vehicle-price--old .vehicle-price__price"))
+            or _text_or_none(card.select_one(".row-old .price-holder"))
+            or (tv_price_node.get("data-getfirstpriceplain") if tv_price_node is not None else None)
+        )
+        tv_savings = (
+            _text_or_none(card.select_one(".vehicle-price--savings .vehicle-price__price"))
+            or _text_or_none(card.select_one(".row-buyers-profit .price-holder"))
+        )
         basspro_title = _text_or_none(card.select_one(".mname"))
         basspro_condition = _text_or_none(card.select_one(".condition"))
         basspro_location = _text_or_none(card.select_one(".locname"))

@@ -167,6 +167,69 @@ def test_try_extract_cc_vehicle_card_with_euro_price_and_next_page() -> None:
     )
 
 
+def test_try_extract_team_velocity_widget_inventory_card() -> None:
+    html = """
+    <html><body>
+      <div class="widget-inventory-item" itemscope itemtype="http://schema.org/Product">
+        <div class="inventory-item-primary">
+          <div class="item-title-wrapper">
+            <h3 class="item-title">
+              <a href="/en/auto/bmw/230/neuwagen-gQgNld.html" title="2026 BMW 230i xDrive Coupe">
+                <span itemprop="name">2026 BMW 230i xDrive Coupe</span>
+              </a>
+            </h3>
+            <div><div class="stock-number">Stock: N-19654</div></div>
+          </div>
+          <div class="vehicle-controls">
+            <div class="vehicle-age new"><span>New vehicle</span></div>
+          </div>
+        </div>
+        <div class="inventory-item-main">
+          <div class="inventory-item-left">
+            <div class="vehicle-img">
+              <a href="/en/auto/bmw/230/neuwagen-gQgNld.html" title="2026 BMW 230i xDrive Coupe">
+                <img class="photo" src="https://images.example.com/bmw230.jpg" alt="BMW 230 New vehicle for sale" />
+              </a>
+            </div>
+          </div>
+          <div class="inventory-item-center">
+            <div class="item-params"><span class="item-param row-year">New vehicle</span></div>
+            <div class="item-info" itemprop="description">
+              BMW 230i xDRIVE COUPE - M SPORT PACKAGE
+            </div>
+          </div>
+          <div class="inventory-item-right">
+            <div class="prices-envelope">
+              <span class="price price-vat-reclaimable" data-getfirstpriceplain="47650" data-getpricecurrent="45650">
+                <div class="row-old"><span class="price-holder">$ 47,650</span></div>
+                <div class="row-current"><span class="price-holder">$ 45,650</span></div>
+                <div class="row-buyers-profit"><span class="price-holder">$ 2,000</span></div>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://bavarianmotorcars.com/en/cars-for-sale.html?page=2&title=New",
+        html=html,
+        make_filter="BMW",
+        model_filter="",
+        vehicle_category="car",
+        platform_id="team_velocity",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.raw_title == "2026 BMW 230i xDrive Coupe"
+    assert v.make == "BMW"
+    assert v.price == 45650
+    assert v.vehicle_condition == "new"
+    assert v.image_url == "https://images.example.com/bmw230.jpg"
+    assert v.listing_url == "https://bavarianmotorcars.com/en/auto/bmw/230/neuwagen-gQgNld.html"
+
+
 def test_try_extract_dom_vehicle_card_reads_color_location_and_status_aliases() -> None:
     html = """
     <html><body>
