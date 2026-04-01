@@ -101,6 +101,14 @@ class VehicleListing(BaseModel):
     is_in_stock: bool | None = Field(default=None, description="Whether the vehicle is marked in stock/on lot.")
     is_shared_inventory: bool | None = Field(default=None, description="Whether the vehicle is shared from another store/group inventory.")
     msrp: float | None = Field(default=None, description="Manufacturer suggested retail price in USD when listed separately from sale price.")
+    lease_monthly_payment: float | None = Field(
+        default=None,
+        description="Advertised monthly lease payment in USD when a listing exposes it.",
+    )
+    lease_term_months: int | None = Field(
+        default=None,
+        description="Lease term in months when paired with an advertised monthly lease payment.",
+    )
     dealer_discount: float | None = Field(
         default=None,
         description="Total dealer discount or savings below MSRP in USD (non-negative number).",

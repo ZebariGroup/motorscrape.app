@@ -302,6 +302,51 @@ async def test_find_car_dealerships_filters_results_outside_requested_radius(pla
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_find_car_dealerships_applies_radius_filter_for_ten_mile_searches(places_api_key: str) -> None:
+    search_response = {
+        "places": [
+            {
+                "id": "ChIJnear10",
+                "name": "places/ChIJnear10",
+                "displayName": {"text": "Nearby Volvo"},
+                "formattedAddress": "123 Main",
+                "websiteUri": "https://nearby-volvo.example/",
+                "location": {"latitude": 42.359, "longitude": -83.05},
+            },
+            {
+                "id": "ChIJfar10",
+                "name": "places/ChIJfar10",
+                "displayName": {"text": "Far Volvo"},
+                "formattedAddress": "456 Main",
+                "websiteUri": "https://far-volvo.example/",
+                "location": {"latitude": 42.48, "longitude": -83.05},
+            },
+        ]
+    }
+    search_bodies: list[dict] = []
+
+    def _route(request: object) -> Response:
+        try:
+            raw = request.content.decode() if getattr(request, "content", None) else "{}"  # type: ignore[union-attr]
+            body = json.loads(raw) if raw else {}
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return Response(200, json={"places": []})
+        search_bodies.append(body)
+        return Response(200, json=search_response)
+
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.3314, -83.0458)))
+    respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
+
+    out = await places.find_car_dealerships("Detroit MI", make="Volvo", limit=5, radius_miles=10)
+    assert [dealer.name for dealer in out] == ["Nearby Volvo"]
+    assert search_bodies
+    assert "locationRestriction" in search_bodies[0]
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_find_dealerships_boats_uses_untyped_query(places_api_key: str) -> None:
     """Boat discovery should rely on text query matching instead of car_dealer filtering."""
     search_response = {

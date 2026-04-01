@@ -24,6 +24,10 @@ export type VehicleListing = {
   is_shared_inventory?: boolean;
   /** List / sticker MSRP when shown separately from sale price */
   msrp?: number;
+  /** Advertised monthly lease payment when the dealer exposes it */
+  lease_monthly_payment?: number;
+  /** Lease term paired with the advertised monthly payment */
+  lease_term_months?: number;
   /** Savings below MSRP in USD */
   dealer_discount?: number;
   incentive_labels?: string[];

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.services.parser import monolith
 from app.services.parser import (
     extract_vehicles_from_html,
     find_next_page_url,
@@ -307,6 +308,54 @@ def test_try_extract_dom_msrp_and_discount_from_attributes() -> None:
     assert v.msrp == 45000
     assert v.dealer_discount == 3000
     assert v.days_on_lot == 18
+
+
+def test_try_extract_team_velocity_vdp_prefers_cash_price_and_keeps_lease_payment(monkeypatch: pytest.MonkeyPatch) -> None:
+    pad = "x" * 220
+    html = f"""
+    <html><body>
+      <script>
+        var ga4ASCDataLayerVehicle = '[{{"item_make":"Volkswagen","item_model":"Jetta","item_year":2026,
+          "item_id":"3VW5W7BU1TM022391","item_price":25834,"item_condition":"new","item_number":"26V6522","_pad":"{pad}"}}]';
+        var paymentsaccountid = "56101";
+        var paymentsvin = "3VW5W7BU1TM022391";
+        var vehicleType = "new";
+      </script>
+      <payment-calculator :vin="'3VW5W7BU1TM022391'" :vehicletype="'new'"></payment-calculator>
+      <div class="si-vehicle-box">
+        <h1>2026 Volkswagen Jetta 1.5T S</h1>
+        <div>$1,000 Customer Bonus</div>
+        <a href="/viewdetails/new/3VW5W7BU1TM022391/2026-volkswagen-jetta-sedan">View Details</a>
+      </div>
+    </body></html>
+    """
+
+    monkeypatch.setattr(
+        monolith,
+        "_fetch_team_velocity_payment_quote",
+        lambda account_id, vin, vehicle_type: {
+            "vin": vin,
+            "purchase_price": 24834.0,
+            "msrp": 25834.0,
+            "lease_monthly_payment": 218.11,
+            "lease_term_months": 24,
+        },
+    )
+
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.lafontainevolkswagen.com/viewdetails/new/3VW5W7BU1TM022391/2026-volkswagen-jetta-sedan",
+        html=html,
+        make_filter="Volkswagen",
+        model_filter="Jetta",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.price == 24834
+    assert v.msrp == 25834
+    assert v.dealer_discount == 1000
+    assert v.lease_monthly_payment == pytest.approx(218.11)
+    assert v.lease_term_months == 24
 
 
 def test_try_extract_dom_vehicle_card_reads_data_mileage_attributes() -> None:

@@ -28,6 +28,15 @@ function featureChip(text: string, key: string) {
   );
 }
 
+function leaseLabel(listing: AggregatedListing) {
+  if (listing.lease_monthly_payment == null || Number.isNaN(listing.lease_monthly_payment)) return null;
+  const payment = formatMoney(listing.lease_monthly_payment);
+  if (listing.lease_term_months != null && listing.lease_term_months > 0) {
+    return `${payment}/mo · ${listing.lease_term_months} mo lease`;
+  }
+  return `${payment}/mo lease`;
+}
+
 type Props = {
   listings: AggregatedListing[];
   filteredListings: AggregatedListing[];
@@ -249,16 +258,25 @@ export function InventoryResultsSection({
                       </div>
                     ) : null}
                     <div className="absolute bottom-0 left-0 right-0 px-2 pb-1.5 pt-8 text-white sm:px-3 sm:pb-2">
-                      <div className="text-base font-bold leading-none drop-shadow sm:text-xl">
-                        {formatMoney(v.price, "Visit site for price")}
-                      </div>
-                      {v.msrp != null &&
-                      v.price != null &&
-                      v.msrp > v.price + 1 ? (
-                        <div className="mt-0.5 text-[10px] text-white/80 line-through sm:text-xs">
-                          {formatMoney(v.msrp)} MSRP
+                      <div className="flex items-end justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-base font-bold leading-none drop-shadow sm:text-xl">
+                            {formatMoney(v.price, "Visit site for price")}
+                          </div>
+                          {v.msrp != null &&
+                          v.price != null &&
+                          v.msrp > v.price + 1 ? (
+                            <div className="mt-0.5 text-[10px] text-white/80 line-through sm:text-xs">
+                              {formatMoney(v.msrp)} MSRP
+                            </div>
+                          ) : null}
                         </div>
-                      ) : null}
+                        {leaseLabel(v) ? (
+                          <div className="max-w-[48%] text-right text-[10px] font-semibold text-white/95 drop-shadow sm:text-xs">
+                            {leaseLabel(v)}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   </>
                 ) : null}
@@ -275,6 +293,12 @@ export function InventoryResultsSection({
                       <dd className="font-semibold text-zinc-900 dark:text-zinc-50 sm:font-normal sm:text-zinc-600 sm:dark:text-zinc-400">
                         {formatMoney(v.price, "Visit site for price")}
                       </dd>
+                    </div>
+                  ) : null}
+                  {!v.image_url && leaseLabel(v) ? (
+                    <div className="flex justify-between sm:contents">
+                      <dt className="font-medium text-zinc-500">Lease</dt>
+                      <dd>{leaseLabel(v)}</dd>
                     </div>
                   ) : null}
                   <div className="flex justify-between sm:contents">
@@ -413,6 +437,11 @@ export function InventoryResultsSection({
                             Dealer savings {formatMoney(selectedListing.dealer_discount)}
                           </span>
                         ) : null}
+                      </div>
+                    ) : null}
+                    {leaseLabel(selectedListing) ? (
+                      <div className="mt-2 text-sm font-semibold text-sky-700 dark:text-sky-400">
+                        Lease from {leaseLabel(selectedListing)}
                       </div>
                     ) : null}
                   </div>

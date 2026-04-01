@@ -87,6 +87,7 @@ describe("useSearchStream", () => {
     expect(result.current.search.running).toBe(false);
     expect(result.current.search.reconnecting).toBe(false);
     expect(result.current.form.location).toBe("");
+    expect(result.current.form.inventoryScope).toBe("exclude_shared");
   });
 
   it("should start search and handle events", () => {

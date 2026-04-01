@@ -71,8 +71,8 @@ class Settings(BaseSettings):
     places_untyped_fallback_result_threshold: int = 0
     # Multiplier used to gather extra dealership candidates before route/cache scoring trims the list.
     places_candidate_limit_multiplier: int = 2
-    # Small radii do not benefit enough from a separate center-resolve call to justify the extra spend.
-    places_geocode_min_radius_miles: int = 15
+    # Explicit user radius choices should always enforce distance; the UI minimum is 5 miles.
+    places_geocode_min_radius_miles: int = 5
     places_cache_enabled: bool = True
     places_cache_path: str = Field(default_factory=_default_places_cache_path)
     places_search_cache_ttl_seconds: int = 60 * 60 * 12

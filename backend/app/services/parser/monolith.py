@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
+import httpx
 from openai import AsyncOpenAI
 
 from app.config import settings
@@ -1288,6 +1289,133 @@ def _merge_pricing_enrichment(
         if gap >= 50:
             dealer_discount = gap
     return msrp, dealer_discount, _dedupe_preserve_order(incentive_labels)
+
+
+_TEAM_VELOCITY_PAYMENTS_API_URL = "https://teamvelocityportal.com/OfferManager/Service/OfferManagerAPI/GetPayments"
+
+
+def _extract_team_velocity_payment_context(html: str, page_url: str) -> tuple[str, str, str] | None:
+    if not _INVENTORY_DETAIL_PATH_RE.search(urlsplit(page_url).path):
+        return None
+    raw = html or ""
+    account_match = re.search(r"""paymentsaccountid\s*=\s*["'](?P<value>[^"']+)["']""", raw, re.I)
+    vin_match = re.search(r"""paymentsvin\s*=\s*["'](?P<value>[^"']+)["']""", raw, re.I)
+    vehicle_type_match = re.search(r"""vehicleType\s*=\s*["'](?P<value>[^"']+)["']""", raw, re.I)
+    if not vehicle_type_match:
+        vehicle_type_match = re.search(r""":vehicletype\s*=\s*["']'(?P<value>[^"']+)'["']""", raw, re.I)
+    if not (account_match and vin_match and vehicle_type_match):
+        return None
+    account_id = account_match.group("value").strip()
+    vin = vin_match.group("value").strip().upper()
+    vehicle_type = vehicle_type_match.group("value").strip().lower()
+    if not account_id or not vin or not vehicle_type:
+        return None
+    return account_id, vin, vehicle_type
+
+
+def _fetch_team_velocity_payment_quote(account_id: str, vin: str, vehicle_type: str) -> dict[str, Any] | None:
+    payload = {"accountId": account_id, "vin": vin, "vehicleType": vehicle_type}
+    try:
+        with httpx.Client(timeout=8.0, follow_redirects=True) as client:
+            response = client.post(
+                _TEAM_VELOCITY_PAYMENTS_API_URL,
+                json=payload,
+                headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0"},
+            )
+    except Exception as exc:
+        logger.debug("Team Velocity payments fetch failed for %s: %s", vin, exc)
+        return None
+    if response.status_code != 200:
+        logger.debug("Team Velocity payments HTTP %s for %s", response.status_code, vin)
+        return None
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    rows = data.get("PaymentCollection") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return None
+
+    def _monthly_payment(row: dict[str, Any]) -> float | None:
+        return _coerce_float(row.get("Payment") or row.get("BasePayment") or row.get("MonthlyPayment"))
+
+    lease_rows: list[tuple[float, dict[str, Any]]] = []
+    fallback_rows: list[tuple[float, dict[str, Any]]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        payment = _monthly_payment(row)
+        if payment is None or payment <= 0:
+            continue
+        fallback_rows.append((payment, row))
+        offer_type = str(row.get("OfferType") or "").lower()
+        program_name = str(row.get("ProgramName") or "").lower()
+        if "closed end" in offer_type or "lease" in offer_type or "lease" in program_name:
+            lease_rows.append((payment, row))
+    candidates = lease_rows or fallback_rows
+    if not candidates:
+        return None
+    payment_value, best_row = min(candidates, key=lambda item: item[0])
+    return {
+        "vin": str(best_row.get("VIN") or vin).strip().upper(),
+        "purchase_price": _coerce_float(
+            best_row.get("PurchasePrice") or best_row.get("PurchasePriceWithFee") or best_row.get("SellingPrice")
+        ),
+        "msrp": _coerce_float(best_row.get("MSRP") or best_row.get("Retail")),
+        "lease_monthly_payment": payment_value,
+        "lease_term_months": _coerce_int(best_row.get("Term")),
+    }
+
+
+def _apply_team_velocity_vdp_pricing(
+    html: str,
+    page_url: str,
+    vehicles: list[VehicleListing],
+) -> list[VehicleListing]:
+    if not vehicles:
+        return vehicles
+    context = _extract_team_velocity_payment_context(html, page_url)
+    if context is None:
+        return vehicles
+    account_id, vin, vehicle_type = context
+    quote = _fetch_team_velocity_payment_quote(account_id, vin, vehicle_type)
+    if quote is None:
+        return vehicles
+
+    deduped: dict[str, VehicleListing] = {}
+    quote_vin = str(quote.get("vin") or vin).strip().upper()
+    for vehicle in vehicles:
+        vehicle_vin = str(vehicle.vin or vehicle.vehicle_identifier or "").strip().upper()
+        if len(vehicles) > 1 and vehicle_vin and quote_vin and vehicle_vin != quote_vin:
+            key = _vehicle_merge_key(vehicle)
+            deduped[key] = _prefer_vehicle_fields(deduped[key], vehicle) if key in deduped else vehicle
+            continue
+        merged = vehicle.model_dump()
+        purchase_price = _coerce_float(quote.get("purchase_price"))
+        msrp = _coerce_float(quote.get("msrp"))
+        lease_payment = _coerce_float(quote.get("lease_monthly_payment"))
+        lease_term = _coerce_int(quote.get("lease_term_months"))
+        if quote_vin and not merged.get("vin"):
+            merged["vin"] = quote_vin
+        if quote_vin and not merged.get("vehicle_identifier"):
+            merged["vehicle_identifier"] = quote_vin
+        if purchase_price is not None and purchase_price > 0:
+            merged["price"] = purchase_price
+        if msrp is not None and msrp > 0:
+            merged["msrp"] = msrp
+        if lease_payment is not None and lease_payment > 0:
+            merged["lease_monthly_payment"] = lease_payment
+        if lease_term is not None and lease_term > 0:
+            merged["lease_term_months"] = lease_term
+        final_price = _coerce_float(merged.get("price"))
+        if msrp is not None and final_price is not None:
+            gap = msrp - final_price
+            if gap >= 50:
+                merged["dealer_discount"] = gap
+        enriched_vehicle = VehicleListing(**merged)
+        key = _vehicle_merge_key(enriched_vehicle)
+        deduped[key] = _prefer_vehicle_fields(deduped[key], enriched_vehicle) if key in deduped else enriched_vehicle
+    return list(deduped.values())
 
 
 def _pick_price_from_pricelib(raw: Any) -> float | None:
@@ -3168,6 +3296,7 @@ def try_extract_vehicles_without_llm(
         )
         for v in by_key.values()
     ]
+    all_vehicles = _apply_team_velocity_vdp_pricing(html, page_url, all_vehicles)
     vehicles = [v for v in all_vehicles if listing_matches_filters(v, make_filter, model_filter)]
     fallback_page_size = len(all_vehicles) if all_vehicles else None
     pagination = infer_inventory_pagination(
