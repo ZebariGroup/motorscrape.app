@@ -12,7 +12,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 import requests
 
 from app.schemas import ExtractionResult, PaginationInfo, VehicleListing
-from app.services.inventory_filters import listing_matches_filters
+from app.services.inventory_filters import listing_matches_filters, text_mentions_make
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +312,35 @@ def _build_vehicle(
     )
 
 
+def _apply_make_fallback_for_official_site(
+    *,
+    vehicles: list[VehicleListing],
+    page_url: str,
+    html: str,
+    make_filter: str,
+) -> list[VehicleListing] | None:
+    requested_make = make_filter.strip()
+    if not requested_make or not vehicles:
+        return None
+    if any((vehicle.make or "").strip() for vehicle in vehicles):
+        return None
+    if not (
+        text_mentions_make(page_url, requested_make)
+        or text_mentions_make(html, requested_make)
+    ):
+        return None
+    logger.info(
+        "AHP6 applying make fallback from dealer context for %s; raw_rows=%s requested_make=%s",
+        page_url,
+        len(vehicles),
+        requested_make,
+    )
+    return [
+        vehicle.model_copy(update={"make": requested_make})
+        for vehicle in vehicles
+    ]
+
+
 def extract_inventory(
     *,
     page_url: str,
@@ -366,6 +395,11 @@ def extract_inventory(
 
     rows = rows_response.get("data")
     if not isinstance(rows, list):
+        logger.info(
+            "AHP6 list returned non-list payload for %s: keys=%s",
+            effective_url,
+            sorted(rows_response.keys()),
+        )
         return None
 
     detail_page_uri = _extract_detail_page_uri(work_html)
@@ -380,7 +414,34 @@ def extract_inventory(
         for row in rows
         if isinstance(row, dict)
     ]
-    vehicles = [vehicle for vehicle in vehicles if listing_matches_filters(vehicle, make_filter, model_filter)]
+    raw_mapped_makes = sorted({vehicle.make for vehicle in vehicles if vehicle.make})
+    strict_filtered = [
+        vehicle for vehicle in vehicles
+        if listing_matches_filters(vehicle, make_filter, model_filter)
+    ]
+    if strict_filtered:
+        vehicles = strict_filtered
+    else:
+        make_fallback = _apply_make_fallback_for_official_site(
+            vehicles=vehicles,
+            page_url=effective_url,
+            html=work_html,
+            make_filter=make_filter,
+        )
+        if make_fallback is not None:
+            vehicles = [
+                vehicle for vehicle in make_fallback
+                if listing_matches_filters(vehicle, make_filter, model_filter)
+            ]
+        if not vehicles:
+            logger.info(
+                "AHP6 provider filtered to zero for %s: raw_rows=%s mapped_makes=%s filter_keys=%s",
+                effective_url,
+                len(rows),
+                raw_mapped_makes,
+                sorted(filter_payload.keys()),
+            )
+            return None
     if not vehicles:
         return None
 
