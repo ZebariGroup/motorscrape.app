@@ -1354,30 +1354,43 @@ def _fetch_team_velocity_payment_quote(account_id: str, vin: str, vehicle_type: 
         return _coerce_float(row.get("Payment") or row.get("BasePayment") or row.get("MonthlyPayment"))
 
     lease_rows: list[tuple[float, dict[str, Any]]] = []
-    fallback_rows: list[tuple[float, dict[str, Any]]] = []
+    all_rows: list[tuple[float, dict[str, Any]]] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
         payment = _monthly_payment(row)
         if payment is None or payment <= 0:
             continue
-        fallback_rows.append((payment, row))
+        all_rows.append((payment, row))
         offer_type = str(row.get("OfferType") or "").lower()
         program_name = str(row.get("ProgramName") or "").lower()
+        # Only rows explicitly marked as "Closed End" or containing "lease" in the type or
+        # programme name are genuine lease offers.  "Loan" rows are finance/APR offers and
+        # must NOT be labelled as a lease even if they are the only payment rows available.
         if "closed end" in offer_type or "lease" in offer_type or "lease" in program_name:
             lease_rows.append((payment, row))
-    candidates = lease_rows or fallback_rows
-    if not candidates:
+    if not all_rows:
         return None
-    payment_value, best_row = min(candidates, key=lambda item: item[0])
+    # Use any row for the cash price and MSRP — they are identical across all offer types.
+    _, reference_row = all_rows[0]
+    purchase_price = _coerce_float(
+        reference_row.get("PurchasePrice") or reference_row.get("PurchasePriceWithFee") or reference_row.get("SellingPrice")
+    )
+    msrp = _coerce_float(reference_row.get("MSRP") or reference_row.get("Retail"))
+    api_vin = str(reference_row.get("VIN") or vin).strip().upper()
+    # Lease fields are only populated when a genuine lease offer exists.
+    lease_monthly_payment: float | None = None
+    lease_term_months: int | None = None
+    if lease_rows:
+        lease_payment_value, best_lease_row = min(lease_rows, key=lambda item: item[0])
+        lease_monthly_payment = lease_payment_value
+        lease_term_months = _coerce_int(best_lease_row.get("Term"))
     return {
-        "vin": str(best_row.get("VIN") or vin).strip().upper(),
-        "purchase_price": _coerce_float(
-            best_row.get("PurchasePrice") or best_row.get("PurchasePriceWithFee") or best_row.get("SellingPrice")
-        ),
-        "msrp": _coerce_float(best_row.get("MSRP") or best_row.get("Retail")),
-        "lease_monthly_payment": payment_value,
-        "lease_term_months": _coerce_int(best_row.get("Term")),
+        "vin": api_vin,
+        "purchase_price": purchase_price,
+        "msrp": msrp,
+        "lease_monthly_payment": lease_monthly_payment,
+        "lease_term_months": lease_term_months,
     }
 
 
@@ -3484,10 +3497,11 @@ async def enrich_team_velocity_srp_pricing(
             merged["price"] = purchase_price
         if msrp is not None and msrp > 0:
             merged["msrp"] = msrp
-        if lease_payment is not None and lease_payment > 0:
-            merged["lease_monthly_payment"] = lease_payment
-        if lease_term is not None and lease_term > 0:
-            merged["lease_term_months"] = lease_term
+        # Always write lease fields — even when None — so a previously-incorrect value
+        # (e.g. a finance payment mislabelled as a lease) is cleared when the latest API
+        # response confirms no genuine lease offer exists for this vehicle.
+        merged["lease_monthly_payment"] = lease_payment if (lease_payment is not None and lease_payment > 0) else None
+        merged["lease_term_months"] = lease_term if (lease_term is not None and lease_term > 0) else None
         final_price = _coerce_float(merged.get("price"))
         if msrp is not None and final_price is not None and msrp - final_price >= 50:
             merged["dealer_discount"] = msrp - final_price

@@ -356,6 +356,95 @@ def test_incentive_deduction_label_not_mistaken_for_vehicle_price() -> None:
     assert v.price != pytest.approx(1000)
 
 
+def test_fetch_team_velocity_payment_quote_does_not_label_loan_as_lease() -> None:
+    """
+    When the Team Velocity API only returns Loan (finance) rows and no Closed End (lease)
+    rows, _fetch_team_velocity_payment_quote must return lease_monthly_payment=None.
+    Loan rows must never be relabelled as a lease.
+    """
+    # Simulate the real Taos API response: only Loan rows, no Closed End
+    taos_payload = {
+        "PaymentCollection": [
+            {
+                "OfferType": "Loan",
+                "ProgramName": "Ally 1-12-84n- 72 mo.",
+                "Payment": "$430.31",
+                "Term": 72,
+                "PurchasePrice": "$29,421.00",
+                "MSRP": "$32,921.00",
+                "VIN": "3VVVC7B25SM037020",
+            },
+            {
+                "OfferType": "Loan",
+                "ProgramName": "Ally 1-12-84n- 60 mo.",
+                "Payment": "$497.05",
+                "Term": 60,
+                "PurchasePrice": "$29,421.00",
+                "MSRP": "$32,921.00",
+                "VIN": "3VVVC7B25SM037020",
+            },
+        ]
+    }
+
+    import unittest.mock as mock
+    with mock.patch.object(
+        monolith.httpx, "Client",
+    ) as mock_client_cls:
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = taos_payload
+        mock_client_cls.return_value.__enter__.return_value.post.return_value = mock_resp
+
+        quote = monolith._fetch_team_velocity_payment_quote("57378", "3VVVC7B25SM037020", "new")
+
+    assert quote is not None
+    assert quote["purchase_price"] == pytest.approx(29421.0)
+    assert quote["lease_monthly_payment"] is None, "Loan/finance payment must not be labelled as lease"
+    assert quote["lease_term_months"] is None
+
+
+def test_fetch_team_velocity_payment_quote_picks_lease_when_closed_end_row_present() -> None:
+    """When Closed End rows exist alongside Loan rows, only the Closed End minimum is the lease."""
+    jetta_payload = {
+        "PaymentCollection": [
+            {
+                "OfferType": "Closed End",
+                "ProgramName": "VWL -0-12-36n-std- 36 mo.",
+                "Payment": "$427.04",
+                "Term": 36,
+                "PurchasePrice": "$37,410.00",
+                "MSRP": "$37,910.00",
+                "VIN": "3VW1M7BU6TM041362",
+            },
+            {
+                "OfferType": "Loan",
+                "ProgramName": "VWC Subvented 72 mo.",
+                "Payment": "$539.89",
+                "Term": 72,
+                "PurchasePrice": "$37,410.00",
+                "MSRP": "$37,910.00",
+                "VIN": "3VW1M7BU6TM041362",
+            },
+        ]
+    }
+
+    import unittest.mock as mock
+    with mock.patch.object(
+        monolith.httpx, "Client",
+    ) as mock_client_cls:
+        mock_resp = mock.MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = jetta_payload
+        mock_client_cls.return_value.__enter__.return_value.post.return_value = mock_resp
+
+        quote = monolith._fetch_team_velocity_payment_quote("57378", "3VW1M7BU6TM041362", "new")
+
+    assert quote is not None
+    assert quote["purchase_price"] == pytest.approx(37410.0)
+    assert quote["lease_monthly_payment"] == pytest.approx(427.04)
+    assert quote["lease_term_months"] == 36
+
+
 def test_try_extract_team_velocity_vdp_prefers_cash_price_and_keeps_lease_payment(monkeypatch: pytest.MonkeyPatch) -> None:
     pad = "x" * 220
     html = f"""
