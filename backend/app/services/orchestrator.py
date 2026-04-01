@@ -43,7 +43,7 @@ from app.services.orchestrator_utils import (
     html_mentions_model,
     prefer_https_website_url,
 )
-from app.services.parser import extract_vehicles_from_html, try_extract_vehicles_without_llm
+from app.services.parser import enrich_team_velocity_srp_pricing, extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.places import PlacesSearchMetrics, find_car_dealerships, find_dealerships
 from app.services.platform_store import normalize_dealer_domain, platform_store
 from app.services.provider_router import (
@@ -2434,6 +2434,15 @@ async def stream_search(
                     vehicle_category=vehicle_category,
                     platform_id=route.platform_id if route else None,
                 )
+                # Apply Team Velocity SRP payment enrichment (lease prices + authoritative
+                # cash price) when the structured path succeeds.  This is the hot path for
+                # Team Velocity dealers; extract_vehicles_from_html handles the LLM fallback.
+                if ext_result is not None and ext_result.vehicles:
+                    enriched_tv = await enrich_team_velocity_srp_pricing(
+                        current_html, current_url, ext_result.vehicles
+                    )
+                    if enriched_tv is not ext_result.vehicles:
+                        ext_result = ext_result.model_copy(update={"vehicles": enriched_tv})
                 if extraction_mode and extraction_mode.startswith("provider:"):
                     async with metrics_lock:
                         extraction_metrics["pages_provider"] += 1

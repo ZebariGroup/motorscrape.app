@@ -12,6 +12,7 @@ from app.services.parser.factory import (
 from app.services.parser.monolith import (
     collect_structured_vehicle_dicts,
     dict_to_vehicle_listing,
+    enrich_team_velocity_srp_pricing,
     extract_dom_vehicle_cards,
     extract_vehicles_from_html,
     find_next_page_url,
@@ -28,6 +29,7 @@ __all__ = [
     "InventoryHtmlParser",
     "collect_structured_vehicle_dicts",
     "dict_to_vehicle_listing",
+    "enrich_team_velocity_srp_pricing",
     "extract_dom_vehicle_cards",
     "extract_vehicles_from_html",
     "find_next_page_url",

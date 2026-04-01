@@ -400,6 +400,8 @@ def _extract_json_inventory(html: str, soup: BeautifulSoup) -> list[dict]:
                                 "colorExterior": v.get("item_color"),
                                 "stock": v.get("item_number"),
                                 "bodyStyle": v.get("item_type"),
+                                "trim": v.get("item_variant"),
+                                "stockDate": v.get("item_inventory_date"),
                             }
                             json_records.append({k: v for k, v in normalized.items() if v not in (None, "", 0)})
                     if json_records:
@@ -2392,6 +2394,17 @@ def extract_dom_vehicle_cards(
         ds_spike_year = _coerce_int(_text_or_none(card.select_one("li.featuredVehicleAttr.year span.value")))
         ds_spike_stock = _text_or_none(card.select_one("li.featuredVehicleAttr.stockno span.value"))
         ds_spike_price = _coerce_float(ds_spike_price_raw.replace("$", "").replace(",", "")) if ds_spike_price_raw else None
+        # Team Velocity SRP cards embed "Make-Model-Trim-VIN" in data-itemid; extract
+        # the trailing 17-char VIN from that composite value.
+        _tv_itemid_vin: str | None = None
+        _tv_itemid_raw = card.get("data-itemid") or ""
+        if _tv_itemid_raw:
+            _tv_vin_m = re.search(r"([A-HJ-NPR-Z0-9]{17})$", _tv_itemid_raw.upper())
+            if _tv_vin_m:
+                _tv_itemid_vin = _tv_vin_m.group(1)
+        # Some Team Velocity custom elements expose a bare vin="..." attribute.
+        _tv_inner_vin_el = card.select_one("[vin]") if not _tv_itemid_vin else None
+        _tv_inner_vin: str | None = _tv_inner_vin_el.get("vin") if _tv_inner_vin_el else None
         vin = (
             card.get("data-vin")
             or card.get("data-vehicle-vin")
@@ -2400,6 +2413,8 @@ def extract_dom_vehicle_cards(
             or payload.get("vin")
             or (room58_vin.get("vin") if room58_vin is not None else None)
             or tv_vin
+            or _tv_itemid_vin
+            or _tv_inner_vin
             or _extract_vin_from_text(card_text)
         )
         make = (
@@ -3396,7 +3411,7 @@ def try_extract_vehicles_without_llm(
     return ExtractionResult(vehicles=vehicles, next_page_url=next_u, pagination=pagination)
 
 
-async def _enrich_team_velocity_srp_pricing(
+async def enrich_team_velocity_srp_pricing(
     html: str,
     page_url: str,
     vehicles: list[VehicleListing],
@@ -3485,7 +3500,7 @@ async def extract_vehicles_from_html(
             model_filter=model_filter,
             vehicle_category=vehicle_category,
         )
-        enriched = await _enrich_team_velocity_srp_pricing(html, page_url, r.vehicles)
+        enriched = await enrich_team_velocity_srp_pricing(html, page_url, r.vehicles)
         if enriched is not r.vehicles:
             r = r.model_copy(update={"vehicles": enriched})
         return r
@@ -3550,7 +3565,7 @@ async def extract_vehicles_from_html(
             ]
         }
     )
-    enriched_llm = await _enrich_team_velocity_srp_pricing(html, page_url, parsed.vehicles)
+    enriched_llm = await enrich_team_velocity_srp_pricing(html, page_url, parsed.vehicles)
     if enriched_llm is not parsed.vehicles:
         parsed = parsed.model_copy(update={"vehicles": enriched_llm})
     fallback_page_size = max(
