@@ -51,9 +51,11 @@ from app.services.provider_router import (
     _build_family_inventory_path_variants,
     _canonical_oneaudi_inventory_url,
     detect_or_lookup_provider,
+    provider_route_from_cache_entry,
     record_provider_failure,
     remember_provider_success,
     resolve_inventory_url_for_provider,
+    speculative_inventory_url,
 )
 from app.services.providers import extract_with_provider
 from app.services.scrape_logging import ScrapeRunRecorder
@@ -1300,9 +1302,9 @@ async def stream_search(
             )
         return payload
 
-    try:
+    async def _discover_dealers(*, query_variant_limit: int | None = None) -> list[DealershipFound]:
         if (vehicle_category or "car").strip().lower() == "car":
-            dealers = await find_car_dealerships(
+            return await find_car_dealerships(
                 location,
                 make=make,
                 model=model,
@@ -1310,18 +1312,156 @@ async def stream_search(
                 radius_miles=radius_miles,
                 market_region=market_region,
                 metrics=places_metrics,
+                query_variant_limit=query_variant_limit,
             )
+        return await find_dealerships(
+            location,
+            make=make,
+            model=model,
+            vehicle_category=vehicle_category,
+            limit=candidate_limit,
+            radius_miles=radius_miles,
+            market_region=market_region,
+            metrics=places_metrics,
+            query_variant_limit=query_variant_limit,
+        )
+
+    async def _warm_dealer_metadata(candidate_dealers: list[DealershipFound]) -> None:
+        dealer_domains = [normalize_dealer_domain((dealer.website or "").strip()) for dealer in candidate_dealers]
+        missing_domains = sorted({domain for domain in dealer_domains if domain and domain not in platform_cache_entries})
+        if missing_domains:
+            platform_entries = await asyncio.gather(
+                *(asyncio.to_thread(platform_store.get, domain) for domain in missing_domains)
+            )
+            platform_cache_entries.update(
+                {
+                    domain: entry
+                    for domain, entry in zip(missing_domains, platform_entries, strict=False)
+                    if entry is not None
+                }
+            )
+        if settings.inventory_cache_enabled and candidate_dealers:
+            cache_warm_pairs: list[tuple[str, str]] = []
+            for dealer in candidate_dealers:
+                website = prefer_https_website_url((dealer.website or "").strip())
+                domain = normalize_dealer_domain(website)
+                inv_cache_key = inventory_listings_cache_key(
+                    website=website,
+                    domain=domain,
+                    make=make,
+                    model=model,
+                    vehicle_category=vehicle_category,
+                    vehicle_condition=vehicle_condition,
+                    inventory_scope=inventory_scope,
+                    max_pages=requested_pages,
+                )
+                if inv_cache_key in warmed_inventory_cache:
+                    continue
+                cache_warm_pairs.append((inv_cache_key, website))
+            if cache_warm_pairs:
+                cache_warm_results = await asyncio.gather(
+                    *[
+                        asyncio.to_thread(get_cached_inventory_listings, cache_key)
+                        for cache_key, _website in cache_warm_pairs
+                    ]
+                )
+                warmed_inventory_cache.update(
+                    {
+                        cache_key: cached
+                        for (cache_key, _website), cached in zip(cache_warm_pairs, cache_warm_results, strict=False)
+                    }
+                )
+
+    async def _rank_dealers(candidate_dealers: list[DealershipFound]) -> list[DealershipFound]:
+        ranked = dedupe_dealers_by_domain(candidate_dealers)
+        await _warm_dealer_metadata(ranked)
+        if len(ranked) > 1:
+            dealer_domains = [normalize_dealer_domain((dealer.website or "").strip()) for dealer in ranked]
+            dealer_scores = await asyncio.to_thread(get_scores, dealer_domains)
+
+            def _dealer_sort_key(dealer: DealershipFound) -> tuple[int, int, float]:
+                website = prefer_https_website_url((dealer.website or "").strip())
+                domain = normalize_dealer_domain(website)
+                inv_cache_key = inventory_listings_cache_key(
+                    website=website,
+                    domain=domain,
+                    make=make,
+                    model=model,
+                    vehicle_category=vehicle_category,
+                    vehicle_condition=vehicle_condition,
+                    inventory_scope=inventory_scope,
+                    max_pages=requested_pages,
+                )
+                cached_inventory = warmed_inventory_cache.get(inv_cache_key) or {}
+                platform_entry = platform_cache_entries.get(domain)
+                route_hint_score = 0
+                if platform_entry is not None:
+                    if platform_entry.is_usable:
+                        route_hint_score += 20
+                    if platform_entry.inventory_url_hint:
+                        route_hint_score += 8
+                    if not platform_entry.requires_render:
+                        route_hint_score += 4
+                    route_hint_score -= min(int(platform_entry.failure_count or 0), 3) * 5
+                return (
+                    1 if cached_inventory.get("listings") else 0,
+                    route_hint_score,
+                    dealer_scores.get(domain, NO_SCORE_DEFAULT),
+                )
+
+            ranked.sort(key=_dealer_sort_key, reverse=True)
+        return ranked
+
+    def _dealership_queue_payload(index: int, total: int, dealer: DealershipFound) -> dict[str, Any]:
+        website = prefer_https_website_url((dealer.website or "").strip())
+        domain = normalize_dealer_domain(website)
+        inv_cache_key = inventory_listings_cache_key(
+            website=website,
+            domain=domain,
+            make=make,
+            model=model,
+            vehicle_category=vehicle_category,
+            vehicle_condition=vehicle_condition,
+            inventory_scope=inventory_scope,
+            max_pages=requested_pages,
+        )
+        cached_inventory = warmed_inventory_cache.get(inv_cache_key) or {}
+        platform_entry = platform_cache_entries.get(domain)
+        queued_info = "Waiting for an open scrape worker."
+        if cached_inventory.get("listings"):
+            queued_info = "Cache hit ready to stream inventory."
+        elif platform_entry is not None and platform_entry.inventory_url_hint:
+            queued_info = "Queued with a known inventory route."
+        return {
+            "index": index,
+            "total": total,
+            "name": dealer.name,
+            "website": website,
+            "address": dealer.address,
+            "status": "queued",
+            "info": queued_info,
+            "platform_id": platform_entry.platform_id if platform_entry is not None else None,
+            "strategy_used": platform_entry.extraction_mode if platform_entry is not None else None,
+        }
+
+    seed_query_limit = min(3, max(1, int(settings.places_text_query_variant_cap or 1)))
+    progressive_discovery_enabled = requested_dealerships > 1 and seed_query_limit < max(
+        1, int(settings.places_text_query_variant_cap or 1)
+    )
+    full_discovery_task: asyncio.Task[list[DealershipFound]] | None = None
+    final_discovery_logged = False
+    try:
+        if progressive_discovery_enabled:
+            seed_candidates = await _discover_dealers(query_variant_limit=seed_query_limit)
+            raw_dealer_count = len(seed_candidates)
+            deduped_dealer_count = len(dedupe_dealers_by_domain(seed_candidates))
+            dealers = (await _rank_dealers(seed_candidates))[:requested_dealerships]
+            full_discovery_task = asyncio.create_task(_discover_dealers())
         else:
-            dealers = await find_dealerships(
-                location,
-                make=make,
-                model=model,
-                vehicle_category=vehicle_category,
-                limit=candidate_limit,
-                radius_miles=radius_miles,
-                market_region=market_region,
-                metrics=places_metrics,
-            )
+            discovered_dealers = await _discover_dealers()
+            raw_dealer_count = len(discovered_dealers)
+            deduped_dealer_count = len(dedupe_dealers_by_domain(discovered_dealers))
+            dealers = (await _rank_dealers(discovered_dealers))[:requested_dealerships]
     except Exception as e:
         logger.exception(f"{cid_log}Places search failed")
         if recorder is not None:
@@ -1336,99 +1476,7 @@ async def stream_search(
         yield sse_pack("done", finalize_done({"ok": False, "error_message": str(e)}, ok=False))
         return
 
-    raw_dealer_count = len(dealers)
-    if recorder is not None and raw_dealer_count > 0:
-        recorder.note_dealer_discovered()
-    dealers = dedupe_dealers_by_domain(dealers)
-    deduped_dealer_count = len(dealers)
-    if recorder is not None:
-        recorder.event(
-            event_type="dealers_discovered",
-            phase="places",
-            level="info",
-            message=f"Discovered {deduped_dealer_count} dealerships with websites.",
-            payload={
-                "dealer_discovery_count": raw_dealer_count,
-                "dealer_deduped_count": deduped_dealer_count,
-                "places_metrics": places_metrics.as_dict(),
-            },
-        )
-    dealer_domains = [normalize_dealer_domain((dealer.website or "").strip()) for dealer in dealers]
-    unique_domains = sorted({domain for domain in dealer_domains if domain})
-    if unique_domains:
-        platform_entries = await asyncio.gather(*(asyncio.to_thread(platform_store.get, domain) for domain in unique_domains))
-        platform_cache_entries = {
-            domain: entry
-            for domain, entry in zip(unique_domains, platform_entries, strict=False)
-            if entry is not None
-        }
-    if settings.inventory_cache_enabled and dealers:
-        cache_warm_pairs: list[tuple[str, str]] = []
-        seen_cache_keys: set[str] = set()
-        for d in dealers:
-            website = prefer_https_website_url((d.website or "").strip())
-            domain = normalize_dealer_domain(website)
-            inv_cache_key = inventory_listings_cache_key(
-                website=website,
-                domain=domain,
-                make=make,
-                model=model,
-                vehicle_category=vehicle_category,
-                vehicle_condition=vehicle_condition,
-                inventory_scope=inventory_scope,
-                max_pages=requested_pages,
-            )
-            if inv_cache_key in seen_cache_keys:
-                continue
-            seen_cache_keys.add(inv_cache_key)
-            cache_warm_pairs.append((inv_cache_key, website))
-        if cache_warm_pairs:
-            cache_warm_results = await asyncio.gather(
-                *[
-                    asyncio.to_thread(get_cached_inventory_listings, cache_key)
-                    for cache_key, _website in cache_warm_pairs
-                ]
-            )
-            warmed_inventory_cache = {
-                cache_key: cached
-                for (cache_key, _website), cached in zip(cache_warm_pairs, cache_warm_results, strict=False)
-            }
-    if len(dealers) > 1:
-        dealer_scores = await asyncio.to_thread(get_scores, dealer_domains)
-
-        def _dealer_sort_key(dealer: DealershipFound) -> tuple[int, int, float]:
-            website = prefer_https_website_url((dealer.website or "").strip())
-            domain = normalize_dealer_domain(website)
-            inv_cache_key = inventory_listings_cache_key(
-                website=website,
-                domain=domain,
-                make=make,
-                model=model,
-                vehicle_category=vehicle_category,
-                vehicle_condition=vehicle_condition,
-                inventory_scope=inventory_scope,
-                max_pages=requested_pages,
-            )
-            cached_inventory = warmed_inventory_cache.get(inv_cache_key) or {}
-            platform_entry = platform_cache_entries.get(domain)
-            route_hint_score = 0
-            if platform_entry is not None:
-                if platform_entry.is_usable:
-                    route_hint_score += 20
-                if platform_entry.inventory_url_hint:
-                    route_hint_score += 8
-                if not platform_entry.requires_render:
-                    route_hint_score += 4
-                route_hint_score -= min(int(platform_entry.failure_count or 0), 3) * 5
-            return (
-                1 if cached_inventory.get("listings") else 0,
-                route_hint_score,
-                dealer_scores.get(domain, NO_SCORE_DEFAULT),
-            )
-
-        dealers.sort(key=_dealer_sort_key, reverse=True)
-    dealers = dealers[: requested_dealerships]
-    if not dealers:
+    if not dealers and full_discovery_task is None:
         if recorder is not None:
             recorder.event(
                 event_type="dealers_empty",
@@ -1457,14 +1505,23 @@ async def stream_search(
         return
 
     effective_concurrency = effective_search_concurrency(requested_pages=requested_pages)
+    scrape_status_message = (
+        (
+            "Finding additional dealerships before scraping inventory… "
+            f"(requested {requested_dealerships}, radius {radius_miles} mi, "
+            f"condition {vehicle_condition}, category {vehicle_category}, workers {effective_concurrency})"
+        )
+        if not dealers and full_discovery_task is not None
+        else (
+            f"Found {len(dealers)} dealerships. Scraping inventory… "
+            f"(requested {requested_dealerships}, radius {radius_miles} mi, "
+            f"condition {vehicle_condition}, category {vehicle_category}, workers {effective_concurrency})"
+        )
+    )
     yield sse_pack(
         "status",
         {
-            "message": (
-                f"Found {len(dealers)} dealerships. Scraping inventory… "
-                f"(requested {requested_dealerships}, radius {radius_miles} mi, "
-                f"condition {vehicle_condition}, category {vehicle_category}, workers {effective_concurrency})"
-            ),
+            "message": scrape_status_message,
             "phase": "scrape",
             "dealer_discovery_count": raw_dealer_count,
             "dealer_deduped_count": deduped_dealer_count,
@@ -1479,40 +1536,6 @@ async def stream_search(
     parse_timeout = min(settings.openai_timeout + 5.0, max(20.0, dealer_timeout * 0.35))
     metrics_lock = asyncio.Lock()
     inv_url_cache: dict[str, str] = {}
-    for i, d in enumerate(dealers, start=1):
-        website = prefer_https_website_url((d.website or "").strip())
-        domain = normalize_dealer_domain(website)
-        inv_cache_key = inventory_listings_cache_key(
-            website=website,
-            domain=domain,
-            make=make,
-            model=model,
-            vehicle_category=vehicle_category,
-            vehicle_condition=vehicle_condition,
-            inventory_scope=inventory_scope,
-            max_pages=requested_pages,
-        )
-        cached_inventory = warmed_inventory_cache.get(inv_cache_key) or {}
-        platform_entry = platform_cache_entries.get(domain)
-        queued_info = "Waiting for an open scrape worker."
-        if cached_inventory.get("listings"):
-            queued_info = "Cache hit ready to stream inventory."
-        elif platform_entry is not None and platform_entry.inventory_url_hint:
-            queued_info = "Queued with a known inventory route."
-        yield sse_pack(
-            "dealership",
-            {
-                "index": i,
-                "total": len(dealers),
-                "name": d.name,
-                "website": website,
-                "address": d.address,
-                "status": "queued",
-                "info": queued_info,
-                "platform_id": platform_entry.platform_id if platform_entry is not None else None,
-                "strategy_used": platform_entry.extraction_mode if platform_entry is not None else None,
-            },
-        )
 
     async def process_one(index: int, d: DealershipFound, sse_stream_queue: asyncio.Queue[str | object]) -> None:
         async def _emit(raw: str) -> None:
@@ -1533,6 +1556,7 @@ async def stream_search(
                 payload={"index": index, "total": len(dealers)},
             )
         domain = normalize_dealer_domain(website)
+        platform_entry = platform_cache_entries.get(domain)
         fetch_methods_used: list[str] = []
         ford_recovery_urls: list[str] = []
         inv_cache_key = inventory_listings_cache_key(
@@ -1784,35 +1808,41 @@ async def stream_search(
                 await _record_dealer_score(used_cache=True)
                 return
 
-            # 1. Fetch homepage to find inventory link
+            # 1. Try a known inventory route first when platform cache already has a usable hint.
             base_url = website
             homepage_html: str | None = None
             homepage_method: str | None = None
             seed_inventory_url: str | None = None
-            try:
-                homepage_timeout = _phase_timeout(fetch_timeout)
-                if homepage_timeout is None:
-                    await append_dealer_error(
-                        "Timed out while processing this dealership. Skipping to keep search moving."
-                    )
-                    await _record_dealer_score()
-                    return
-                homepage_html, homepage_method = await asyncio.wait_for(
-                    _fetch(website, "homepage"),
-                    timeout=homepage_timeout,
+            prefetched_route = (
+                provider_route_from_cache_entry(platform_entry, cache_status="warm")
+                if platform_entry is not None and platform_entry.is_usable
+                else None
+            )
+            prefetched_inventory_url = (
+                platform_entry.inventory_url_hint
+                if platform_entry is not None and platform_entry.inventory_url_hint
+                else speculative_inventory_url(
+                    domain,
+                    platform_entry.platform_id,
+                    vehicle_condition,
+                    website=website,
                 )
-
-                # If the homepage has a canonical link, it likely redirected to a different domain.
-                # Use the canonical URL as the new base website to ensure inventory links resolve correctly.
-                canonical_href = await asyncio.to_thread(_extract_canonical_homepage_url, homepage_html)
-                if canonical_href:
-                    domain = normalize_dealer_domain(canonical_href)
-                    base_url = canonical_href
-            except asyncio.TimeoutError:
-                logger.warning(f"{cid_log}Scrape timed out for %s", website)
-                homepage_timed_out_msg = f"Timed out while fetching pages after ~{int(fetch_timeout)}s."
-                guess_inv = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
-                if guess_inv and guess_inv.rstrip("/") != prefer_https_website_url(base_url).rstrip("/"):
+                if platform_entry is not None and platform_entry.is_usable
+                else None
+            )
+            prefetched_html: str | None = None
+            prefetched_method: str | None = None
+            if prefetched_route and prefetched_inventory_url:
+                candidate_inventory_url = resolve_inventory_url_for_provider(
+                    "",
+                    base_url,
+                    prefetched_route,
+                    fallback_url=prefetched_inventory_url,
+                    make=make,
+                    model=model,
+                    vehicle_condition=vehicle_condition,
+                )
+                if candidate_inventory_url and candidate_inventory_url.rstrip("/") != base_url.rstrip("/"):
                     await _emit(
                         sse_pack(
                             "dealership",
@@ -1821,94 +1851,168 @@ async def stream_search(
                                 "total": len(dealers),
                                 "name": d.name,
                                 "website": website,
-                                "current_url": guess_inv,
+                                "current_url": candidate_inventory_url,
                                 "status": "scraping",
+                                "info": (
+                                    "Using a known inventory route."
+                                    if platform_entry is not None and platform_entry.inventory_url_hint
+                                    else "Trying a platform-specific inventory route."
+                                ),
                             },
                         )
                     )
                     try:
-                        rescue_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
-                        if rescue_timeout is None:
+                        prefetched_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                        if prefetched_timeout is None:
                             raise RuntimeError("dealer_time_budget_exhausted")
-                        homepage_html, homepage_method = await asyncio.wait_for(
-                            _fetch(guess_inv, "inventory", prefer_render=True),
-                            timeout=rescue_timeout,
+                        prefetched_html, prefetched_method = await asyncio.wait_for(
+                            _fetch(
+                                candidate_inventory_url,
+                                "inventory",
+                                prefer_render=bool(prefetched_route.requires_render),
+                                platform_id=prefetched_route.platform_id,
+                            ),
+                            timeout=prefetched_timeout,
                         )
-                        seed_inventory_url = guess_inv
+                        seed_inventory_url = candidate_inventory_url
                         logger.info(
-                            "Recovered dealership %s after homepage timeout using guessed SRP %s",
-                            d.name,
-                            guess_inv,
-                        )
-                    except Exception as rescue_error:
-                        logger.warning(
-                            "%sHomepage timeout rescue via guessed SRP failed for %s: %s",
+                            "%sSkipped homepage for %s using cached inventory route %s",
                             cid_log,
-                            website,
-                            rescue_error,
+                            d.name,
+                            candidate_inventory_url,
                         )
+                    except Exception as prefetched_error:
+                        logger.debug(
+                            "%sKnown inventory route failed for %s (%s); falling back to homepage discovery",
+                            cid_log,
+                            d.name,
+                            prefetched_error,
+                        )
+                        prefetched_route = None
+                        seed_inventory_url = None
+
+            if seed_inventory_url is None:
+                try:
+                    homepage_timeout = _phase_timeout(fetch_timeout)
+                    if homepage_timeout is None:
+                        await append_dealer_error(
+                            "Timed out while processing this dealership. Skipping to keep search moving."
+                        )
+                        await _record_dealer_score()
+                        return
+                    homepage_html, homepage_method = await asyncio.wait_for(
+                        _fetch(website, "homepage"),
+                        timeout=homepage_timeout,
+                    )
+
+                    # If the homepage has a canonical link, it likely redirected to a different domain.
+                    # Use the canonical URL as the new base website to ensure inventory links resolve correctly.
+                    canonical_href = await asyncio.to_thread(_extract_canonical_homepage_url, homepage_html)
+                    if canonical_href:
+                        domain = normalize_dealer_domain(canonical_href)
+                        base_url = canonical_href
+                        platform_entry = platform_cache_entries.get(domain) or platform_entry
+                except asyncio.TimeoutError:
+                    logger.warning(f"{cid_log}Scrape timed out for %s", website)
+                    homepage_timed_out_msg = f"Timed out while fetching pages after ~{int(fetch_timeout)}s."
+                    guess_inv = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
+                    if guess_inv and guess_inv.rstrip("/") != prefer_https_website_url(base_url).rstrip("/"):
+                        await _emit(
+                            sse_pack(
+                                "dealership",
+                                {
+                                    "index": index,
+                                    "total": len(dealers),
+                                    "name": d.name,
+                                    "website": website,
+                                    "current_url": guess_inv,
+                                    "status": "scraping",
+                                },
+                            )
+                        )
+                        try:
+                            rescue_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                            if rescue_timeout is None:
+                                raise RuntimeError("dealer_time_budget_exhausted")
+                            homepage_html, homepage_method = await asyncio.wait_for(
+                                _fetch(guess_inv, "inventory", prefer_render=True),
+                                timeout=rescue_timeout,
+                            )
+                            seed_inventory_url = guess_inv
+                            logger.info(
+                                "Recovered dealership %s after homepage timeout using guessed SRP %s",
+                                d.name,
+                                guess_inv,
+                            )
+                        except Exception as rescue_error:
+                            logger.warning(
+                                "%sHomepage timeout rescue via guessed SRP failed for %s: %s",
+                                cid_log,
+                                website,
+                                rescue_error,
+                            )
+                            if domain:
+                                record_provider_failure(domain)
+                            await append_dealer_error(homepage_timed_out_msg)
+                            await _record_dealer_score()
+                            return
+                    else:
                         if domain:
                             record_provider_failure(domain)
                         await append_dealer_error(homepage_timed_out_msg)
                         await _record_dealer_score()
                         return
-                else:
-                    if domain:
-                        record_provider_failure(domain)
-                    await append_dealer_error(homepage_timed_out_msg)
-                    await _record_dealer_score()
-                    return
-            except Exception as e:
-                logger.warning(f"{cid_log}Scrape failed for %s: %s", website, e)
-                guess_inv = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
-                if guess_inv and guess_inv.rstrip("/") != prefer_https_website_url(base_url).rstrip("/"):
-                    await _emit(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "current_url": guess_inv,
-                                "status": "scraping",
-                            },
+                except Exception as e:
+                    logger.warning(f"{cid_log}Scrape failed for %s: %s", website, e)
+                    guess_inv = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
+                    if guess_inv and guess_inv.rstrip("/") != prefer_https_website_url(base_url).rstrip("/"):
+                        await _emit(
+                            sse_pack(
+                                "dealership",
+                                {
+                                    "index": index,
+                                    "total": len(dealers),
+                                    "name": d.name,
+                                    "website": website,
+                                    "current_url": guess_inv,
+                                    "status": "scraping",
+                                },
+                            )
                         )
-                    )
-                    try:
-                        rescue_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
-                        if rescue_timeout is None:
-                            raise RuntimeError("dealer_time_budget_exhausted")
-                        homepage_html, homepage_method = await asyncio.wait_for(
-                            _fetch(guess_inv, "inventory", prefer_render=True),
-                            timeout=rescue_timeout,
-                        )
-                        seed_inventory_url = guess_inv
-                        logger.info(
-                            "Recovered dealership %s after homepage fetch failure using guessed SRP %s",
-                            d.name,
-                            guess_inv,
-                        )
-                    except Exception as rescue_error:
-                        logger.warning(
-                            "%sHomepage rescue via guessed SRP failed for %s: %s",
-                            cid_log,
-                            guess_inv,
-                            rescue_error,
-                        )
+                        try:
+                            rescue_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                            if rescue_timeout is None:
+                                raise RuntimeError("dealer_time_budget_exhausted")
+                            homepage_html, homepage_method = await asyncio.wait_for(
+                                _fetch(guess_inv, "inventory", prefer_render=True),
+                                timeout=rescue_timeout,
+                            )
+                            seed_inventory_url = guess_inv
+                            logger.info(
+                                "Recovered dealership %s after homepage fetch failure using guessed SRP %s",
+                                d.name,
+                                guess_inv,
+                            )
+                        except Exception as rescue_error:
+                            logger.warning(
+                                "%sHomepage rescue via guessed SRP failed for %s: %s",
+                                cid_log,
+                                guess_inv,
+                                rescue_error,
+                            )
+                            if domain:
+                                record_provider_failure(domain)
+                            await append_dealer_error(str(e))
+                            await _record_dealer_score()
+                            return
+                    else:
                         if domain:
                             record_provider_failure(domain)
                         await append_dealer_error(str(e))
                         await _record_dealer_score()
                         return
-                else:
-                    if domain:
-                        record_provider_failure(domain)
-                    await append_dealer_error(str(e))
-                    await _record_dealer_score()
-                    return
 
-            route = None
+            route = prefetched_route
             inv_url = seed_inventory_url or base_url
 
             if homepage_html is not None:
@@ -1965,8 +2069,8 @@ async def stream_search(
                 except Exception as e:
                     logger.debug("Sitemap discovery skipped for %s: %s", base_url, e)
 
-            current_html = homepage_html or ""
-            current_method = homepage_method or "unknown"
+            current_html = prefetched_html or homepage_html or ""
+            current_method = prefetched_method or homepage_method or "unknown"
 
             # If inventory is on a different URL, fetch it before first parse.
             if seed_inventory_url is None and inv_url and inv_url != base_url:
@@ -3053,15 +3157,111 @@ async def stream_search(
         finally:
             await sse_stream_queue.put(_SSE_STREAM_WORKER_DONE)
 
-    tasks = [asyncio.create_task(dealer_worker(i, d)) for i, d in enumerate(dealers, start=1)]
+    tasks: list[asyncio.Task[None]] = []
+    launched_domains: set[str] = set()
+
+    async def _log_discovery_result() -> None:
+        nonlocal final_discovery_logged
+        if final_discovery_logged or recorder is None:
+            return
+        if raw_dealer_count > 0:
+            recorder.note_dealer_discovered()
+        recorder.event(
+            event_type="dealers_discovered",
+            phase="places",
+            level="info",
+            message=f"Discovered {deduped_dealer_count} dealerships with websites.",
+            payload={
+                "dealer_discovery_count": raw_dealer_count,
+                "dealer_deduped_count": deduped_dealer_count,
+                "places_metrics": places_metrics.as_dict(),
+            },
+        )
+        final_discovery_logged = True
+
+    async def _launch_dealers(batch: list[DealershipFound]) -> int:
+        launched_now = 0
+        for dealer in batch:
+            dealer_domain = normalize_dealer_domain((dealer.website or "").strip())
+            if dealer_domain and dealer_domain in launched_domains:
+                continue
+            if dealer_domain:
+                launched_domains.add(dealer_domain)
+            index = len(tasks) + 1
+            await sse_stream_queue.put(sse_pack("dealership", _dealership_queue_payload(index, len(dealers), dealer)))
+            tasks.append(asyncio.create_task(dealer_worker(index, dealer)))
+            launched_now += 1
+        return launched_now
+
     try:
-        workers_remaining = len(tasks)
-        while workers_remaining > 0:
-            item = await sse_stream_queue.get()
-            if item is _SSE_STREAM_WORKER_DONE:
-                workers_remaining -= 1
-            else:
-                yield item
+        if not progressive_discovery_enabled:
+            await _log_discovery_result()
+        workers_remaining = await _launch_dealers(dealers)
+        if progressive_discovery_enabled and full_discovery_task is not None and workers_remaining > 0:
+            yield sse_pack(
+                "status",
+                {
+                    "message": "Started scraping the first dealerships while discovery continues…",
+                    "phase": "scrape",
+                    "dealerships_queued": workers_remaining,
+                },
+            )
+
+        while workers_remaining > 0 or full_discovery_task is not None:
+            waiters: list[asyncio.Task[Any] | asyncio.Task[list[DealershipFound]]] = []
+            queue_waiter: asyncio.Task[Any] | None = None
+            if workers_remaining > 0:
+                queue_waiter = asyncio.create_task(sse_stream_queue.get())
+                waiters.append(queue_waiter)
+            if full_discovery_task is not None:
+                waiters.append(full_discovery_task)
+
+            done, pending = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+            if full_discovery_task is not None and full_discovery_task in done:
+                try:
+                    discovered_dealers = full_discovery_task.result()
+                    raw_dealer_count = len(discovered_dealers)
+                    deduped_dealer_count = len(dedupe_dealers_by_domain(discovered_dealers))
+                    dealers = (await _rank_dealers(discovered_dealers))[:requested_dealerships]
+                    await _log_discovery_result()
+                    launched_now = await _launch_dealers(dealers)
+                    if launched_now > 0:
+                        yield sse_pack(
+                            "status",
+                            {
+                                "message": f"Queued {launched_now} additional dealerships as discovery finished.",
+                                "phase": "scrape",
+                                "dealerships_queued": len(dealers),
+                            },
+                        )
+                        workers_remaining += launched_now
+                except Exception as e:
+                    logger.exception(f"{cid_log}Background dealership discovery failed")
+                    if recorder is not None:
+                        recorder.event(
+                            event_type="places_failed",
+                            phase="places",
+                            level="warning",
+                            message=str(e),
+                            payload={"error": str(e), "places_metrics": places_metrics.as_dict()},
+                        )
+                    if workers_remaining == 0:
+                        yield sse_pack("search_error", {"message": str(e), "phase": "places"})
+                        yield sse_pack("done", finalize_done({"ok": False, "error_message": str(e)}, ok=False))
+                        return
+                finally:
+                    full_discovery_task = None
+
+            if queue_waiter is not None and queue_waiter in done:
+                item = queue_waiter.result()
+                if item is _SSE_STREAM_WORKER_DONE:
+                    workers_remaining -= 1
+                else:
+                    yield item
+
+            for pending_task in pending:
+                if pending_task is not full_discovery_task:
+                    pending_task.cancel()
 
         yield sse_pack(
             "done",
@@ -3086,8 +3286,12 @@ async def stream_search(
     except asyncio.CancelledError:
         for task in tasks:
             task.cancel()
+        if full_discovery_task is not None:
+            full_discovery_task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        if full_discovery_task is not None:
+            await asyncio.gather(full_discovery_task, return_exceptions=True)
         if recorder is not None and not recorder.finalized:
             recorder.event(
                 event_type="search_canceled",

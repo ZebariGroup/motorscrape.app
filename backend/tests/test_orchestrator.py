@@ -32,6 +32,7 @@ from app.services.orchestrator_utils import (
     html_mentions_make,
     prefer_https_website_url,
 )
+from app.services.platform_store import PlatformCacheEntry
 from app.services.provider_router import ProviderRoute
 from app.services.scrape_logging import create_scrape_run_recorder
 
@@ -1030,6 +1031,69 @@ async def test_stream_search_records_dealer_score_on_success() -> None:
     assert kwargs["price_fill"] == 1.0
     assert kwargs["vin_fill"] == 1.0
     assert kwargs["failed"] is False
+
+
+@pytest.mark.asyncio
+async def test_stream_search_skips_homepage_when_platform_cache_has_inventory_hint() -> None:
+    from datetime import UTC, datetime
+
+    dealers = [
+        DealershipFound(
+            name="Hinted Dealer",
+            place_id="p1",
+            address="1 Main St",
+            website="https://hinted-dealer.example/",
+        )
+    ]
+    fetch_calls: list[tuple[str, str]] = []
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        fetch_calls.append((url, page_kind))
+        if url == "https://hinted-dealer.example/searchnew.aspx" and page_kind == "inventory":
+            return "<html><body><div class='vehicle-card'>Inventory</div></body></html>", "direct"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    cached_entry = PlatformCacheEntry(
+        domain="hinted-dealer.example",
+        platform_id="dealer_on",
+        confidence=0.95,
+        extraction_mode="rendered_dom",
+        requires_render=False,
+        inventory_url_hint="https://hinted-dealer.example/searchnew.aspx",
+        detection_source="cache",
+        last_verified_at=datetime.now(UTC),
+    )
+
+    with (
+        patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
+        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.platform_store.get", return_value=cached_entry),
+        patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            return_value=ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2024,
+                        make="Toyota",
+                        model="Camry",
+                        price=28000,
+                        listing_url="https://hinted-dealer.example/vdp/1",
+                    )
+                ],
+                next_page_url=None,
+            ),
+        ),
+        patch("app.services.orchestrator.extract_vehicles_from_html", new_callable=AsyncMock),
+    ):
+        chunks: list[str] = []
+        async for c in stream_search("Detroit", "Toyota", "", max_dealerships=1, max_pages_per_dealer=1):
+            chunks.append(c)
+
+    assert ("https://hinted-dealer.example/", "homepage") not in fetch_calls
+    assert ("https://hinted-dealer.example/searchnew.aspx", "inventory") in fetch_calls
+    assert "Using a known inventory route." in "".join(chunks)
 
 
 @pytest.mark.asyncio

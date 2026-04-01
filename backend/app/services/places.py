@@ -711,6 +711,64 @@ def _places_query_stop_target(*, limit: int, make: str, model: str) -> int:
     return min(limit, max(8, int(limit * 0.6)))
 
 
+async def _search_places_query_batch(
+    client: httpx.AsyncClient,
+    key: str,
+    *,
+    text_queries: list[str],
+    limit: int,
+    location_restriction: dict[str, Any] | None = None,
+    included_type: str | None = None,
+    strict_type_filtering: bool = False,
+    metrics: PlacesSearchMetrics | None = None,
+) -> list[list[dict[str, Any]] | Exception]:
+    if metrics is not None:
+        metrics.query_variants_used += len(text_queries)
+    return await asyncio.gather(
+        *(
+            _search_places_text(
+                client,
+                key,
+                text_query=text_query,
+                limit=limit,
+                location_restriction=location_restriction,
+                included_type=included_type,
+                strict_type_filtering=strict_type_filtering,
+                metrics=metrics,
+            )
+            for text_query in text_queries
+        ),
+        return_exceptions=True,
+    )
+
+
+def _append_discovered_places(
+    *,
+    found: list[dict[str, Any]],
+    places: list[dict[str, Any]],
+    seen_place_resources: set[str],
+    location_center: tuple[float, float] | None,
+    requested_radius: int,
+    require_precise_radius_coordinates: bool,
+) -> None:
+    for place in found:
+        if location_center is not None and not _place_within_radius(
+            place,
+            center_lat=location_center[0],
+            center_lng=location_center[1],
+            radius_miles=requested_radius,
+            require_coordinates=require_precise_radius_coordinates,
+        ):
+            continue
+        place_resource = str(place.get("name") or "")
+        pid = str(place.get("id") or "")
+        dedupe_key = place_resource or pid
+        if not dedupe_key or dedupe_key in seen_place_resources:
+            continue
+        seen_place_resources.add(dedupe_key)
+        places.append(place)
+
+
 async def find_dealerships(
     location: str,
     *,
@@ -721,6 +779,7 @@ async def find_dealerships(
     radius_miles: int = 50,
     market_region: str = "us",
     metrics: PlacesSearchMetrics | None = None,
+    query_variant_limit: int | None = None,
 ) -> list[DealershipFound]:
     """
     Find car dealerships near the given location using Places API (New) Text Search,
@@ -746,10 +805,12 @@ async def find_dealerships(
         radius_miles=requested_radius,
         market_region=market_region,
     )
-    cached_results = get_cached_places_search(search_cache_key)
-    if cached_results is not None:
-        metrics.search_cache_hits += 1
-        return cached_results
+    use_search_cache = query_variant_limit is None
+    if use_search_cache:
+        cached_results = get_cached_places_search(search_cache_key)
+        if cached_results is not None:
+            metrics.search_cache_hits += 1
+            return cached_results
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         location_center = None
@@ -778,6 +839,8 @@ async def find_dealerships(
             model=model_q,
             market_region=market_region,
         )
+        if query_variant_limit is not None:
+            text_queries = text_queries[: max(1, int(query_variant_limit))]
         metrics.query_variants_total = len(text_queries)
         query_stop_target = _places_query_stop_target(limit=limit, make=make_q, model=model_q)
         require_precise_radius_coordinates = bool(
@@ -789,42 +852,40 @@ async def find_dealerships(
 
         places: list[dict[str, Any]] = []
         seen_place_resources: set[str] = set()
-        for idx, text_query in enumerate(text_queries):
-            metrics.query_variants_used += 1
-            try:
-                found = await _search_places_text(
-                    client,
-                    key,
-                    text_query=text_query,
-                    limit=limit,
-                    location_restriction=location_restriction,
-                    included_type=config.get("included_type"),
-                    strict_type_filtering=bool(config.get("strict_type_filtering")),
-                    metrics=metrics,
+        query_batch_size = min(3, max(1, len(text_queries)))
+        for start_idx in range(0, len(text_queries), query_batch_size):
+            batch_queries = text_queries[start_idx : start_idx + query_batch_size]
+            batch_results = await _search_places_query_batch(
+                client,
+                key,
+                text_queries=batch_queries,
+                limit=limit,
+                location_restriction=location_restriction,
+                included_type=config.get("included_type"),
+                strict_type_filtering=bool(config.get("strict_type_filtering")),
+                metrics=metrics,
+            )
+            batch_had_success = False
+            first_error: Exception | None = None
+            for found in batch_results:
+                if isinstance(found, Exception):
+                    if first_error is None:
+                        first_error = found
+                    continue
+                batch_had_success = True
+                _append_discovered_places(
+                    found=found,
+                    places=places,
+                    seen_place_resources=seen_place_resources,
+                    location_center=location_center,
+                    requested_radius=requested_radius,
+                    require_precise_radius_coordinates=require_precise_radius_coordinates,
                 )
-            except Exception:
-                if not places:
-                    raise
-                continue
-            for place in found:
-                if location_center is not None and not _place_within_radius(
-                    place,
-                    center_lat=center_lat,
-                    center_lng=center_lng,
-                    radius_miles=requested_radius,
-                    require_coordinates=require_precise_radius_coordinates,
-                ):
-                    continue
-                place_resource = str(place.get("name") or "")
-                pid = str(place.get("id") or "")
-                dedupe_key = place_resource or pid
-                if not dedupe_key or dedupe_key in seen_place_resources:
-                    continue
-                seen_place_resources.add(dedupe_key)
-                places.append(place)
+            if not batch_had_success and not places and first_error is not None:
+                raise first_error
             if len(places) >= limit:
                 break
-            if idx >= 1 and len(places) >= query_stop_target:
+            if start_idx + len(batch_queries) - 1 >= 1 and len(places) >= query_stop_target:
                 break
 
         fallback_threshold = max(0, int(settings.places_untyped_fallback_result_threshold or 0))
@@ -835,35 +896,27 @@ async def find_dealerships(
         )
         if should_try_untyped_fallback:
             metrics.fallback_query_passes += 1
-            for text_query in text_queries:
-                metrics.query_variants_used += 1
-                try:
-                    found = await _search_places_text(
-                        client,
-                        key,
-                        text_query=text_query,
-                        limit=limit,
-                        location_restriction=location_restriction,
-                        metrics=metrics,
+            for start_idx in range(0, len(text_queries), query_batch_size):
+                batch_queries = text_queries[start_idx : start_idx + query_batch_size]
+                batch_results = await _search_places_query_batch(
+                    client,
+                    key,
+                    text_queries=batch_queries,
+                    limit=limit,
+                    location_restriction=location_restriction,
+                    metrics=metrics,
+                )
+                for found in batch_results:
+                    if isinstance(found, Exception):
+                        continue
+                    _append_discovered_places(
+                        found=found,
+                        places=places,
+                        seen_place_resources=seen_place_resources,
+                        location_center=location_center,
+                        requested_radius=requested_radius,
+                        require_precise_radius_coordinates=require_precise_radius_coordinates,
                     )
-                except Exception:
-                    continue
-                for place in found:
-                    if location_center is not None and not _place_within_radius(
-                        place,
-                        center_lat=center_lat,
-                        center_lng=center_lng,
-                        radius_miles=requested_radius,
-                        require_coordinates=require_precise_radius_coordinates,
-                    ):
-                        continue
-                    place_resource = str(place.get("name") or "")
-                    pid = str(place.get("id") or "")
-                    dedupe_key = place_resource or pid
-                    if not dedupe_key or dedupe_key in seen_place_resources:
-                        continue
-                    seen_place_resources.add(dedupe_key)
-                    places.append(place)
                 if len(places) >= limit:
                     break
 
@@ -955,7 +1008,8 @@ async def find_dealerships(
             )
 
         def _finalize(found: list[DealershipFound]) -> list[DealershipFound]:
-            set_cached_places_search(search_cache_key, found)
+            if use_search_cache:
+                set_cached_places_search(search_cache_key, found)
             return found
 
         if not make_q:
@@ -1008,6 +1062,7 @@ async def find_car_dealerships(
     radius_miles: int = 50,
     market_region: str = "us",
     metrics: PlacesSearchMetrics | None = None,
+    query_variant_limit: int | None = None,
 ) -> list[DealershipFound]:
     return await find_dealerships(
         location,
@@ -1018,6 +1073,7 @@ async def find_car_dealerships(
         radius_miles=radius_miles,
         market_region=market_region,
         metrics=metrics,
+        query_variant_limit=query_variant_limit,
     )
 
 

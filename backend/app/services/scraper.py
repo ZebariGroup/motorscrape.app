@@ -546,8 +546,13 @@ async def fetch_page_html(
                 else None
             )
             js_instructions = effective_render_plan.zenrows_js_instructions if effective_render_plan else None
+            render_wait_ms = (
+                effective_render_plan.zenrows_wait_ms
+                if effective_render_plan and effective_render_plan.zenrows_wait_ms is not None
+                else settings.zenrows_wait_ms
+            )
             for wait_ms in _retry_waits(
-                settings.zenrows_wait_ms,
+                render_wait_ms,
                 has_embedded_waits=bool(js_instructions),
             ):
 

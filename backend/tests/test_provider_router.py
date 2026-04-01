@@ -6,7 +6,9 @@ from app.services.platform_store import PlatformCacheEntry
 from app.services.provider_router import (
     ProviderRoute,
     detect_or_lookup_provider,
+    provider_route_from_cache_entry,
     resolve_inventory_url_for_provider,
+    speculative_inventory_url,
 )
 
 
@@ -37,6 +39,45 @@ def test_resolve_inventory_url_for_provider_prefers_team_velocity_all_inventory_
         vehicle_condition="all",
     )
     assert url == "https://www.examplepowersports.com/--inventory"
+
+
+def test_provider_route_from_cache_entry_preserves_hint_and_render_preferences() -> None:
+    entry = PlatformCacheEntry(
+        domain="dealer.example",
+        platform_id="dealer_on",
+        confidence=0.92,
+        extraction_mode="rendered_dom",
+        requires_render=True,
+        inventory_url_hint="https://www.dealer.example/searchnew.aspx",
+        detection_source="cache",
+        last_verified_at=datetime.now(UTC),
+    )
+    route = provider_route_from_cache_entry(entry, cache_status="warm")
+    assert route is not None
+    assert route.platform_id == "dealer_on"
+    assert route.cache_status == "warm"
+    assert route.inventory_url_hint == "https://www.dealer.example/searchnew.aspx"
+    assert route.requires_render is False
+
+
+def test_speculative_inventory_url_builds_platform_specific_srp() -> None:
+    assert (
+        speculative_inventory_url(
+            "dealer.example",
+            "dealer_dot_com",
+            "used",
+            website="https://dealer.example/",
+        )
+        == "https://dealer.example/used-inventory/index.htm"
+    )
+    assert (
+        speculative_inventory_url(
+            "exampleford.com",
+            "ford_family_inventory",
+            "new",
+        )
+        == "https://www.exampleford.com/inventory/new/"
+    )
 
 
 def test_resolve_inventory_url_for_provider_canonicalizes_oneaudi_all_to_generic_new_root() -> None:

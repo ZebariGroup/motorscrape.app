@@ -89,6 +89,7 @@ class PlatformDefinition:
 class InventoryRenderPlan:
     playwright_instructions: str | None = None
     zenrows_js_instructions: str | None = None
+    zenrows_wait_ms: int | None = None
 
 
 _ONEAUDI_FALCON_DEFINE_LOAD_MORE_HELPER_JS = (
@@ -356,9 +357,15 @@ def playwright_inventory_instructions_for_url(url: str, platform_id: str | None 
 
 def inventory_render_plan_for_url(url: str, platform_id: str | None = None) -> InventoryRenderPlan:
     """Return the local-browser and managed-render instruction plan for an inventory URL."""
+    zenrows_wait_ms: int | None = None
+    if platform_id in {"dealer_on", "dealer_dot_com"}:
+        zenrows_wait_ms = 1500
+    elif platform_id in {"dealer_inspire", "team_velocity"}:
+        zenrows_wait_ms = 2000
     return InventoryRenderPlan(
         playwright_instructions=playwright_inventory_instructions_for_url(url, platform_id=platform_id),
         zenrows_js_instructions=zenrows_inventory_js_instructions_for_url(url, platform_id=platform_id),
+        zenrows_wait_ms=zenrows_wait_ms,
     )
 
 

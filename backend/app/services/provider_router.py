@@ -1049,6 +1049,65 @@ def _route_from_cache(entry: PlatformCacheEntry, *, cache_status: str) -> Provid
     )
 
 
+def provider_route_from_cache_entry(
+    entry: PlatformCacheEntry | None,
+    *,
+    cache_status: str = "hit",
+) -> ProviderRoute | None:
+    if entry is None:
+        return None
+    return _route_from_cache(entry, cache_status=cache_status)
+
+
+def _speculative_inventory_path(platform_id: str, vehicle_condition: str) -> str | None:
+    condition = (vehicle_condition or "all").strip().lower()
+    if platform_id == "dealer_on":
+        return "/searchused.aspx" if condition == "used" else "/searchnew.aspx"
+    if platform_id == "dealer_dot_com":
+        if condition == "used":
+            return "/used-inventory/index.htm"
+        if condition == "all":
+            return "/all-inventory/index.htm"
+        return "/new-inventory/index.htm"
+    if platform_id == "dealer_inspire":
+        return "/used-vehicles/" if condition == "used" else "/new-vehicles/"
+    if platform_id in {"ford_family_inventory", "gm_family_inventory", "honda_acura_inventory", "kia_inventory"}:
+        return "/inventory/used/" if condition == "used" else "/inventory/new/"
+    if platform_id == "nissan_infiniti_inventory":
+        return "/inventory/used/" if condition == "used" else "/inventory/new/"
+    if platform_id == "team_velocity":
+        if condition == "used":
+            return "/inventory/used"
+        if condition == "all":
+            return "/--inventory"
+        return "/inventory/new"
+    if platform_id == "oneaudi_falcon":
+        return "/inventory/used/" if condition == "used" else "/inventory/new/"
+    return None
+
+
+def speculative_inventory_url(
+    domain: str,
+    platform_id: str,
+    vehicle_condition: str,
+    *,
+    website: str = "",
+) -> str | None:
+    path = _speculative_inventory_path(platform_id, vehicle_condition)
+    if not path:
+        return None
+
+    parts = urlsplit((website or "").strip())
+    scheme = parts.scheme or "https"
+    netloc = parts.netloc
+    if not netloc:
+        cleaned_domain = (domain or "").strip().lower()
+        if not cleaned_domain:
+            return None
+        netloc = cleaned_domain if cleaned_domain.startswith("www.") else f"www.{cleaned_domain}"
+    return _normalize_inventory_candidate_url(urlunsplit((scheme, netloc, path, "", "")))
+
+
 def _homepage_conflicts_with_cached_route(
     entry: PlatformCacheEntry,
     *,

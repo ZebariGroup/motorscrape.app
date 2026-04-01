@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     # Seconds; bounds slow/hung LLM calls so the search stream can finish.
     openai_timeout: float = 75.0
     # Cap concurrent OpenAI extraction calls across dealerships (rate limits / tail latency).
-    openai_max_concurrency: int = 4
+    openai_max_concurrency: int = 6
     zenrows_api_key: str = ""
     # Some ZenRows plans do not include premium proxies; leave off unless needed.
     zenrows_premium_proxy: bool = False
@@ -156,7 +156,7 @@ class Settings(BaseSettings):
 
     # Short-lived cache of per-dealer listing payloads (SQLite).
     inventory_cache_enabled: bool = True
-    inventory_cache_ttl_seconds: int = 3600
+    inventory_cache_ttl_seconds: int = 60 * 60 * 4
     inventory_cache_path: str = Field(default_factory=_default_inventory_cache_path)
 
     # Supabase configuration
