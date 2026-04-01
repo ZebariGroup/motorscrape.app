@@ -1297,7 +1297,10 @@ def _merge_pricing_enrichment(
 
 
 _TEAM_VELOCITY_PAYMENTS_API_URL = "https://teamvelocityportal.com/OfferManager/Service/OfferManagerAPI/GetPayments"
-_TEAM_VELOCITY_ACCOUNT_RE = re.compile(r"""paymentsaccountid\s*=\s*["'](?P<value>[^"']+)["']""", re.I)
+_TEAM_VELOCITY_ACCOUNT_RE = re.compile(
+    r"""(?:paymentsaccountid|(?<!\w)accountId|baseAccountId)\s*=\s*["'](?P<value>\d+)["']""",
+    re.I,
+)
 
 
 def _extract_team_velocity_account_id(html: str) -> str | None:
@@ -3469,6 +3472,14 @@ async def enrich_team_velocity_srp_pricing(
         msrp = _coerce_float(quote.get("msrp"))
         lease_payment = _coerce_float(quote.get("lease_monthly_payment"))
         lease_term = _coerce_int(quote.get("lease_term_months"))
+        # Always propagate the VIN used for the API call so the listing shows a VIN even
+        # when the upstream extractor stored the VIN only in vehicle_identifier.
+        quote_vin = str(quote.get("vin") or _vin).strip().upper()
+        if quote_vin and len(quote_vin) == 17:
+            if not merged.get("vin"):
+                merged["vin"] = quote_vin
+            if not merged.get("vehicle_identifier"):
+                merged["vehicle_identifier"] = quote_vin
         if purchase_price is not None and purchase_price > 0:
             merged["price"] = purchase_price
         if msrp is not None and msrp > 0:
@@ -3480,6 +3491,12 @@ async def enrich_team_velocity_srp_pricing(
         final_price = _coerce_float(merged.get("price"))
         if msrp is not None and final_price is not None and msrp - final_price >= 50:
             merged["dealer_discount"] = msrp - final_price
+        # For new cars on a dealer SRP the vehicle is physically present; set a human-readable
+        # availability status when nothing more specific is available.
+        if not merged.get("availability_status") and merged.get("vehicle_condition") == "new":
+            merged["availability_status"] = "New"
+            if merged.get("is_in_stock") is None:
+                merged["is_in_stock"] = True
         vehicle_list[idx] = VehicleListing(**merged)
     return vehicle_list
 
