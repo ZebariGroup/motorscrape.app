@@ -161,6 +161,61 @@ def test_autohausen_ahp6_extract_inventory_accepts_public_key_used_vehicles_only
     assert result.vehicles[0].make == "Volkswagen"
 
 
+def test_autohausen_ahp6_keeps_rows_when_count_endpoint_fails() -> None:
+    html = """
+    <html><body>
+      <script>
+        ahp6.renderSearch('ahp6-search', {
+          publicKey: 'pk-test',
+          detailPageUri: '/gebrauchtwagen/fahrzeugsuche/:vehicleId'
+        })
+      </script>
+    </body></html>
+    """
+
+    def _fake_post(url: str, *, json=None, headers=None, timeout=None):  # type: ignore[override]
+        assert headers is not None
+        if url.endswith("/form"):
+            return _FakeResponse(
+                json_data={
+                    "make": [{"value": "52", "label": "Volkswagen"}],
+                    "model": {},
+                }
+            )
+        if url.endswith("/list"):
+            return _FakeResponse(
+                json_data={
+                    "data": [
+                        {
+                            "vehicleid": 77,
+                            "make": 52,
+                            "shortdescription": "Golf",
+                            "typeextendedcode": 2,
+                            "customerprice": "19900",
+                            "images": [],
+                        }
+                    ]
+                }
+            )
+        if url.endswith("/count"):
+            return _FakeResponse(status_code=500, json_data={"error": "boom"})
+        raise AssertionError(url)
+
+    with patch("app.services.providers.autohausen_ahp6.requests.post", side_effect=_fake_post):
+        result = extract_autohausen_ahp6(
+            page_url="https://www.volkswagen-automobile-berlin.de/gebrauchtwagen/fahrzeugsuche/",
+            html=html,
+            make_filter="Volkswagen",
+            model_filter="",
+            vehicle_category="car",
+        )
+
+    assert result is not None
+    assert len(result.vehicles) == 1
+    assert result.pagination is not None
+    assert result.pagination.total_results is None
+
+
 def test_carzilla_search_extract_inventory_fetches_trefferliste_results() -> None:
     shell_html = """
     <html><body>

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
@@ -40,6 +42,8 @@ _REQUEST_HEADERS = {
     "Content-Type": "application/json",
 }
 _GET_HEADERS = {"User-Agent": "Mozilla/5.0"}
+_AHP6_API_GATE = threading.Semaphore(1)
+_AHP6_RETRY_SCHEDULE_SECONDS: tuple[float, ...] = (0.6, 1.2, 2.4, 4.0)
 
 
 def _norm(text: str) -> str:
@@ -97,14 +101,40 @@ def _extract_default_filter(html: str) -> dict[str, list[int]]:
 
 
 def _post_json(path: str, payload: dict[str, Any]) -> dict[str, Any]:
-    response = requests.post(
-        f"{_AHP6_API_BASE}{path}",
-        json=payload,
-        headers=_REQUEST_HEADERS,
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()
+    last_response: requests.Response | None = None
+    for attempt in range(len(_AHP6_RETRY_SCHEDULE_SECONDS) + 1):
+        with _AHP6_API_GATE:
+            response = requests.post(
+                f"{_AHP6_API_BASE}{path}",
+                json=payload,
+                headers=_REQUEST_HEADERS,
+                timeout=30,
+            )
+        last_response = response
+        if response.status_code != 429:
+            response.raise_for_status()
+            return response.json()
+        if attempt >= len(_AHP6_RETRY_SCHEDULE_SECONDS):
+            break
+        retry_after_raw = (response.headers.get("Retry-After") or "").strip()
+        retry_after: float | None = None
+        if retry_after_raw:
+            try:
+                retry_after = max(0.4, float(retry_after_raw))
+            except ValueError:
+                retry_after = None
+        sleep_seconds = retry_after if retry_after is not None else _AHP6_RETRY_SCHEDULE_SECONDS[attempt]
+        logger.info(
+            "AHP6 rate-limited on %s (%s/%s); sleeping %.2fs",
+            path,
+            attempt + 1,
+            len(_AHP6_RETRY_SCHEDULE_SECONDS) + 1,
+            sleep_seconds,
+        )
+        time.sleep(sleep_seconds)
+    if last_response is not None:
+        last_response.raise_for_status()
+    raise RuntimeError(f"AHP6 request failed for path={path}")
 
 
 def _catalog_maps(form_payload: dict[str, Any]) -> tuple[dict[int, str], dict[str, int], dict[int, dict[int, str]], dict[int, dict[str, int]]]:
@@ -321,20 +351,15 @@ def extract_inventory(
     )
     offset = _page_offset(effective_url)
 
+    list_payload = {
+        "filter": filter_payload,
+        "orderBy": "priceAsc",
+        "offset": offset,
+        "limit": _DEFAULT_LIMIT,
+        "publicKey": public_key,
+    }
     try:
-        list_payload = {
-            "filter": filter_payload,
-            "orderBy": "priceAsc",
-            "offset": offset,
-            "limit": _DEFAULT_LIMIT,
-            "publicKey": public_key,
-        }
-        count_payload = {
-            "filter": filter_payload,
-            "publicKey": public_key,
-        }
         rows_response = _post_json("/list", list_payload)
-        count_response = _post_json("/count", count_payload)
     except Exception as exc:
         logger.warning("AHP6 inventory fetch failed for %s: %s", effective_url, exc)
         return None
@@ -359,9 +384,24 @@ def extract_inventory(
     if not vehicles:
         return None
 
-    total_results = _to_int(count_response.get("meta", {}).get("total"))
+    total_results: int | None = None
+    count_payload = {
+        "filter": filter_payload,
+        "publicKey": public_key,
+    }
+    try:
+        count_response = _post_json("/count", count_payload)
+        total_results = _to_int(count_response.get("meta", {}).get("total"))
+    except Exception as exc:
+        logger.info("AHP6 count fetch skipped for %s: %s", effective_url, exc)
     next_offset = offset + _DEFAULT_LIMIT
-    next_page_url = _with_page_offset(effective_url, next_offset) if total_results and next_offset < total_results else None
+    next_page_url = None
+    if total_results is not None:
+        if next_offset < total_results:
+            next_page_url = _with_page_offset(effective_url, next_offset)
+    elif len(rows) >= _DEFAULT_LIMIT:
+        # Keep pagination alive when count endpoint is rate-limited but list still succeeds.
+        next_page_url = _with_page_offset(effective_url, next_offset)
 
     return ExtractionResult(
         vehicles=vehicles,
