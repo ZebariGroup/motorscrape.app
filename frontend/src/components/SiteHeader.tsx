@@ -55,9 +55,9 @@ export function SiteHeader({ access, marketRegion, onMarketRegionChange }: Props
   return (
     <header className="border-b border-zinc-200 bg-white/80 pt-[env(safe-area-inset-top,0px)] backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80">
       <div
-        className={`mx-auto flex max-w-6xl flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between ${headerPad}`}
+        className={`mx-auto flex max-w-6xl flex-col gap-2 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:py-3 ${headerPad}`}
       >
-        <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-4">
+        <div className="flex min-w-0 flex-row items-center gap-2 sm:gap-4">
           <Link href="/" className="shrink-0 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
             Motorscrape
           </Link>
@@ -65,7 +65,7 @@ export function SiteHeader({ access, marketRegion, onMarketRegionChange }: Props
             We crawl so you can drive.
           </span>
           {(anonHint || usageHint) ? (
-            <div className="flex min-w-0 flex-col gap-0.5 text-[11px] leading-snug sm:hidden">
+            <div className="flex min-w-0 flex-col gap-0 text-[10px] leading-tight sm:hidden">
               {anonHint ? (
                 <span
                   title={anonHint}

@@ -176,11 +176,11 @@ export function SearchFormSection({
 
   return (
     <section
-      className={`rounded-2xl border bg-white p-5 sm:p-6 shadow-sm dark:bg-zinc-950 ${
+      className={`rounded-2xl border bg-white p-4 sm:p-6 shadow-sm dark:bg-zinc-950 transition-all ${
         running
           ? "border-emerald-300/80 ring-2 ring-emerald-500/15 dark:border-emerald-800/60"
           : "border-zinc-200 dark:border-zinc-800"
-      }`}
+      } ${!isFormExpanded ? "sticky top-4 z-40 shadow-md" : ""}`}
     >
       {isGameActive ? (
         <ScrapeMiniGame
@@ -209,7 +209,7 @@ export function SearchFormSection({
         </div>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <label className="col-span-full sm:col-span-1 lg:col-span-1 flex flex-col gap-1 text-sm">
               <span className="font-medium text-zinc-800 dark:text-zinc-200">Location</span>
               <div className="relative">
@@ -272,7 +272,7 @@ export function SearchFormSection({
                 </button>
               </div>
             </label>
-            <div className="col-span-full sm:col-span-1 lg:col-span-2 grid grid-cols-2 gap-4">
+            <div className="col-span-full sm:col-span-1 lg:col-span-2 grid grid-cols-2 gap-3 sm:gap-4">
               <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-zinc-800 dark:text-zinc-200">Make</span>
               {usesCatalog ? (
@@ -324,7 +324,7 @@ export function SearchFormSection({
               )}
             </label>
             </div>
-            <div className="col-span-full sm:col-span-2 lg:col-span-1 grid grid-cols-2 gap-4">
+            <div className="col-span-full sm:col-span-2 lg:col-span-1 grid grid-cols-2 gap-3 sm:gap-4">
               <label className="flex flex-col gap-1 text-sm">
                 <span className="font-medium text-zinc-800 dark:text-zinc-200">
                   Radius ({marketRegion === "eu" ? "km" : "miles"})

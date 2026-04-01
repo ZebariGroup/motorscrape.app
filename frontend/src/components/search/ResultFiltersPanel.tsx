@@ -80,7 +80,7 @@ export function ResultFiltersPanel({
       {filtersExpanded ? (
         <div className="border-t border-zinc-200 px-4 py-4 dark:border-zinc-800">
           <div className="space-y-5">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <label className="flex flex-col gap-1 text-xs">
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">Year</span>
                 <select
@@ -111,7 +111,7 @@ export function ResultFiltersPanel({
                   ))}
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-xs">
+              <label className="col-span-2 flex flex-col gap-1 text-xs sm:col-span-1">
                 <span className="font-medium text-zinc-700 dark:text-zinc-300">Color</span>
                 <select
                   value={colorFilter}
