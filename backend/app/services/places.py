@@ -471,6 +471,10 @@ async def _resolve_location_center(
         logger.debug("Location geocode HTTP %s for %r: %s", r.status_code, location, r.text[:300])
         return None
     payload = r.json() if r.content else {}
+    
+    if payload.get("status") == "REQUEST_DENIED":
+        logger.error(f"Geocoding API REQUEST_DENIED. Please enable the 'Geocoding API' in Google Cloud Console for your API key. Error: {payload.get('error_message')}")
+        
     results = payload.get("results") if isinstance(payload, dict) else None
     if not results or not isinstance(results, list) or not isinstance(results[0], dict):
         return None
