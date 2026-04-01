@@ -122,7 +122,7 @@ class Settings(BaseSettings):
     max_dealerships: int = 8
     # Concurrent dealership workers (I/O-bound scraping). Higher keeps unrelated dealers moving
     # when a few sites are slow or blocked.
-    search_concurrency: int = 16
+    search_concurrency: int = 8
     # When managed scrapers are enabled, bound worker fan-out by external capacity.
     search_workers_per_managed_slot: int = 2
     # Max concurrent HTTP fetches per normalized dealer domain (avoids hammering shared infra).
@@ -142,7 +142,7 @@ class Settings(BaseSettings):
     # Max HTML chars sent to the LLM per page (smaller = cheaper/faster).
     max_html_chars: int = 60_000
     # HTTP timeout for each scraper call (seconds). Keep this moderate so stuck sites fail fast.
-    scrape_timeout: float = 30.0
+    scrape_timeout: float = 15.0
     # Platform detection cache. Override PLATFORM_CACHE_PATH on Vercel if using persistent storage.
     platform_cache_enabled: bool = True
     platform_cache_path: str = Field(default_factory=_default_platform_cache_path)
