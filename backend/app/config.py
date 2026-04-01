@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     # Some ZenRows plans do not include premium proxies; leave off unless needed.
     zenrows_premium_proxy: bool = False
     # Milliseconds to wait after JS render (only when js_render=true); lower saves time/credits.
-    zenrows_wait_ms: int = 3000
+    zenrows_wait_ms: int = 2500
     # Max concurrent in-flight ZenRows API calls. Default to the current Start-tier
     # capacity so production can use the upgraded pool without extra env tuning.
     zenrows_max_concurrency: int = 50
@@ -102,7 +102,7 @@ class Settings(BaseSettings):
     # Brief cooldown after sustained ZenRows throttling to avoid stampedes/cost spikes.
     zenrows_cooldown_seconds: int = 15
     scrapingbee_api_key: str = ""
-    scrapingbee_wait_ms: int = 3000
+    scrapingbee_wait_ms: int = 2500
     scrapingbee_max_concurrency: int = 4
     # Shared cap across managed providers (ZenRows + ScrapingBee). Keep this aligned
     # with the upgraded ZenRows plan so the aggregate gate is not the bottleneck.
@@ -142,7 +142,7 @@ class Settings(BaseSettings):
     # Max HTML chars sent to the LLM per page (smaller = cheaper/faster).
     max_html_chars: int = 60_000
     # HTTP timeout for each scraper call (seconds). Keep this moderate so stuck sites fail fast.
-    scrape_timeout: float = 15.0
+    scrape_timeout: float = 30.0
     # Platform detection cache. Override PLATFORM_CACHE_PATH on Vercel if using persistent storage.
     platform_cache_enabled: bool = True
     platform_cache_path: str = Field(default_factory=_default_platform_cache_path)

@@ -60,7 +60,7 @@ _SONIC_RELAXED_INVENTORY_PLATFORMS = frozenset(
 _scraper_client_lock = asyncio.Lock()
 _direct_httpx_client: httpx.AsyncClient | None = None
 _standard_httpx_client: httpx.AsyncClient | None = None
-_HTTPX_LIMITS = httpx.Limits(max_connections=200, max_keepalive_connections=50)
+_HTTPX_LIMITS = httpx.Limits(max_connections=200, max_keepalive_connections=100)
 
 
 async def _get_direct_httpx_client() -> httpx.AsyncClient:
