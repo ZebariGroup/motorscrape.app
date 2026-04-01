@@ -20,7 +20,7 @@ export const PRO_BULLETS = [
 
 export const MAX_PRO_BULLETS = [
   "2,000 included searches / month",
-  "Up to 30 dealerships per run · up to 10 listing pages per dealer",
+  "Up to 20 dealerships per run · up to 10 listing pages per dealer",
   "Wide radius: up to 100 miles",
   "8 concurrent searches · CSV export · advanced inventory scope options",
 ] as const;
@@ -40,7 +40,7 @@ export const PRO_BULLETS_SHORT = [
 
 export const MAX_PRO_BULLETS_SHORT = [
   "2,000 included searches / month",
-  "Up to 30 dealerships · up to 100 mi radius",
+  "Up to 20 dealerships · up to 100 mi radius",
   "CSV export · 8 concurrent searches · advanced inventory scope",
 ] as const;
 

@@ -35,7 +35,7 @@ class SearchRequest(BaseModel):
     max_dealerships: int | None = Field(
         default=None,
         ge=1,
-        le=30,
+        le=20,
         description="Optional per-search override for number of dealerships to scrape.",
     )
     max_pages_per_dealer: int | None = Field(

@@ -94,7 +94,7 @@ PREMIUM_LIMITS = TierLimits(
 
 # Max Pro — $200/mo
 MAX_PRO_LIMITS = TierLimits(
-    max_dealerships=30,
+    max_dealerships=20,
     max_pages_per_dealer=10,
     max_radius_miles=100,
     max_concurrent_searches=8,
@@ -106,7 +106,7 @@ MAX_PRO_LIMITS = TierLimits(
 )
 
 ENTERPRISE_LIMITS = TierLimits(
-    max_dealerships=30,
+    max_dealerships=20,
     max_pages_per_dealer=10,
     max_radius_miles=250,
     max_concurrent_searches=5,
@@ -119,7 +119,7 @@ ENTERPRISE_LIMITS = TierLimits(
 
 # White-label / API customers — contract-governed; high technical ceilings.
 CUSTOM_LIMITS = TierLimits(
-    max_dealerships=30,
+    max_dealerships=20,
     max_pages_per_dealer=10,
     max_radius_miles=250,
     max_concurrent_searches=8,

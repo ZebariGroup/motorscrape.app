@@ -1237,7 +1237,7 @@ async def stream_search(
             },
         )
     yield sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
-    requested_dealerships = max(1, min(max_dealerships or settings.max_dealerships, 30))
+    requested_dealerships = max(1, min(max_dealerships or settings.max_dealerships, 20))
     requested_pages = max(
         1,
         min(
