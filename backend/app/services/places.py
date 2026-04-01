@@ -806,12 +806,7 @@ async def find_dealerships(
         market_region=market_region,
     )
     use_search_cache = query_variant_limit is None
-    if use_search_cache:
-        cached_results = get_cached_places_search(search_cache_key)
-        if cached_results is not None:
-            metrics.search_cache_hits += 1
-            return cached_results
-
+    
     async with httpx.AsyncClient(timeout=30.0) as client:
         location_center = None
         if requested_radius >= max(1, int(settings.places_geocode_min_radius_miles or 0)):
@@ -821,6 +816,27 @@ async def find_dealerships(
                 location=location,
                 metrics=metrics,
             )
+            
+        if use_search_cache and location_center is not None:
+            from app.services.places_supabase import check_supabase_cache
+            center_lat, center_lng = location_center
+            supabase_cached_results = check_supabase_cache(
+                make=make_q,
+                vehicle_category=vehicle_category,
+                lat=center_lat,
+                lng=center_lng,
+                radius_miles=requested_radius,
+            )
+            if supabase_cached_results is not None:
+                metrics.search_cache_hits += 1
+                return supabase_cached_results
+
+        if use_search_cache:
+            cached_results = get_cached_places_search(search_cache_key)
+            if cached_results is not None:
+                metrics.search_cache_hits += 1
+                return cached_results
+
         location_restriction = None
         if location_center is not None:
             center_lat, center_lng = location_center
@@ -934,6 +950,11 @@ async def find_dealerships(
             name = _display_name(place)
             address = place.get("formattedAddress") or ""
             website = place.get("websiteUri")
+            
+            location_obj = place.get("location") or {}
+            lat = location_obj.get("latitude")
+            lng = location_obj.get("longitude")
+            
             candidates.append(
                 {
                     "name": name,
@@ -941,6 +962,8 @@ async def find_dealerships(
                     "pid": pid,
                     "place_resource": place_resource,
                     "website": _normalize_dealer_website_url(str(website or "")) if website else "",
+                    "lat": lat,
+                    "lng": lng,
                 }
             )
 
@@ -1004,12 +1027,25 @@ async def find_dealerships(
                     place_id=pid or place_resource,
                     address=address,
                     website=website,
+                    lat=c.get("lat"),
+                    lng=c.get("lng"),
                 )
             )
 
         def _finalize(found: list[DealershipFound]) -> list[DealershipFound]:
             if use_search_cache:
                 set_cached_places_search(search_cache_key, found)
+                if location_center is not None:
+                    from app.services.places_supabase import save_to_supabase_cache
+                    center_lat, center_lng = location_center
+                    save_to_supabase_cache(
+                        make=make_q,
+                        vehicle_category=vehicle_category,
+                        lat=center_lat,
+                        lng=center_lng,
+                        radius_miles=requested_radius,
+                        dealerships=found,
+                    )
             return found
 
         if not make_q:

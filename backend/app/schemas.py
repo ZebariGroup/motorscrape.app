@@ -59,6 +59,8 @@ class DealershipFound(BaseModel):
     place_id: str
     address: str
     website: str | None = None
+    lat: float | None = None
+    lng: float | None = None
 
 
 class VehicleListing(BaseModel):
