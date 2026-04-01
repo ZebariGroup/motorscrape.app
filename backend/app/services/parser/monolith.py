@@ -233,6 +233,10 @@ _VEHICLE_FULL_REGEX = re.compile(
     r'(?:.*?\\"vdpUrl\\":\\"(?P<vdpUrl>[^\\]*)\\")?',
 )
 _TEXT_PRICE_RE = re.compile(r"\$([0-9][0-9,]{2,})(?:\.\d{2})?")
+_TEXT_EURO_PRICE_RE = re.compile(
+    r"(?:€\s*)?[0-9]{1,3}(?:\.[0-9]{3})+(?:,\d{2}|,-)?\s*€(?:\*+)?",
+    re.I,
+)
 _TEXT_MILEAGE_LABELED_RE = re.compile(
     r"\bmileage\b(?:\s*(?::|#|-|\bis\b))?\s*([0-9][0-9,]{0,6})\b",
     re.I,
@@ -705,9 +709,23 @@ def _coerce_float(val: Any) -> float | None:
         return None
     if isinstance(val, (int, float)) and not isinstance(val, bool):
         return float(val)
-    s = re.sub(r"[^\d.]", "", str(val))
+    text = str(val).strip().replace("\xa0", " ")
+    s = re.sub(r"[^\d,.\-]", "", text)
     if not s:
         return None
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif "," in s:
+        if re.search(r",\d{1,2}$", s):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif s.count(".") > 1 or re.search(r"\.\d{3}(?:\.|$)", s):
+        s = s.replace(".", "")
+    s = s.rstrip("-.")
     try:
         return float(s)
     except ValueError:
@@ -733,6 +751,10 @@ def _extract_price_from_text(text: str | None) -> float | None:
     if not text:
         return None
     for match in _TEXT_PRICE_RE.finditer(text):
+        price = _coerce_float(match.group(0))
+        if price and price > 500:
+            return price
+    for match in _TEXT_EURO_PRICE_RE.finditer(text):
         price = _coerce_float(match.group(0))
         if price and price > 500:
             return price
@@ -2075,6 +2097,7 @@ def extract_dom_vehicle_cards(
     selectors = (
         ".vehicle-card",
         ".inventory-card",
+        ".cc-vehicle",
         ".inventoryList-bike",
         "li.featuredVehicle",
         ".result-wrap.new-vehicle",
@@ -2093,6 +2116,7 @@ def extract_dom_vehicle_cards(
         ".inventory-vehicle-block",
         ".vehicle-box",
         ".vehicle-specials",
+        "[data-test-section='vehicleCard']",
         "[data-vehicle-vin]",
         "li[data-unit-id]",
         "li[data-unit-condition]",
@@ -2417,6 +2441,9 @@ def extract_dom_vehicle_cards(
             or wilson_title
             or gp_title
             or tv_title
+            or _text_or_none(card.select_one(".vehicle-headline .card-title"))
+            or _text_or_none(card.select_one(".card-title a"))
+            or _text_or_none(card.select_one(".card-title"))
             or _text_or_none(card.select_one(".vehicle-card__title"))
             or _text_or_none(card.select_one(".vehicleTitle"))
             or _text_or_none(card.select_one(".hit-title"))

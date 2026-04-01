@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from app.schemas import ExtractionResult
 from app.services.providers import (
+    autohausen_ahp6,
+    carzilla_search,
     dealer_dot_com,
     dealer_inspire,
     dealer_on,
@@ -19,6 +21,8 @@ _HANDLERS = {
     "dealer_dot_com": dealer_dot_com.extract_inventory,
     "dealer_on": dealer_on.extract_inventory,
     "dealer_inspire": dealer_inspire.extract_inventory,
+    "autohausen_ahp6": autohausen_ahp6.extract_inventory,
+    "carzilla_search": carzilla_search.extract_inventory,
     "cdk_dealerfire": generic_franchise.extract_inventory_for_platform("cdk_dealerfire"),
     "d2c_media": generic_franchise.extract_inventory_for_platform("d2c_media"),
     "revver_digital_marine": generic_franchise.extract_inventory_for_platform("revver_digital_marine"),

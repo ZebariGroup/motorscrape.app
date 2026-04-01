@@ -76,6 +76,97 @@ def test_try_extract_dom_vehicle_card() -> None:
     assert v.listing_url == "https://dealer.example/inventory/v1"
 
 
+def test_try_extract_vanmossel_vehicle_card_with_euro_price() -> None:
+    html = """
+    <html><body>
+      <div data-test-section="vehicleCard">
+        <a href="/fahrzeugsuche/82194126-1-volkswagen-passat-2022">
+          <img data-lazy-src="https://images.example.com/passat.jpg" />
+        </a>
+        <div>
+          Volkswagen Passat
+          Variant 2.0 TDI DSG Business
+          75.631 km
+          Diesel
+          Automatik
+          2022
+          Kaufen
+          24.980 €
+          Anschauen
+        </div>
+      </div>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.loehrgruppe.de/fahrzeugsuche?brand=volkswagen",
+        html=html,
+        make_filter="Volkswagen",
+        model_filter="",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.make == "Volkswagen"
+    assert v.price == 24980
+    assert "Passat" in (v.raw_title or "")
+    assert v.image_url == "https://images.example.com/passat.jpg"
+    assert v.listing_url == "https://www.loehrgruppe.de/fahrzeugsuche/82194126-1-volkswagen-passat-2022"
+
+
+def test_try_extract_cc_vehicle_card_with_euro_price_and_next_page() -> None:
+    html = """
+    <html><body>
+      <div class="cc-vehicle card mb-4">
+        <div class="vehicle-image">
+          <a class="cc-link-vehicle-detail cc-vehicle__image"
+             href="/fahrzeuge/fahrzeugsuche/detailansicht/fahrzeug/volkswagen/e-up/gebrauchtfahrzeug/8861640/?ma=69&of=SalePrice">
+            <img data-src="https://images.example.com/eup.jpg" />
+          </a>
+        </div>
+        <div class="card-body">
+          <div class="vehicle-headline">
+            <h5 class="card-title mb-3">
+              <a class="cc-link-vehicle-detail"
+                 href="/fahrzeuge/fahrzeugsuche/detailansicht/fahrzeug/volkswagen/e-up/gebrauchtfahrzeug/8861640/?ma=69&of=SalePrice">
+                Volkswagen e-up! move up
+              </a>
+            </h5>
+          </div>
+          <div class="vehicle-highlight">
+            <span>Gebrauchtwagen</span>
+            <span>92.441 km</span>
+            <span>Elektro</span>
+            <span>Automatik</span>
+          </div>
+          <div class="vehicle-price-wrap">
+            <div class="vehicle-price__price mb-0 text-gs h5">11.100,- €</div>
+            <span class="vehicle-price__price vehicle-price__price--financing text-gs">149,- €</span>
+          </div>
+        </div>
+      </div>
+      <nav aria-label="Pagination">
+        <a href="?ma=69&of=SalePrice&cp=2" aria-label="Page 2">2</a>
+      </nav>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.gottfried-schultz.de/fahrzeuge/fahrzeugsuche/trefferliste/?ma=69&of=SalePrice",
+        html=html,
+        make_filter="Volkswagen",
+        model_filter="",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.raw_title == "Volkswagen e-up! move up"
+    assert v.price == 11100
+    assert v.image_url == "https://images.example.com/eup.jpg"
+    assert v.listing_url == (
+        "https://www.gottfried-schultz.de/fahrzeuge/fahrzeugsuche/detailansicht/fahrzeug/"
+        "volkswagen/e-up/gebrauchtfahrzeug/8861640/?ma=69&of=SalePrice"
+    )
+
+
 def test_try_extract_dom_vehicle_card_reads_color_location_and_status_aliases() -> None:
     html = """
     <html><body>

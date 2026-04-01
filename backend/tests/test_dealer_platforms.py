@@ -97,6 +97,53 @@ def test_detect_platform_profile_matches_dealer_on_without_requiring_render() ->
     assert profile.requires_render is False
 
 
+def test_detect_platform_profile_matches_autohausen_ahp6() -> None:
+    html = """
+    <html><body>
+      <script src="https://vgrdapps.autohausen.ag/ahp6/snippet/main.js"></script>
+      <script>
+        document.addEventListener('DOMContentLoaded', () => {
+          ahp6.renderSearch('ahp6-search', {
+            publicKey: 'abc123',
+            searchPageUri: '/gebrauchtwagen/fahrzeugsuche/',
+            detailPageUri: '/gebrauchtwagen/fahrzeugsuche/:vehicleId'
+          })
+        })
+      </script>
+    </body></html>
+    """
+    profile = detect_platform_profile(
+        html,
+        page_url="https://www.volkswagen-automobile-berlin.de/gebrauchtwagen/fahrzeugsuche/",
+    )
+    assert profile is not None
+    assert profile.platform_id == "autohausen_ahp6"
+    assert profile.requires_render is False
+
+
+def test_detect_platform_profile_matches_carzilla_search() -> None:
+    html = """
+    <html><body>
+      <script>
+        var carzillaSearchInstance1 = {};
+        carzillaSearchInstance1.RestServiceUrl = "/?type=17911";
+      </script>
+      <div class="cc-vehicle"></div>
+      <a class="cc-link-vehicle-detail" href="/fahrzeuge/fahrzeugsuche/detailansicht/fahrzeug/volkswagen/up/gebrauchtfahrzeug/1">Detail</a>
+      <script>
+        vm.QueryStringDetailSearch = vm.Carzilla.getQueryString(searchParams[0]);
+      </script>
+    </body></html>
+    """
+    profile = detect_platform_profile(
+        html,
+        page_url="https://www.gottfried-schultz.de/fahrzeuge/fahrzeugsuche/trefferliste/?ma=69&of=SalePrice",
+    )
+    assert profile is not None
+    assert profile.platform_id == "carzilla_search"
+    assert profile.requires_render is False
+
+
 def test_playwright_inventory_instructions_include_dealer_inspire_network_wait() -> None:
     instructions = playwright_inventory_instructions_for_url(
         "https://dealer.example/new-vehicles/",

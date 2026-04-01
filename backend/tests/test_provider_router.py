@@ -431,6 +431,60 @@ def test_resolve_inventory_url_for_provider_make_only_avoids_detail_pages() -> N
     }
 
 
+def test_resolve_inventory_url_for_provider_autohausen_uses_search_page_uri() -> None:
+    route = ProviderRoute(
+        platform_id="autohausen_ahp6",
+        confidence=1.0,
+        extraction_mode="provider",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("gebrauchtwagen/fahrzeugsuche",),
+        inventory_url_hint="https://www.volkswagen-automobile-berlin.de/",
+    )
+    html = """
+    <html><body>
+      <a href="/gebrauchtwagen-id-family">ID Family</a>
+      <script>
+        ahp6.renderSearch('ahp6-search', {
+          publicKey: 'abc123',
+          searchPageUri: '/gebrauchtwagen/fahrzeugsuche/',
+          detailPageUri: '/gebrauchtwagen/fahrzeugsuche/:vehicleId'
+        })
+      </script>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.volkswagen-automobile-berlin.de/",
+        route,
+        fallback_url="https://www.volkswagen-automobile-berlin.de/gebrauchtwagen/fahrzeugsuche/",
+        make="Volkswagen",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.volkswagen-automobile-berlin.de/gebrauchtwagen/fahrzeugsuche/"
+
+
+def test_resolve_inventory_url_for_provider_make_only_avoids_offers_gw_marketing_pages() -> None:
+    html = """
+    <html><body>
+      <a href="/de/haendler-werkstatt/volkswagen-zentrum-muenchen-schleibingerstrasse/offers-gw.html/__app/gebrauchtwagen-fruehjahr.app">
+        Zertifizierte Gebrauchtwagen
+      </a>
+      <a href="/de/modelle/verfuegbare-fahrzeuge.html">Autosuche</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.volkswagen.de/de/haendler-werkstatt/volkswagen-zentrum-muenchen-schleibingerstrasse.html",
+        None,
+        fallback_url="https://www.volkswagen.de/de/modelle/verfuegbare-fahrzeuge.html",
+        make="Volkswagen",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.volkswagen.de/de/modelle/verfuegbare-fahrzeuge.html"
+
+
 def test_resolve_inventory_url_for_provider_generic_make_search_keeps_fallback_when_best_url_has_other_brand() -> None:
     html = """
     <html><body>

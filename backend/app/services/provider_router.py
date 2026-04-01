@@ -312,9 +312,19 @@ def _looks_like_non_inventory_marketing_url(url: str) -> bool:
             "/modelle",
             "/ansprechpartner",
             "/probefahrt",
+            "/offers-gw",
+            "/offers.html",
+            "/id-family",
             "/service",
         )
     )
+
+
+def _extract_autohausen_search_page_url(html: str, page_url: str) -> str | None:
+    match = re.search(r"searchPageUri:\s*'([^']+)'", html or "", re.I)
+    if not match:
+        return None
+    return _normalize_inventory_candidate_url(urljoin(page_url, match.group(1).strip()))
 
 
 def _looks_like_model_scoped_inventory_path(url: str, make_norm: str) -> bool:
@@ -1578,6 +1588,29 @@ def resolve_inventory_url_for_provider(
             else:
                 generic_base = _canonical_dealer_inspire_inventory_url(generic_base, condition)
             best_url = generic_base
+
+    if route and route.platform_id == "autohausen_ahp6":
+        generic_base = _extract_autohausen_search_page_url(html, base_url) or _normalize_inventory_candidate_url(
+            best_url if best_score > 0 else (route.inventory_url_hint if route else None) or fallback_url
+        )
+        if generic_base:
+            best_url = generic_base
+
+    if route and route.platform_id == "carzilla_search":
+        generic_base = _normalize_inventory_candidate_url(
+            best_url if best_score > 0 else (route.inventory_url_hint if route else None) or fallback_url
+        )
+        if generic_base:
+            parts = urlsplit(generic_base)
+            path = parts.path
+            path_lower = path.lower()
+            if "/fahrzeugsuche/trefferliste/" in path_lower:
+                best_url = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+            elif "/fahrzeugsuche/" in path_lower:
+                normalized_path = path if path.endswith("/") else f"{path}/"
+                best_url = urlunsplit((parts.scheme, parts.netloc, normalized_path, "", ""))
+            else:
+                best_url = urlunsplit((parts.scheme, parts.netloc, "/fahrzeuge/fahrzeugsuche/", "", ""))
 
     if route and route.platform_id == "oneaudi_falcon" and condition == "all":
         generic_base = _normalize_inventory_candidate_url(
