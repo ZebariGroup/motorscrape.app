@@ -42,8 +42,17 @@ _DIRECT_FIRST_RENDER_PREFERRED_PLATFORMS = frozenset({
 _SONIC_STYLE_INVENTORY_PLATFORMS = frozenset(
     {
         "ford_family_inventory",
-        "nissan_infiniti_inventory",
         "kia_inventory",
+    }
+)
+# Nissan/INFINITI pages share the Sonic shell but often include enough JSON-LD
+# in the direct response for structured extraction.  They use the relaxed
+# _SONIC_RELAXED_INVENTORY_PLATFORMS path which accepts direct HTML when the
+# page has sufficient vehicle signals.
+_SONIC_RELAXED_INVENTORY_PLATFORMS = frozenset(
+    {
+        "nissan_infiniti_inventory",
+        "toyota_lexus_oem_inventory",
     }
 )
 
@@ -808,12 +817,20 @@ def _count_structured_vehicle_signals(html: str) -> int:
     )
 
 
+_SONIC_JSONLD_SUFFICIENT_THRESHOLD = 6
+
+
 def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str | None = None) -> bool:
     if _looks_like_block_page(html):
         return False
-    # Sonic/TeamVelocity SPA pages put a small JSON-LD snippet for SEO but load
-    # the real inventory via Vue.js — treat them as render-required always.
     if page_kind == "inventory" and _looks_like_sonic_teamvelocity_spa(html):
+        # Sonic/TeamVelocity SPA pages embed JSON-LD for SEO but load inventory
+        # via Vue.js.  When the JSON-LD has enough vehicle signals, accept the
+        # direct HTML so structured extraction can pull from the JSON-LD without
+        # waiting for a full JS render.
+        vehicle_signals = _count_structured_vehicle_signals(html)
+        if vehicle_signals >= _SONIC_JSONLD_SUFFICIENT_THRESHOLD:
+            return True
         return False
     if page_kind == "inventory" and platform_id in _SONIC_STYLE_INVENTORY_PLATFORMS:
         if _looks_like_placeholder_inventory(html):
@@ -822,7 +839,21 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str 
             return False
         if _html_looks_inventory_ready(html, platform_id=platform_id):
             return True
-        if _has_structured_inventory_hint(html) and _count_structured_vehicle_signals(html) >= 3:
+        vehicle_signals = _count_structured_vehicle_signals(html)
+        if _has_structured_inventory_hint(html) and vehicle_signals >= 3:
+            return True
+        if vehicle_signals >= _SONIC_JSONLD_SUFFICIENT_THRESHOLD:
+            return True
+    elif page_kind == "inventory" and platform_id in _SONIC_RELAXED_INVENTORY_PLATFORMS:
+        if _looks_like_placeholder_inventory(html):
+            return False
+        if _looks_like_empty_inventory_shell(html):
+            return False
+        if _html_looks_inventory_ready(html, platform_id=platform_id):
+            return True
+        if _has_structured_inventory_hint(html):
+            return True
+        if _count_structured_vehicle_signals(html) >= 3:
             return True
     elif page_kind == "inventory" and platform_id == "oneaudi_falcon":
         if _looks_like_placeholder_inventory(html):
@@ -831,9 +862,6 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str 
             return False
         if _html_looks_inventory_ready(html, platform_id=platform_id):
             return True
-        # oneaudi shells often expose SEO JSON-LD or bootstrap blobs before the
-        # client-side inventory has hydrated. Require multiple vehicle-specific
-        # signals before trusting direct HTML as extraction-ready.
         if _has_structured_inventory_hint(html) and _count_structured_vehicle_signals(html) >= 3:
             return True
     elif page_kind == "inventory" and platform_id == "dealer_on":
@@ -1000,6 +1028,17 @@ def _html_looks_inventory_ready(html: str, *, platform_id: str | None = None) ->
             or "inventory_listing" in lower
             or "si-vehicle-box" in lower
             or "/viewdetails/" in lower
+            or any(marker in lower for marker in _INVENTORY_HINTS)
+            or _has_dom_inventory_result_tiles(html)
+        )
+    if platform_id in _SONIC_RELAXED_INVENTORY_PLATFORMS:
+        return (
+            "vehicle_results_label" in lower
+            or "inventory_listing" in lower
+            or "si-vehicle-box" in lower
+            or "/viewdetails/" in lower
+            or "ws-inv-data" in lower
+            or "inventoryapiurl" in lower
             or any(marker in lower for marker in _INVENTORY_HINTS)
             or _has_dom_inventory_result_tiles(html)
         )

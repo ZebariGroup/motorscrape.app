@@ -3179,6 +3179,13 @@ async def stream_search(
         )
         final_discovery_logged = True
 
+    def _dealer_needs_render(dealer: DealershipFound) -> bool:
+        domain = normalize_dealer_domain((dealer.website or "").strip())
+        entry = platform_cache_entries.get(domain)
+        if entry is None:
+            return True
+        return bool(entry.requires_render)
+
     async def _launch_dealers(batch: list[DealershipFound]) -> int:
         launched_now = 0
         for dealer in batch:
@@ -3193,10 +3200,21 @@ async def stream_search(
             launched_now += 1
         return launched_now
 
+    _PRIORITY_BATCH_SIZE = 2
+    deferred_dealers: list[DealershipFound] = []
+
     try:
         if not progressive_discovery_enabled:
             await _log_discovery_result()
-        workers_remaining = await _launch_dealers(dealers)
+        all_render_heavy = len(dealers) > _PRIORITY_BATCH_SIZE and all(
+            _dealer_needs_render(d) for d in dealers
+        )
+        if all_render_heavy:
+            priority_batch = dealers[:_PRIORITY_BATCH_SIZE]
+            deferred_dealers = dealers[_PRIORITY_BATCH_SIZE:]
+            workers_remaining = await _launch_dealers(priority_batch)
+        else:
+            workers_remaining = await _launch_dealers(dealers)
         if progressive_discovery_enabled and full_discovery_task is not None and workers_remaining > 0:
             yield sse_pack(
                 "status",
@@ -3256,6 +3274,11 @@ async def stream_search(
                 item = queue_waiter.result()
                 if item is _SSE_STREAM_WORKER_DONE:
                     workers_remaining -= 1
+                    if deferred_dealers:
+                        remaining_deferred = deferred_dealers[:]
+                        deferred_dealers.clear()
+                        launched_deferred = await _launch_dealers(remaining_deferred)
+                        workers_remaining += launched_deferred
                 else:
                     yield item
 

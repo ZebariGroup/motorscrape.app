@@ -132,20 +132,20 @@ def _compact_instruction_payload(steps: list[dict[str, Any]]) -> str:
     return json.dumps(steps, separators=(",", ":"))
 
 
-def _oneaudi_falcon_inventory_js_instructions(rounds: int = 8) -> str:
-    # Define the helper once so the ZenRows query string stays comfortably below common URL limits.
-    # rounds=8 keeps total js_instructions wait time at 26s, safely under ZenRows' 30s hard cap (REQS004).
+def _oneaudi_falcon_inventory_js_instructions(rounds: int = 4) -> str:
+    # Most Audi dealer inventories are <50 vehicles; 4 rounds is enough to load
+    # them while keeping total scripted wait ~13s, well under ZenRows' 30s cap.
     steps: list[dict[str, int | str]] = [
         {"evaluate": _ONEAUDI_FALCON_DEFINE_LOAD_MORE_HELPER_JS},
-        {"wait": 2000},
+        {"wait": 1500},
     ]
     for _ in range(max(1, rounds)):
         steps.extend(
             [
                 {"evaluate": _ONEAUDI_FALCON_SCROLL_BOTTOM_JS},
-                {"wait": 1200},
+                {"wait": 800},
                 {"evaluate": _ONEAUDI_FALCON_CLICK_LOAD_MORE_JS},
-                {"wait": 1800},
+                {"wait": 1500},
             ]
         )
     return _compact_instruction_payload(steps)
@@ -230,7 +230,7 @@ def _team_velocity_playwright_instructions(scroll_rounds: int = 3) -> str:
     return _compact_instruction_payload(steps)
 
 
-def _oneaudi_falcon_playwright_instructions(rounds: int = 8) -> str:
+def _oneaudi_falcon_playwright_instructions(rounds: int = 4) -> str:
     steps = json.loads(_oneaudi_falcon_inventory_js_instructions(rounds=rounds))
     if not isinstance(steps, list):
         steps = []
@@ -290,13 +290,13 @@ _MARINEMAX_BOATS_SRP_ZENROWS_JS = _compact_instruction_payload(
 
 _FORD_FAMILY_INVENTORY_ZENROWS_JS = _compact_instruction_payload(
     [
-        {"wait": 2500},
+        {"wait": 1800},
         {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 5000));"},
-        {"wait": 1800},
+        {"wait": 1200},
         {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 9000));"},
-        {"wait": 1800},
+        {"wait": 1200},
         {"evaluate": "window.scrollTo(0, document.body.scrollHeight);"},
-        {"wait": 2200},
+        {"wait": 1500},
     ]
 )
 
@@ -315,7 +315,6 @@ def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None 
         "ford_family_inventory",
         "gm_family_inventory",
         "honda_acura_inventory",
-        "nissan_infiniti_inventory",
         "kia_inventory",
     }:
         return _FORD_FAMILY_INVENTORY_ZENROWS_JS.strip()
@@ -337,7 +336,6 @@ def playwright_inventory_instructions_for_url(url: str, platform_id: str | None 
         return _ONEAUDI_FALCON_PLAYWRIGHT_INSTRUCTIONS.strip()
     if platform_id in {
         "ford_family_inventory",
-        "nissan_infiniti_inventory",
         "kia_inventory",
     }:
         return _FORD_FAMILY_PLAYWRIGHT_INSTRUCTIONS.strip()
