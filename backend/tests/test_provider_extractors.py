@@ -12,6 +12,7 @@ from app.services.providers.jazel import extract_inventory as extract_jazel
 from app.services.providers.purecars import extract_inventory as extract_purecars
 from app.services.providers.shift_digital import extract_inventory as extract_shift_digital
 from app.services.providers.sincro_digital import extract_inventory as extract_sincro_digital
+from app.services.providers.tesla_inventory import extract_inventory as extract_tesla_inventory
 from app.services.providers.team_velocity import extract_inventory as extract_team_velocity
 
 
@@ -418,6 +419,49 @@ def test_dealer_spike_extract_inventory_normalizes_structured_payload_fields() -
     assert vehicle.vin == "YDV12345A125"
     assert vehicle.vehicle_identifier == "YDV12345A125"
 
+
+
+def test_tesla_inventory_extract_inventory_parses_inline_vehicle_records() -> None:
+    html = """
+    <html><body>
+      <script type="application/json">
+        {
+          "results": [
+            {
+              "VIN": "5YJ3E1EA9NF123456",
+              "Year": 2022,
+              "Model": "Model 3",
+              "TrimName": "Long Range AWD",
+              "Price": 31990,
+              "Odometer": 12450,
+              "ExteriorColor": "Pearl White Multi-Coat",
+              "URL": "/inventory/used/m3/5YJ3E1EA9NF123456"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+    result = extract_tesla_inventory(
+        page_url="https://www.tesla.com/inventory/used/m3?zip=90067",
+        html=html,
+        make_filter="Tesla",
+        model_filter="Model 3",
+        vehicle_category="car",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "Tesla"
+    assert vehicle.model == "Model 3"
+    assert vehicle.trim == "Long Range AWD"
+    assert vehicle.year == 2022
+    assert vehicle.price == 31990
+    assert vehicle.mileage == 12450
+    assert vehicle.vin == "5YJ3E1EA9NF123456"
+    assert vehicle.vehicle_identifier == "5YJ3E1EA9NF123456"
+    assert vehicle.vehicle_condition == "used"
+    assert vehicle.listing_url == "https://www.tesla.com/inventory/used/m3/5YJ3E1EA9NF123456"
 
 
 def test_autohausen_ahp6_extract_inventory_maps_api_rows_and_paginates() -> None:

@@ -96,6 +96,42 @@ def test_speculative_inventory_url_builds_platform_specific_srp() -> None:
         )
         == "https://dealer.example/inventory"
     )
+    assert (
+        speculative_inventory_url(
+            "www.tesla.com",
+            "tesla_inventory",
+            "new",
+            website="https://www.tesla.com/findus/location/store/centurycity",
+        )
+        == "https://www.tesla.com/inventory/new/"
+    )
+
+
+def test_resolve_inventory_url_for_provider_canonicalizes_tesla_store_url() -> None:
+    route = ProviderRoute(
+        platform_id="tesla_inventory",
+        confidence=1.0,
+        extraction_mode="provider",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory/new", "inventory/used"),
+        inventory_url_hint="https://www.tesla.com/findus/location/store/centurycity",
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html><body><a href='/findus/location/store/centurycity'>Store</a></body></html>",
+        "https://www.tesla.com/findus/location/store/centurycity",
+        route,
+        fallback_url="https://www.tesla.com/findus/location/store/centurycity",
+        make="Tesla",
+        model="Model Y",
+        vehicle_condition="new",
+    )
+    parsed = urlsplit(url)
+    assert parsed.netloc == "www.tesla.com"
+    assert parsed.path == "/inventory/new/my"
+    query = parse_qs(parsed.query)
+    assert query.get("arrangeby") == ["relevance"]
 
 
 def test_resolve_inventory_url_for_provider_canonicalizes_oneaudi_all_to_generic_new_root() -> None:

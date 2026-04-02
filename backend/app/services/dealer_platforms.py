@@ -399,6 +399,17 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         requires_render=True,
     ),
     PlatformDefinition(
+        platform_id="tesla_inventory",
+        markers=(
+            "tesla.com/findus/location/store",
+            "tesla.com/inventory",
+            "tesla inventory",
+        ),
+        inventory_path_hints=("inventory/new", "inventory/used", "inventory"),
+        extraction_mode="provider",
+        requires_render=True,
+    ),
+    PlatformDefinition(
         platform_id="dealer_dot_com",
         markers=(
             "dealer.com",

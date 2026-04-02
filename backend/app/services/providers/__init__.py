@@ -22,6 +22,7 @@ from app.services.providers import (
     purecars,
     shift_digital,
     sincro_digital,
+    tesla_inventory,
     team_velocity,
 )
 
@@ -53,6 +54,7 @@ _HANDLERS = {
     "harley_digital_showroom": shift_digital.extract_inventory,
     "dealer_spike": dealer_spike.extract_inventory,
     "oneaudi_falcon": generic_franchise.extract_inventory_for_platform("oneaudi_falcon"),
+    "tesla_inventory": tesla_inventory.extract_inventory,
 }
 
 

@@ -373,6 +373,23 @@ def test_detect_platform_profile_matches_dealer_spike_homepage_markers() -> None
     assert "default.asp?page=xallinventory" in inventory_hints_for_platform("dealer_spike")
 
 
+def test_detect_platform_profile_matches_tesla_store_markers() -> None:
+    html = """
+    <html><body>
+      <a href="/inventory/new">Inventory</a>
+      <title>Tesla Los Angeles - Century City</title>
+    </body></html>
+    """
+    profile = detect_platform_profile(
+        html,
+        page_url="https://www.tesla.com/findus/location/store/centurycity",
+    )
+    assert profile is not None
+    assert profile.platform_id == "tesla_inventory"
+    assert profile.requires_render is True
+    assert "inventory/new" in inventory_hints_for_platform("tesla_inventory")
+
+
 def test_detect_platform_profile_prefers_dealer_spike_over_generic_dealer_dot_com_marker() -> None:
     html = """
     <html><body>

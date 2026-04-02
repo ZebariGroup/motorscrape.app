@@ -75,6 +75,7 @@ _KNOWN_BRAND_TOKENS: frozenset[str] = frozenset(
         "royalenfield",
         "subaru",
         "suzuki",
+        "tesla",
         "toyota",
         "triumph",
         "volkswagen",
@@ -899,6 +900,38 @@ def _canonical_oneaudi_inventory_url(url: str, condition: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, "/" + "/".join(path_segments) + "/", "", ""))
 
 
+def _tesla_model_slug(model: str) -> str | None:
+    norm = _norm(model)
+    if not norm:
+        return None
+    mapping = {
+        "model3": "m3",
+        "modely": "my",
+        "models": "ms",
+        "modelx": "mx",
+        "cybertruck": "ct",
+    }
+    return mapping.get(norm)
+
+
+def _canonical_tesla_inventory_url(url: str, condition: str, model: str = "") -> str:
+    parts = urlsplit(url)
+    cond = (condition or "all").strip().lower()
+    inventory_scope = "used" if cond == "used" else "new"
+    path = f"/inventory/{inventory_scope}"
+    model_slug = _tesla_model_slug(model)
+    if model_slug:
+        path = f"{path}/{model_slug}"
+    query_map = {k: v for k, v in parse_qsl(parts.query, keep_blank_values=True)}
+    updates = {"arrangeby": query_map.get("arrangeby") or "relevance"}
+    if query_map.get("zip"):
+        updates["zip"] = query_map["zip"]
+    if query_map.get("range"):
+        updates["range"] = query_map["range"]
+    query = urlencode(updates)
+    return urlunsplit((parts.scheme, parts.netloc, path, query, ""))
+
+
 def _is_oem_inventory_jump_target(host: str, path: str) -> bool:
     host_l = (host or "").lower()
     path_l = (path or "").lower()
@@ -1089,6 +1122,8 @@ def _speculative_inventory_path(platform_id: str, vehicle_condition: str) -> str
         return "/inventory"
     if platform_id == "oneaudi_falcon":
         return "/inventory/used/" if condition == "used" else "/inventory/new/"
+    if platform_id == "tesla_inventory":
+        return "/inventory/used" if condition == "used" else "/inventory/new"
     return None
 
 
@@ -1689,6 +1724,13 @@ def resolve_inventory_url_for_provider(
                 best_url = _canonical_oneaudi_inventory_url(generic_base, "new")
             else:
                 best_url = generic_base
+
+    if route and route.platform_id == "tesla_inventory":
+        generic_base = _normalize_inventory_candidate_url(
+            best_url if best_score > 0 else (route.inventory_url_hint if route else None) or fallback_url
+        )
+        if generic_base:
+            best_url = _canonical_tesla_inventory_url(generic_base, condition, model=model)
 
     if route and not model_norm and route.platform_id == "dealer_spike":
         generic_base = _normalize_inventory_candidate_url(
