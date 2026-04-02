@@ -73,4 +73,82 @@ describe("market valuation", () => {
 
     expect(buildMarketValuationMap(listings).size).toBe(0);
   });
+
+  it("keeps package-heavy listings compared against similarly equipped vehicles", () => {
+    const listings: AggregatedListing[] = [
+      {
+        dealership: "A",
+        dealership_website: "https://a.example",
+        vehicle_category: "car",
+        year: 2025,
+        make: "BMW",
+        model: "X7",
+        trim: "xDrive40i",
+        feature_highlights: ["M Sport Professional Package", "Parking Assistance Package"],
+        price: 104895,
+      },
+      {
+        dealership: "B",
+        dealership_website: "https://b.example",
+        vehicle_category: "car",
+        year: 2025,
+        make: "BMW",
+        model: "X7",
+        trim: "xDrive40i",
+        feature_highlights: ["M Sport Professional Package"],
+        price: 103995,
+      },
+      {
+        dealership: "C",
+        dealership_website: "https://c.example",
+        vehicle_category: "car",
+        year: 2025,
+        make: "BMW",
+        model: "X7",
+        trim: "xDrive40i",
+        feature_highlights: ["M Sport Professional Package", "Parking Assistance Package"],
+        price: 105500,
+      },
+      {
+        dealership: "D",
+        dealership_website: "https://d.example",
+        vehicle_category: "car",
+        year: 2025,
+        make: "BMW",
+        model: "X7",
+        trim: "xDrive40i",
+        feature_highlights: [],
+        price: 98695,
+      },
+      {
+        dealership: "E",
+        dealership_website: "https://e.example",
+        vehicle_category: "car",
+        year: 2025,
+        make: "BMW",
+        model: "X7",
+        trim: "xDrive40i",
+        feature_highlights: [],
+        price: 98200,
+      },
+      {
+        dealership: "F",
+        dealership_website: "https://f.example",
+        vehicle_category: "car",
+        year: 2025,
+        make: "BMW",
+        model: "X7",
+        trim: "xDrive40i",
+        feature_highlights: [],
+        price: 99000,
+      },
+    ];
+
+    const valuations = buildMarketValuationMap(listings);
+    const loadedX7 = valuations.get(listingIdentityKey(listings[0]));
+
+    expect(loadedX7).toBeDefined();
+    expect(loadedX7?.baselinePrice).toBeGreaterThan(100000);
+    expect(loadedX7?.label === "Fair price" || loadedX7?.label === "Above market").toBe(true);
+  });
 });
