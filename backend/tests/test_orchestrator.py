@@ -301,6 +301,19 @@ def test_tesla_inventory_urls_expand_model_variants_when_model_not_specified() -
     assert any("/inventory/new/my" in url for url in urls)
 
 
+def test_tesla_inventory_urls_adds_zip_and_range_when_missing() -> None:
+    urls = _tesla_inventory_urls(
+        "https://www.tesla.com/findus/location/store/centurycity",
+        vehicle_condition="new",
+        model="Model Y",
+        fallback_zip="10250 Santa Monica Blvd Los Angeles, CA 90067",
+        fallback_range_miles=25,
+    )
+    assert urls == [
+        "https://www.tesla.com/inventory/new/my?arrangeby=relevance&zip=90067&range=25",
+    ]
+
+
 def test_inventory_url_recovery_candidates_builds_tesla_model_paths() -> None:
     route = ProviderRoute(
         platform_id="tesla_inventory",
@@ -322,6 +335,31 @@ def test_inventory_url_recovery_candidates_builds_tesla_model_paths() -> None:
     )
     assert "https://www.tesla.com/inventory/new/m3?arrangeby=relevance" in candidates
     assert "https://www.tesla.com/inventory/used/my?arrangeby=relevance" in candidates
+
+
+def test_inventory_url_recovery_candidates_adds_tesla_zip_context() -> None:
+    route = ProviderRoute(
+        platform_id="tesla_inventory",
+        confidence=1.0,
+        extraction_mode="provider",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory/new", "inventory/used"),
+        inventory_url_hint="https://www.tesla.com/findus/location/store/centurycity",
+    )
+    candidates = _inventory_url_recovery_candidates(
+        inv_url="https://www.tesla.com/findus/location/store/centurycity",
+        base_url="https://www.tesla.com/findus/location/store/centurycity",
+        route=route,
+        make="Tesla",
+        model="",
+        vehicle_condition="all",
+        fallback_zip="Los Angeles, CA 90067",
+        fallback_range_miles=25,
+    )
+    assert "https://www.tesla.com/inventory/new/m3?arrangeby=relevance&zip=90067&range=25" in candidates
+    assert "https://www.tesla.com/inventory/used/my?arrangeby=relevance&zip=90067&range=25" in candidates
 
 
 def test_inventory_url_recovery_candidates_builds_dealer_inspire_filtered_srp() -> None:

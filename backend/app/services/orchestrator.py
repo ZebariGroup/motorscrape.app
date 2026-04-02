@@ -131,7 +131,23 @@ def _tesla_model_slug(model: str) -> str | None:
     return mapping.get(norm)
 
 
-def _tesla_inventory_urls(url: str | None, *, vehicle_condition: str, model: str = "") -> list[str]:
+def _extract_us_zip(value: str) -> str | None:
+    matches = re.findall(r"\b(\d{5})(?:-\d{4})?\b", value or "")
+    if not matches:
+        return None
+    # Addresses can contain 5-digit street numbers (e.g. "10250 ... CA 90067");
+    # the postal code appears at the end, so prefer the last ZIP-shaped token.
+    return matches[-1]
+
+
+def _tesla_inventory_urls(
+    url: str | None,
+    *,
+    vehicle_condition: str,
+    model: str = "",
+    fallback_zip: str | None = None,
+    fallback_range_miles: int | None = None,
+) -> list[str]:
     if not url:
         return []
     parts = urlsplit(url)
@@ -154,6 +170,14 @@ def _tesla_inventory_urls(url: str | None, *, vehicle_condition: str, model: str
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     if "arrangeby" not in query:
         query["arrangeby"] = "relevance"
+    if not str(query.get("zip") or "").strip():
+        inferred_zip = _extract_us_zip(fallback_zip or "")
+        if inferred_zip:
+            query["zip"] = inferred_zip
+    if str(query.get("zip") or "").strip() and not str(query.get("range") or "").strip():
+        range_miles = max(1, int(fallback_range_miles or 0))
+        if range_miles > 0:
+            query["range"] = str(range_miles)
     q = urlencode(query)
 
     out: list[str] = []
@@ -1128,6 +1152,8 @@ def _inventory_url_recovery_candidates(
     make: str,
     model: str,
     vehicle_condition: str,
+    fallback_zip: str | None = None,
+    fallback_range_miles: int | None = None,
 ) -> list[str]:
     candidates: list[str] = []
     seen: set[str] = {inv_url.rstrip("/")}
@@ -1212,6 +1238,8 @@ def _inventory_url_recovery_candidates(
             inv_url or base_url,
             vehicle_condition=condition,
             model=model_values[0] if model_values else "",
+            fallback_zip=fallback_zip,
+            fallback_range_miles=fallback_range_miles,
         ):
             add(candidate)
     elif not route:
@@ -1812,6 +1840,7 @@ async def stream_search(
 
         dealer_started_at = time.perf_counter()
         website = prefer_https_website_url((d.website or "").strip())
+        dealer_zip = _extract_us_zip(d.address or "") or _extract_us_zip(location)
         logger.info(f"{cid_log}Processing dealer {index}: {d.name} ({website})")
         if recorder is not None:
             recorder.note_dealer_started(dealership_name=d.name, dealership_website=website)
@@ -2444,6 +2473,8 @@ async def stream_search(
                             make=make,
                             model=model,
                             vehicle_condition=vehicle_condition,
+                            fallback_zip=dealer_zip,
+                            fallback_range_miles=radius_miles,
                         ):
                             await _emit(
                                 sse_pack(
@@ -2738,6 +2769,8 @@ async def stream_search(
                     current_url,
                     vehicle_condition=vehicle_condition,
                     model=model,
+                    fallback_zip=dealer_zip,
+                    fallback_range_miles=radius_miles,
                 )
                 if tesla_urls:
                     current_url = tesla_urls[0]
@@ -2847,6 +2880,7 @@ async def stream_search(
                             "honda_acura_inventory",
                             "nissan_infiniti_inventory",
                             "oneaudi_falcon",
+                            "tesla_inventory",
                             "toyota_lexus_oem_inventory",
                         }
                     )
@@ -3240,14 +3274,22 @@ async def stream_search(
                                 )
                         except Exception:
                             pass
-                if (
+                ford_scoped_zero_results = bool(
                     route
                     and route.platform_id == "ford_family_inventory"
                     and scoped_inventory_url
                     and current_url
                     and not vdicts
                     and _looks_like_zero_inventory_results_page(current_html, current_url)
-                ):
+                )
+                tesla_zero_results = bool(
+                    route
+                    and route.platform_id == "tesla_inventory"
+                    and current_url
+                    and not vdicts
+                    and _looks_like_zero_inventory_results_page(current_html, current_url)
+                )
+                if ford_scoped_zero_results or tesla_zero_results:
                     recovery_candidates = _inventory_url_recovery_candidates(
                         inv_url=current_url,
                         base_url=base_url,
@@ -3255,13 +3297,16 @@ async def stream_search(
                         make=make,
                         model=model,
                         vehicle_condition=vehicle_condition,
+                        fallback_zip=dealer_zip,
+                        fallback_range_miles=radius_miles,
                     )
                     for retry_url in recovery_candidates:
                         if retry_url.rstrip("/") == current_url.rstrip("/") or retry_url in queued_urls:
                             continue
                         queued_urls.add(retry_url)
                         pending_urls.append(retry_url)
-                        ford_recovery_urls.append(retry_url)
+                        if route and route.platform_id == "ford_family_inventory":
+                            ford_recovery_urls.append(retry_url)
                     next_url = None
                 if (
                     route
