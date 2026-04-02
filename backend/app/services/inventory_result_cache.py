@@ -18,6 +18,15 @@ _cache_lock = threading.Lock()
 _cache_conn: sqlite3.Connection | None = None
 _cache_db_path: str | None = None
 
+_FAMILY_INVENTORY_PLATFORMS = {
+    "ford_family_inventory",
+    "gm_family_inventory",
+    "honda_acura_inventory",
+    "nissan_infiniti_inventory",
+    "toyota_lexus_oem_inventory",
+}
+_MIN_CACHE_LISTINGS_FOR_FAMILY_STACK = 8
+
 
 def inventory_listings_cache_key(
     *,
@@ -77,6 +86,20 @@ def _ensure_connection() -> sqlite3.Connection | None:
     return _cache_conn
 
 
+def _cache_payload_listing_count(payload: dict[str, Any]) -> int:
+    listings = payload.get("listings")
+    if not isinstance(listings, list):
+        return 0
+    return len(listings)
+
+
+def _cache_payload_is_plausible(payload: dict[str, Any]) -> bool:
+    platform_id = str(payload.get("platform_id") or "").strip()
+    if platform_id not in _FAMILY_INVENTORY_PLATFORMS:
+        return True
+    return _cache_payload_listing_count(payload) >= _MIN_CACHE_LISTINGS_FOR_FAMILY_STACK
+
+
 def get_cached_inventory_listings(key: str) -> dict[str, Any] | None:
     with _cache_lock:
         conn = _ensure_connection()
@@ -90,7 +113,10 @@ def get_cached_inventory_listings(key: str) -> dict[str, Any] | None:
                 conn.execute("DELETE FROM inv_cache WHERE key = ?", (key,))
                 conn.commit()
                 return None
-            return json.loads(row[0])
+            payload = json.loads(row[0])
+            if not isinstance(payload, dict) or not _cache_payload_is_plausible(payload):
+                return None
+            return payload
         except Exception as e:
             logger.debug("Inventory cache read failed: %s", e)
             return None
@@ -100,6 +126,13 @@ def set_cached_inventory_listings(key: str, payload: dict[str, Any]) -> None:
     with _cache_lock:
         conn = _ensure_connection()
         if not conn:
+            return
+        if not _cache_payload_is_plausible(payload):
+            logger.debug(
+                "Skipping inventory cache write for partial family-stack payload: platform=%s listings=%s",
+                payload.get("platform_id"),
+                _cache_payload_listing_count(payload),
+            )
             return
         exp = time.time() + max(60.0, float(settings.inventory_cache_ttl_seconds))
         try:

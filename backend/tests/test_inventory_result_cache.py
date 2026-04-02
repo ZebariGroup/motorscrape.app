@@ -111,6 +111,67 @@ def test_inventory_cache_roundtrip(
     assert inventory_cache.get_cached_inventory_listings(key) == payload
 
 
+def test_family_inventory_cache_ignores_partial_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "inv.sqlite3"
+    monkeypatch.setattr(
+        inventory_cache,
+        "settings",
+        SimpleNamespace(
+            inventory_cache_enabled=True,
+            inventory_cache_path=str(db),
+            inventory_cache_ttl_seconds=3600,
+        ),
+    )
+    key = inventory_cache.inventory_listings_cache_key(
+        website="https://dealer.example/inventory",
+        domain="dealer.example",
+        make="Acura",
+        model="",
+        vehicle_category="car",
+        vehicle_condition="all",
+        inventory_scope="all",
+        max_pages=10,
+    )
+    payload = {
+        "listings": [{"vin": f"VIN{i}"} for i in range(5)],
+        "platform_id": "honda_acura_inventory",
+    }
+    inventory_cache.set_cached_inventory_listings(key, payload)
+    assert inventory_cache.get_cached_inventory_listings(key) is None
+
+
+def test_non_family_inventory_cache_keeps_small_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "inv.sqlite3"
+    monkeypatch.setattr(
+        inventory_cache,
+        "settings",
+        SimpleNamespace(
+            inventory_cache_enabled=True,
+            inventory_cache_path=str(db),
+            inventory_cache_ttl_seconds=3600,
+        ),
+    )
+    key = inventory_cache.inventory_listings_cache_key(
+        website="https://dealer.example/inventory",
+        domain="dealer.example",
+        make="Mazda",
+        model="",
+        vehicle_category="car",
+        vehicle_condition="all",
+        inventory_scope="all",
+        max_pages=10,
+    )
+    payload = {"listings": [{"vin": "VIN1"}], "platform_id": "dealer_com"}
+    inventory_cache.set_cached_inventory_listings(key, payload)
+    assert inventory_cache.get_cached_inventory_listings(key) == payload
+
+
 def test_inventory_cache_expires(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     db = tmp_path / "inv.sqlite3"
     monkeypatch.setattr(
