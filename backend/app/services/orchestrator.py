@@ -117,6 +117,57 @@ def _oneaudi_all_inventory_urls(url: str | None) -> list[str]:
     return ordered
 
 
+def _tesla_model_slug(model: str) -> str | None:
+    norm = re.sub(r"[^a-z0-9]", "", (model or "").lower())
+    if not norm:
+        return None
+    mapping = {
+        "model3": "m3",
+        "modely": "my",
+        "models": "ms",
+        "modelx": "mx",
+        "cybertruck": "ct",
+    }
+    return mapping.get(norm)
+
+
+def _tesla_inventory_urls(url: str | None, *, vehicle_condition: str, model: str = "") -> list[str]:
+    if not url:
+        return []
+    parts = urlsplit(url)
+    scheme = parts.scheme or "https"
+    netloc = parts.netloc or "www.tesla.com"
+    condition = (vehicle_condition or "all").strip().lower()
+    models: list[str]
+    requested_slug = _tesla_model_slug(model)
+    if requested_slug:
+        models = [requested_slug]
+    else:
+        models = ["m3", "my", "ms", "mx", "ct"]
+    if condition == "used":
+        scopes = ("used",)
+    elif condition == "new":
+        scopes = ("new",)
+    else:
+        scopes = ("new", "used")
+
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    if "arrangeby" not in query:
+        query["arrangeby"] = "relevance"
+    q = urlencode(query)
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for scope in scopes:
+        for slug in models:
+            candidate = urlunsplit((scheme, netloc, f"/inventory/{scope}/{slug}", q, ""))
+            key = candidate.rstrip("/")
+            if key and key not in seen:
+                seen.add(key)
+                out.append(candidate)
+    return out
+
+
 def _scope_filter_tokens(raw: str) -> set[str]:
     tokens: set[str] = set()
     for part in (raw or "").split(","):
@@ -1156,6 +1207,13 @@ def _inventory_url_recovery_candidates(
                     else:
                         add(urlunsplit((parsed_base.scheme, parsed_base.netloc, f"{inv_path}/{make_norm}-{model_norm}", "", "")))
         add(broad_srp)
+    elif route and route.platform_id == "tesla_inventory":
+        for candidate in _tesla_inventory_urls(
+            inv_url or base_url,
+            vehicle_condition=condition,
+            model=model_values[0] if model_values else "",
+        ):
+            add(candidate)
     elif not route:
         canonical = guess_franchise_inventory_srp_url(base_url, condition) or ""
         if canonical:
@@ -2675,6 +2733,16 @@ async def stream_search(
                         current_url = oneaudi_inventory_urls[0]
                         queued_urls = {current_url}
                         pending_urls = [u for u in oneaudi_inventory_urls[1:] if u not in queued_urls]
+            elif route and route.platform_id == "tesla_inventory" and current_url:
+                tesla_urls = _tesla_inventory_urls(
+                    current_url,
+                    vehicle_condition=vehicle_condition,
+                    model=model,
+                )
+                if tesla_urls:
+                    current_url = tesla_urls[0]
+                    queued_urls = {current_url}
+                    pending_urls = [u for u in tesla_urls[1:] if u not in queued_urls]
             emitted_listing_keys: set[str] = set()
             dealer_inspire_fallback_urls = (
                 _dealer_inspire_model_inventory_urls(

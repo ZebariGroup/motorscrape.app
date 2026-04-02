@@ -400,6 +400,37 @@ async def test_fetch_page_html_team_velocity_rendered_cards_stay_direct(
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_tesla_rendered_payload_is_treated_as_sufficient(
+    zenrows_key: None,
+) -> None:
+    url = "https://www.tesla.com/inventory/new?arrangeby=relevance"
+    respx.get(url).mock(return_value=Response(403, text="denied"))
+    tesla_html = """
+    <html><body>
+      <a href="/inventory/new/m3">Model 3</a>
+      <script type="application/json">
+        {"results":[{"VIN":"5YJ3E1EA9NF123456","Model":"Model 3","Price":31990}]}
+      </script>
+      <div>Inventory content filler to clear thin-page guard and mimic real rendered Tesla HTML.</div>
+      <div>Inventory content filler to clear thin-page guard and mimic real rendered Tesla HTML.</div>
+      <div>Inventory content filler to clear thin-page guard and mimic real rendered Tesla HTML.</div>
+    </body></html>
+    """
+    respx.get("https://api.zenrows.com/v1/").mock(return_value=Response(200, text=tesla_html))
+
+    html, method = await fetch_page_html(
+        url,
+        page_kind="inventory",
+        prefer_render=True,
+        platform_id="tesla_inventory",
+    )
+
+    assert method == "zenrows_rendered"
+    assert "5YJ3E1EA9NF123456" in html
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_does_not_premium_retry_on_zenrows_concurrency_limit(
     zenrows_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

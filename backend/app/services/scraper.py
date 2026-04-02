@@ -817,6 +817,15 @@ def _count_structured_vehicle_signals(html: str) -> int:
     )
 
 
+def _has_tesla_inventory_payload_hint(html: str) -> bool:
+    lower = html.lower()
+    if "tesla" not in lower:
+        return False
+    if "/inventory/new/" in lower or "/inventory/used/" in lower:
+        return True
+    return '"vin"' in lower and ('"model"' in lower or "cybertruck" in lower)
+
+
 _SONIC_JSONLD_SUFFICIENT_THRESHOLD = 6
 
 
@@ -868,6 +877,13 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str 
         if _looks_like_empty_inventory_shell(html):
             return False
         if _html_looks_inventory_ready(html, platform_id=platform_id):
+            return True
+    elif page_kind == "inventory" and platform_id == "tesla_inventory":
+        if _looks_like_empty_inventory_shell(html):
+            return False
+        if _html_looks_inventory_ready(html, platform_id=platform_id):
+            return True
+        if _has_tesla_inventory_payload_hint(html):
             return True
     elif _has_structured_inventory_hint(html):
         return True

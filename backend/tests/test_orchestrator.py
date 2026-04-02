@@ -21,6 +21,7 @@ from app.services.orchestrator import (
     _needs_vdp_usage_enrichment,
     _oneaudi_all_inventory_urls,
     _room58_detail_overlay,
+    _tesla_inventory_urls,
     _team_velocity_inventory_url_from_model_hub,
     _team_velocity_model_inventory_urls,
     stream_search,
@@ -287,6 +288,40 @@ def test_oneaudi_all_inventory_urls_expands_new_and_used() -> None:
         "https://www.audidealer.example/en/inventory/new/",
         "https://www.audidealer.example/en/inventory/used/",
     ]
+
+
+def test_tesla_inventory_urls_expand_model_variants_when_model_not_specified() -> None:
+    urls = _tesla_inventory_urls(
+        "https://www.tesla.com/inventory/new?arrangeby=relevance",
+        vehicle_condition="all",
+        model="",
+    )
+    assert "https://www.tesla.com/inventory/new/m3?arrangeby=relevance" in urls
+    assert "https://www.tesla.com/inventory/used/m3?arrangeby=relevance" in urls
+    assert any("/inventory/new/my" in url for url in urls)
+
+
+def test_inventory_url_recovery_candidates_builds_tesla_model_paths() -> None:
+    route = ProviderRoute(
+        platform_id="tesla_inventory",
+        confidence=1.0,
+        extraction_mode="provider",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory/new", "inventory/used"),
+        inventory_url_hint="https://www.tesla.com/inventory/new?arrangeby=relevance",
+    )
+    candidates = _inventory_url_recovery_candidates(
+        inv_url="https://www.tesla.com/inventory/new?arrangeby=relevance",
+        base_url="https://www.tesla.com/findus/location/store/centurycity",
+        route=route,
+        make="Tesla",
+        model="",
+        vehicle_condition="all",
+    )
+    assert "https://www.tesla.com/inventory/new/m3?arrangeby=relevance" in candidates
+    assert "https://www.tesla.com/inventory/used/my?arrangeby=relevance" in candidates
 
 
 def test_inventory_url_recovery_candidates_builds_dealer_inspire_filtered_srp() -> None:
