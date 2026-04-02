@@ -377,92 +377,12 @@ def test_inventory_url_recovery_candidates_adds_tesla_zip_context() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_search_tesla_bypasses_store_homepage_with_scoped_inventory_url() -> None:
-    from app.schemas import ExtractionResult, VehicleListing
-
-    store_url = "https://www.tesla.com/findus/location/store/teslachicago717sdesplainesst"
-    dealers = [
-        DealershipFound(
-            name="Tesla Chicago",
-            place_id="p1",
-            address="717 S Desplaines St, Chicago, IL 60606",
-            website=store_url,
-        )
-    ]
-    route = ProviderRoute(
-        platform_id="tesla_inventory",
-        confidence=1.0,
-        extraction_mode="provider",
-        requires_render=False,
-        detection_source="url_hint",
-        cache_status="detected",
-        inventory_path_hints=("inventory/new", "inventory/used"),
-        inventory_url_hint=store_url,
-    )
-    fetched_inventory_urls: list[str] = []
-
-    async def fake_fetch(url, page_kind, *_args, **_kwargs):
-        if url == store_url and page_kind == "homepage":
-            raise AssertionError("Tesla store homepage should be skipped")
-        if page_kind == "inventory":
-            fetched_inventory_urls.append(url)
-            return "<html><body><div>Inventory</div></body></html>", "zenrows_static"
-        raise AssertionError(f"unexpected fetch {url} {page_kind}")
-
-    def detect_side_effect(*, domain: str, website: str, homepage_html: str):
-        assert domain in {"tesla.com", "www.tesla.com"}
-        if website == store_url and homepage_html == "":
-            return route
-        raise AssertionError(f"unexpected detect_or_lookup_provider call: {website!r} {homepage_html!r}")
-
-    def provider_side_effect(platform_id, *, page_url: str, **_kwargs):
-        assert platform_id == "tesla_inventory"
-        if "/inventory/new/m3" in page_url and "zip=60606" in page_url:
-            return ExtractionResult(
-                vehicles=[
-                    VehicleListing(
-                        year=2025,
-                        make="Tesla",
-                        model="Model 3",
-                        price=38990,
-                        listing_url="https://www.tesla.com/inventory/new/m3/7SAYGDEE0PF000001?zip=60606",
-                    )
-                ],
-                next_page_url=None,
-                pagination=None,
-            )
-        return ExtractionResult(vehicles=[], next_page_url=None, pagination=None)
-
-    with (
-        patch(
-            "app.services.orchestrator.find_car_dealerships",
-            new_callable=AsyncMock,
-            return_value=dealers,
-        ),
-        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
-        patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
-        patch(
-            "app.services.orchestrator.fetch_page_html",
-            new_callable=AsyncMock,
-            side_effect=fake_fetch,
-        ),
-        patch(
-            "app.services.orchestrator.detect_or_lookup_provider",
-            side_effect=detect_side_effect,
-        ),
-        patch(
-            "app.services.orchestrator.resolve_inventory_url_for_provider",
-            return_value="https://www.tesla.com/inventory/new?arrangeby=relevance",
-        ),
-        patch(
-            "app.services.orchestrator.extract_with_provider",
-            side_effect=provider_side_effect,
-        ) as mock_provider_extract,
-        patch(
-            "app.services.orchestrator.extract_vehicles_from_html",
-            new_callable=AsyncMock,
-        ) as mock_llm,
-    ):
+async def test_stream_search_tesla_fails_fast_as_unsupported() -> None:
+    with patch(
+        "app.services.orchestrator.find_car_dealerships",
+        new_callable=AsyncMock,
+        side_effect=AssertionError("Tesla should not reach dealership discovery"),
+    ) as mock_find_dealers:
         chunks: list[str] = []
         async for c in stream_search(
             "60606",
@@ -475,14 +395,9 @@ async def test_stream_search_tesla_bypasses_store_homepage_with_scoped_inventory
             chunks.append(c)
 
     tail = "".join(chunks)
-    assert mock_provider_extract.call_count >= 1
-    assert mock_llm.await_count == 0
-    assert fetched_inventory_urls
-    assert fetched_inventory_urls[0].startswith("https://www.tesla.com/inventory/new/m3?")
-    assert "zip=60606" in fetched_inventory_urls[0]
-    assert store_url not in fetched_inventory_urls
-    assert "7SAYGDEE0PF000001" in tail
-    assert '"listings_found": 1' in tail
+    assert mock_find_dealers.await_count == 0
+    assert "Tesla inventory is temporarily unsupported." in tail
+    assert '"ok": false' in tail
 
 
 def test_inventory_url_recovery_candidates_builds_dealer_inspire_filtered_srp() -> None:

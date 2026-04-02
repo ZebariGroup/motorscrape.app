@@ -151,6 +151,10 @@ def _looks_like_tesla_site_url(url: str | None) -> bool:
     return path.startswith("/findus/location/store") or path.startswith("/inventory")
 
 
+def _is_tesla_make(make: str) -> bool:
+    return re.sub(r"[^a-z0-9]", "", (make or "").lower()) == "tesla"
+
+
 def _tesla_inventory_has_location_scope(url: str | None) -> bool:
     if not url:
         return False
@@ -1495,7 +1499,6 @@ async def stream_search(
                 "market_region": market_region,
             },
         )
-    yield sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
     requested_dealerships = max(1, min(max_dealerships or settings.max_dealerships, 20))
     requested_pages = max(
         1,
@@ -1607,6 +1610,45 @@ async def stream_search(
                 status=status,
             )
         return payload
+
+    if _is_tesla_make(make):
+        message = (
+            "Tesla inventory is temporarily unsupported. Tesla's national inventory pages are currently "
+            "served behind Akamai challenge pages even on ZIP-scoped URLs, so we cannot return reliable "
+            "results without wasting search time and cost."
+        )
+        if recorder is not None:
+            recorder.event(
+                event_type="search_unsupported",
+                phase="search",
+                level="warning",
+                message=message,
+                payload={"make": make, "model": model, "location": location},
+            )
+        yield sse_pack("search_error", {"message": message, "phase": "search"})
+        yield sse_pack(
+            "done",
+            finalize_done(
+                {
+                    "ok": False,
+                    "error_message": message,
+                    "dealerships": 0,
+                    "dealer_discovery_count": 0,
+                    "dealer_deduped_count": 0,
+                    "radius_miles": radius_miles,
+                    "vehicle_condition": vehicle_condition,
+                    "inventory_scope": inventory_scope,
+                    "max_dealerships": requested_dealerships,
+                    "max_pages_per_dealer": requested_pages,
+                    "effective_search_concurrency": 0,
+                },
+                ok=False,
+                status="failed",
+            ),
+        )
+        return
+
+    yield sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
 
     async def _discover_dealers(*, query_variant_limit: int | None = None) -> list[DealershipFound]:
         locations = [loc.strip() for loc in location.split("|") if loc.strip()]
