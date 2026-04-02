@@ -159,10 +159,6 @@ const CAR_CATALOG = [
     models: ["Ascent", "BRZ", "Crosstrek", "Forester", "Impreza", "Legacy", "Outback", "Solterra", "WRX"],
   },
   {
-    make: "Tesla",
-    models: ["Cybertruck", "Model 3", "Model S", "Model X", "Model Y"],
-  },
-  {
     make: "Toyota",
     models: ["4Runner", "bZ4X", "Camry", "Corolla", "Corolla Cross", "Crown", "GR86", "Grand Highlander", "Highlander", "Land Cruiser", "Prius", "RAV4", "Sequoia", "Sienna", "Tacoma", "Tundra", "Venza"],
   },
