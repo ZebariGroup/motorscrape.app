@@ -288,6 +288,12 @@ async def lifespan(_app: FastAPI):
         await close_vin_decoder_http_client()
     except Exception:
         pass
+    try:
+        from app.services.black_book_valuation import close_black_book_http_client
+
+        await close_black_book_http_client()
+    except Exception:
+        pass
 
 
 app = FastAPI(title="Motorscrape API", version="0.1.0", lifespan=lifespan)

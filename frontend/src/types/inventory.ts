@@ -53,6 +53,12 @@ export type VehicleListing = {
   historical_market_price_points?: Array<{ price?: number; observed_at?: number }>;
   historical_market_sample_count?: number;
   historical_market_median?: number;
+  external_valuation_provider?: string;
+  external_retail_value?: number;
+  external_trade_in_value?: number;
+  external_valuation_range_low?: number;
+  external_valuation_range_high?: number;
+  external_valuation_confidence?: number;
 };
 
 export type DealershipProgress = {

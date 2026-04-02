@@ -152,6 +152,16 @@ class Settings(BaseSettings):
     vin_decoder_timeout: float = 8.0
     vin_decoder_max_concurrency: int = 8
     vin_decoder_cache_ttl_seconds: int = 60 * 60 * 24 * 14
+    # Optional Black Book valuation enrichment (requires paid API account/credentials).
+    # Configure BLACK_BOOK_VIN_URL_TEMPLATE with a "{vin}" placeholder, e.g.
+    # "https://api.example.com/valuation/{vin}".
+    black_book_enabled: bool = False
+    black_book_vin_url_template: str = ""
+    black_book_api_key: str = ""
+    black_book_auth_header: str = "X-API-Key"
+    black_book_timeout: float = 8.0
+    black_book_max_concurrency: int = 6
+    black_book_cache_ttl_seconds: int = 60 * 60 * 24 * 7
     # Platform detection cache. Override PLATFORM_CACHE_PATH on Vercel if using persistent storage.
     platform_cache_enabled: bool = True
     platform_cache_path: str = Field(default_factory=_default_platform_cache_path)

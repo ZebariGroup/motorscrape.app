@@ -8,6 +8,7 @@ export type MarketValuation = {
   label: string;
   comparableCount: number;
   historicalComparableCount: number;
+  externalComparableCount: number;
   baselinePrice: number;
   deltaAmount: number;
   deltaPercent: number;
@@ -119,18 +120,62 @@ function recencyWeight(observedAt: number | undefined, nowMs: number): number {
   return Math.max(0.2, Math.min(1, weight));
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function mileageInMiles(listing: AggregatedListing): number | null {
+  if (listing.usage_unit === "miles" && listing.usage_value != null && Number.isFinite(listing.usage_value)) {
+    return listing.usage_value;
+  }
+  if (listing.mileage != null && Number.isFinite(listing.mileage)) return listing.mileage;
+  return null;
+}
+
+function normalizedComparablePrice(base: AggregatedListing, candidate: AggregatedListing): number {
+  if (candidate.price == null || !Number.isFinite(candidate.price) || candidate.price <= 0) return NaN;
+  let adjusted = candidate.price;
+
+  // Normalize cross-year comps to the base listing's model year.
+  if (base.year != null && candidate.year != null && Number.isFinite(base.year) && Number.isFinite(candidate.year)) {
+    const yearDelta = base.year - candidate.year;
+    const yearAdjustmentPct = clamp(yearDelta * 0.025, -0.18, 0.18);
+    adjusted = adjusted * (1 + yearAdjustmentPct);
+  }
+
+  // For used cars, normalize for mileage differences.
+  const baseUsed = base.vehicle_condition === "used";
+  const candidateUsed = candidate.vehicle_condition === "used";
+  if (baseUsed && candidateUsed) {
+    const baseMiles = mileageInMiles(base);
+    const candidateMiles = mileageInMiles(candidate);
+    if (baseMiles != null && candidateMiles != null) {
+      // Positive delta means candidate has more miles and should be adjusted up.
+      const mileageDelta = candidateMiles - baseMiles;
+      const perMileRate = clamp(adjusted * 0.000004, 0.05, 0.35);
+      const rawAdjustment = mileageDelta * perMileRate;
+      const maxAdjustment = adjusted * 0.18;
+      adjusted += clamp(rawAdjustment, -maxAdjustment, maxAdjustment);
+    }
+  }
+
+  return adjusted;
+}
+
 function trimPackageConfidence(
   listing: AggregatedListing,
   currentComparableCount: number,
   historicalComparableCount: number,
+  externalComparableCount: number,
 ): { score: number; label: "Low" | "Medium" | "High" } {
-  const sampleScore = Math.min(1, (currentComparableCount + historicalComparableCount) / 18);
+  const sampleScore = Math.min(1, (currentComparableCount + historicalComparableCount + externalComparableCount) / 20);
   const currentScore = Math.min(1, currentComparableCount / 8);
   const historicalScore = Math.min(1, historicalComparableCount / 10);
+  const externalScore = Math.min(1, externalComparableCount / 3);
   const specFields = [listing.trim, listing.body_style, listing.drivetrain, listing.engine, listing.transmission, listing.fuel_type];
   const specCompleteness = specFields.filter((value) => normalizedText(value).length > 0).length / specFields.length;
   const featureSignal = Math.min(1, (listing.feature_highlights?.length ?? 0) / 3);
-  const score = Math.round((sampleScore * 0.35 + currentScore * 0.2 + historicalScore * 0.15 + specCompleteness * 0.2 + featureSignal * 0.1) * 100);
+  const score = Math.round((sampleScore * 0.3 + currentScore * 0.2 + historicalScore * 0.15 + externalScore * 0.1 + specCompleteness * 0.15 + featureSignal * 0.1) * 100);
   if (score >= 75) return { score, label: "High" };
   if (score >= 50) return { score, label: "Medium" };
   return { score, label: "Low" };
@@ -267,31 +312,45 @@ export function buildMarketValuationMap(listings: AggregatedListing[]): Map<stri
     if (listing.price == null || Number.isNaN(listing.price)) continue;
     if (!listing.make || !listing.model) continue;
     const comparables = findComparables(listing, listings);
-    const prices = comparables.map((c) => c.price!);
+    const normalizedComparablePrices = comparables
+      .map((c) => normalizedComparablePrice(listing, c))
+      .filter((value) => Number.isFinite(value) && value > 0);
     const historicalPrices = (listing.historical_market_prices ?? []).filter(
       (value) => Number.isFinite(value) && value > 0,
     );
     const historicalPoints = (listing.historical_market_price_points ?? [])
       .map((point) => ({ price: point.price, observedAt: point.observed_at }))
       .filter((point) => point.price != null && Number.isFinite(point.price) && point.price > 0);
+    const externalValues = [
+      listing.external_retail_value,
+      listing.external_valuation_range_low,
+      listing.external_valuation_range_high,
+    ].filter((value) => value != null && Number.isFinite(value) && value > 0) as number[];
     const weightedSamples: Array<{ value: number; weight: number }> = [
-      ...prices.map((value) => ({ value, weight: 1 })),
+      ...normalizedComparablePrices.map((value) => ({ value, weight: 1 })),
       ...historicalPoints.map((point) => ({ value: point.price!, weight: recencyWeight(point.observedAt, nowMs) })),
+      ...externalValues.map((value, idx) => ({ value, weight: idx === 0 ? 0.7 : 0.45 })),
     ];
     if (historicalPoints.length === 0 && historicalPrices.length > 0) {
       weightedSamples.push(...historicalPrices.map((value) => ({ value, weight: 0.45 })));
     }
-    const combinedPrices = [...prices, ...historicalPrices];
+    const combinedPrices = [...normalizedComparablePrices, ...historicalPrices, ...externalValues];
     if (combinedPrices.length < 3) continue;
     const baselinePrice = weightedMedian(weightedSamples) ?? median(combinedPrices);
     if (!Number.isFinite(baselinePrice) || baselinePrice <= 0) continue;
     const deltaAmount = listing.price - baselinePrice;
     const deltaPercent = deltaAmount / baselinePrice;
-    const confidence = trimPackageConfidence(listing, prices.length, historicalPrices.length);
+    const confidence = trimPackageConfidence(
+      listing,
+      normalizedComparablePrices.length,
+      historicalPrices.length,
+      externalValues.length,
+    );
     valuations.set(listingIdentityKey(listing), {
       ...valuationBand(deltaPercent),
       comparableCount: combinedPrices.length,
       historicalComparableCount: historicalPrices.length,
+      externalComparableCount: externalValues.length,
       baselinePrice,
       deltaAmount,
       deltaPercent,

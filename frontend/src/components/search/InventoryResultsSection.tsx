@@ -567,6 +567,18 @@ export function InventoryResultsSection({
                           <span className="font-semibold">{selectedValuation.historicalComparableCount}</span>
                         </p>
                       ) : null}
+                      {selectedValuation.externalComparableCount > 0 ? (
+                        <p className="text-zinc-700 dark:text-zinc-300">
+                          External comps{" "}
+                          <span className="font-semibold">{selectedValuation.externalComparableCount}</span>
+                        </p>
+                      ) : null}
+                      {selectedListing.external_valuation_provider ? (
+                        <p className="text-zinc-700 dark:text-zinc-300">
+                          External source{" "}
+                          <span className="font-semibold">{selectedListing.external_valuation_provider}</span>
+                        </p>
+                      ) : null}
                       <p className="text-zinc-700 dark:text-zinc-300">
                         Local median <span className="font-semibold">{formatMoney(selectedValuation.baselinePrice)}</span>
                       </p>
@@ -593,8 +605,13 @@ export function InventoryResultsSection({
                         <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">
                           Comparable Vehicles
                         </h4>
+                        {(() => {
+                          const sortedComparables = [...selectedValuation.comparables].sort(
+                            (a, b) => (a.price ?? Number.POSITIVE_INFINITY) - (b.price ?? Number.POSITIVE_INFINITY),
+                          );
+                          return (
                         <ul className="grid gap-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
-                          {selectedValuation.comparables.slice(0, 10).map((comp, idx) => {
+                          {sortedComparables.slice(0, 10).map((comp, idx) => {
                             const compIdx = filteredListings.findIndex(l => listingIdentityKey(l) === listingIdentityKey(comp));
                             const isClickable = compIdx !== -1;
                             return (
@@ -618,12 +635,14 @@ export function InventoryResultsSection({
                               </li>
                             );
                           })}
-                          {selectedValuation.comparables.length > 10 && (
+                          {sortedComparables.length > 10 && (
                             <li className="text-xs text-center text-zinc-500 dark:text-zinc-400 py-1">
-                              + {selectedValuation.comparables.length - 10} more
+                              + {sortedComparables.length - 10} more
                             </li>
                           )}
                         </ul>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>

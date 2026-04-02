@@ -240,4 +240,124 @@ describe("market valuation", () => {
     expect(subject).toBeDefined();
     expect(subject?.baselinePrice).toBeLessThan(57000);
   });
+
+  it("normalizes comparables by model year", () => {
+    const listings: AggregatedListing[] = [
+      {
+        dealership: "A",
+        dealership_website: "https://a.example",
+        vehicle_category: "car",
+        vehicle_condition: "used",
+        year: 2024,
+        make: "Honda",
+        model: "Accord",
+        trim: "Sport",
+        price: 30000,
+      },
+      {
+        dealership: "B",
+        dealership_website: "https://b.example",
+        vehicle_category: "car",
+        vehicle_condition: "used",
+        year: 2022,
+        make: "Honda",
+        model: "Accord",
+        trim: "Sport",
+        price: 26000,
+      },
+      {
+        dealership: "C",
+        dealership_website: "https://c.example",
+        vehicle_category: "car",
+        vehicle_condition: "used",
+        year: 2022,
+        make: "Honda",
+        model: "Accord",
+        trim: "Sport",
+        price: 26200,
+      },
+      {
+        dealership: "D",
+        dealership_website: "https://d.example",
+        vehicle_category: "car",
+        vehicle_condition: "used",
+        year: 2022,
+        make: "Honda",
+        model: "Accord",
+        trim: "Sport",
+        price: 25800,
+      },
+    ];
+
+    const valuations = buildMarketValuationMap(listings);
+    const subject = valuations.get(listingIdentityKey(listings[0]));
+    expect(subject).toBeDefined();
+    expect(subject?.baselinePrice).toBeGreaterThan(27000);
+  });
+
+  it("factors used mileage into comparable normalization", () => {
+    const listings: AggregatedListing[] = [
+      {
+        dealership: "A",
+        dealership_website: "https://a.example",
+        vehicle_category: "car",
+        vehicle_condition: "used",
+        year: 2021,
+        make: "Toyota",
+        model: "Camry",
+        trim: "SE",
+        price: 20500,
+        mileage: 85000,
+        usage_value: 85000,
+        usage_unit: "miles",
+      },
+      {
+        dealership: "B",
+        dealership_website: "https://b.example",
+        vehicle_category: "car",
+        vehicle_condition: "used",
+        year: 2021,
+        make: "Toyota",
+        model: "Camry",
+        trim: "SE",
+        price: 23000,
+        mileage: 42000,
+        usage_value: 42000,
+        usage_unit: "miles",
+      },
+      {
+        dealership: "C",
+        dealership_website: "https://c.example",
+        vehicle_category: "car",
+        vehicle_condition: "used",
+        year: 2021,
+        make: "Toyota",
+        model: "Camry",
+        trim: "SE",
+        price: 22800,
+        mileage: 39000,
+        usage_value: 39000,
+        usage_unit: "miles",
+      },
+      {
+        dealership: "D",
+        dealership_website: "https://d.example",
+        vehicle_category: "car",
+        vehicle_condition: "used",
+        year: 2021,
+        make: "Toyota",
+        model: "Camry",
+        trim: "SE",
+        price: 23100,
+        mileage: 41000,
+        usage_value: 41000,
+        usage_unit: "miles",
+      },
+    ];
+
+    const valuations = buildMarketValuationMap(listings);
+    const subject = valuations.get(listingIdentityKey(listings[0]));
+    expect(subject).toBeDefined();
+    expect(subject?.baselinePrice).toBeLessThan(22000);
+  });
 });
