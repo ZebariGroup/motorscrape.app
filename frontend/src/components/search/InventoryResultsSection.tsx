@@ -596,9 +596,9 @@ export function InventoryResultsSection({
                                   {comp.trim && <span className="text-zinc-500 dark:text-zinc-400 ml-1">{comp.trim}</span>}
                                 </div>
                                 <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-                                  {comp.dealer_name && (
+                                  {comp.dealership && (
                                     <span className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate max-w-[100px]">
-                                      {comp.dealer_name}
+                                      {comp.dealership}
                                     </span>
                                   )}
                                   <span className="font-semibold">{formatMoney(comp.price)}</span>
