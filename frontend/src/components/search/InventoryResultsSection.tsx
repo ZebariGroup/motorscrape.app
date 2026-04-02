@@ -275,26 +275,28 @@ export function InventoryResultsSection({
                       className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/88 via-black/20 to-black/15"
                       aria-hidden
                     />
-                    {v.dealer_discount != null && v.dealer_discount > 0 ? (
-                      <div className="absolute left-1.5 top-1.5 sm:left-2 sm:top-2 rounded-full bg-emerald-500/95 px-2 py-0.5 text-[10px] font-bold tracking-tight text-white shadow-lg ring-1 ring-white/20 sm:text-xs">
-                        Save {formatMoney(v.dealer_discount)}
-                      </div>
-                    ) : null}
+                    <div className="absolute left-1.5 top-1.5 sm:left-2 sm:top-2 flex flex-col items-start gap-1.5 sm:gap-2">
+                      {valuation ? (
+                        <div
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold shadow-md ring-1 backdrop-blur-sm sm:text-xs ${valuationBadgeClasses(valuation.label)}`}
+                        >
+                          {valuation.label}
+                        </div>
+                      ) : null}
+                      {v.dealer_discount != null && v.dealer_discount > 0 ? (
+                        <div className="rounded-full bg-emerald-500/95 px-2 py-0.5 text-[10px] font-bold tracking-tight text-white shadow-lg ring-1 ring-white/20 sm:text-xs">
+                          Save {formatMoney(v.dealer_discount)}
+                        </div>
+                      ) : null}
+                      {v.history_days_tracked != null && v.history_days_tracked > 0 ? (
+                        <div className="rounded-full bg-sky-600/90 px-2 py-0.5 text-[10px] font-semibold text-white shadow-md ring-1 ring-white/15 backdrop-blur-sm sm:text-xs">
+                          Tracked {v.history_days_tracked}d
+                        </div>
+                      ) : null}
+                    </div>
                     {v.days_on_lot != null ? (
                       <div className="absolute right-1.5 top-1.5 sm:right-2 sm:top-2 rounded-full bg-zinc-900/80 px-2 py-0.5 text-[10px] font-semibold text-white shadow-md ring-1 ring-white/15 backdrop-blur-sm sm:text-xs">
                         {v.days_on_lot}d on lot
-                      </div>
-                    ) : null}
-                    {valuation ? (
-                      <div
-                        className={`absolute right-1.5 top-8 sm:right-2 sm:top-10 rounded-full border px-2 py-0.5 text-[10px] font-semibold shadow-md ring-1 backdrop-blur-sm sm:text-xs ${valuationBadgeClasses(valuation.label)}`}
-                      >
-                        {valuation.label}
-                      </div>
-                    ) : null}
-                    {v.history_days_tracked != null && v.history_days_tracked > 0 ? (
-                      <div className="absolute left-1.5 top-8 sm:left-2 sm:top-10 rounded-full bg-sky-600/90 px-2 py-0.5 text-[10px] font-semibold text-white shadow-md ring-1 ring-white/15 backdrop-blur-sm sm:text-xs">
-                        Tracked {v.history_days_tracked}d
                       </div>
                     ) : null}
                     {(v.feature_highlights?.length ?? 0) > 0 ? (
@@ -570,6 +572,48 @@ export function InventoryResultsSection({
                         </span>
                       </p>
                     </div>
+                    {selectedValuation.comparables && selectedValuation.comparables.length > 0 && (
+                      <div className="mt-4 border-t border-zinc-200/60 pt-4 dark:border-zinc-700/60">
+                        <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-3 leading-relaxed">
+                          This vehicle is priced <strong>{Math.abs(selectedValuation.deltaPercent * 100).toFixed(1)}% {selectedValuation.deltaAmount < 0 ? "below" : "above"}</strong> the local median price of <strong>{formatMoney(selectedValuation.baselinePrice)}</strong>. 
+                          We compared it against <strong>{selectedValuation.comparableCount}</strong> similar vehicles in your search results to determine this market position.
+                        </p>
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">
+                          Comparable Vehicles
+                        </h4>
+                        <ul className="grid gap-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
+                          {selectedValuation.comparables.slice(0, 10).map((comp, idx) => {
+                            const compIdx = filteredListings.findIndex(l => listingIdentityKey(l) === listingIdentityKey(comp));
+                            const isClickable = compIdx !== -1;
+                            return (
+                              <li 
+                                key={`comp-${idx}`} 
+                                className={`rounded-lg border border-zinc-200/70 bg-white/80 px-3 py-2 text-xs text-zinc-800 dark:border-zinc-700/50 dark:bg-zinc-950/40 dark:text-zinc-200 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 ${isClickable ? 'cursor-pointer hover:border-emerald-300 hover:ring-1 hover:ring-emerald-500/20 transition-all' : ''}`}
+                                onClick={isClickable ? () => setSelectedListingIndex(compIdx) : undefined}
+                              >
+                                <div className="truncate pr-2">
+                                  <span className="font-medium">{comp.year} {comp.make} {comp.model}</span>
+                                  {comp.trim && <span className="text-zinc-500 dark:text-zinc-400 ml-1">{comp.trim}</span>}
+                                </div>
+                                <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                                  {comp.dealer_name && (
+                                    <span className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate max-w-[100px]">
+                                      {comp.dealer_name}
+                                    </span>
+                                  )}
+                                  <span className="font-semibold">{formatMoney(comp.price)}</span>
+                                </div>
+                              </li>
+                            );
+                          })}
+                          {selectedValuation.comparables.length > 10 && (
+                            <li className="text-xs text-center text-zinc-500 dark:text-zinc-400 py-1">
+                              + {selectedValuation.comparables.length - 10} more
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 ) : null}
 

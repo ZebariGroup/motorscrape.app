@@ -10,6 +10,7 @@ export type MarketValuation = {
   baselinePrice: number;
   deltaAmount: number;
   deltaPercent: number;
+  comparables: AggregatedListing[];
 };
 
 function median(values: number[]): number {
@@ -36,24 +37,52 @@ function valuationBand(deltaPercent: number): Pick<MarketValuation, "band" | "la
 function isComparable(
   base: AggregatedListing,
   candidate: AggregatedListing,
-  { strictYear }: { strictYear: boolean },
+  { strictYear, strictTrim, strictFeatures }: { strictYear: boolean; strictTrim?: boolean; strictFeatures?: boolean },
 ): boolean {
   if (normalizedText(base.vehicle_category) !== normalizedText(candidate.vehicle_category)) return false;
   if (normalizedText(base.make) !== normalizedText(candidate.make)) return false;
   if (normalizedText(base.model) !== normalizedText(candidate.model)) return false;
   if (strictYear && base.year != null && candidate.year != null && base.year !== candidate.year) return false;
   if (base.vehicle_condition && candidate.vehicle_condition && base.vehicle_condition !== candidate.vehicle_condition) return false;
+  
+  if (strictTrim && base.trim) {
+    if (normalizedText(base.trim) !== normalizedText(candidate.trim)) return false;
+  }
+
+  if (strictFeatures && base.feature_highlights && base.feature_highlights.length > 0) {
+    const baseFeatures = base.feature_highlights.map(normalizedText);
+    const candidateFeatures = (candidate.feature_highlights || []).map(normalizedText);
+    const hasAllFeatures = baseFeatures.every(f => candidateFeatures.includes(f));
+    if (!hasAllFeatures) return false;
+  }
+
   return true;
 }
 
-function comparablePrices(base: AggregatedListing, listings: AggregatedListing[]): number[] {
-  const strict = listings.filter(
+function findComparables(base: AggregatedListing, listings: AggregatedListing[]): AggregatedListing[] {
+  const strictAll = listings.filter(
+    (candidate) =>
+      candidate.price != null &&
+      !Number.isNaN(candidate.price) &&
+      isComparable(base, candidate, { strictYear: true, strictTrim: true, strictFeatures: true }),
+  );
+  if (strictAll.length >= 3) return strictAll;
+
+  const strictYearTrim = listings.filter(
+    (candidate) =>
+      candidate.price != null &&
+      !Number.isNaN(candidate.price) &&
+      isComparable(base, candidate, { strictYear: true, strictTrim: true }),
+  );
+  if (strictYearTrim.length >= 3) return strictYearTrim;
+
+  const strictYear = listings.filter(
     (candidate) =>
       candidate.price != null &&
       !Number.isNaN(candidate.price) &&
       isComparable(base, candidate, { strictYear: true }),
   );
-  if (strict.length >= 3) return strict.map((candidate) => candidate.price!);
+  if (strictYear.length >= 3) return strictYear;
 
   const relaxedYear = listings.filter(
     (candidate) =>
@@ -62,16 +91,14 @@ function comparablePrices(base: AggregatedListing, listings: AggregatedListing[]
       isComparable(base, candidate, { strictYear: false }) &&
       (base.year == null || candidate.year == null || Math.abs(candidate.year - base.year) <= 1),
   );
-  if (relaxedYear.length >= 3) return relaxedYear.map((candidate) => candidate.price!);
+  if (relaxedYear.length >= 3) return relaxedYear;
 
-  return listings
-    .filter(
-      (candidate) =>
-        candidate.price != null &&
-        !Number.isNaN(candidate.price) &&
-        isComparable(base, candidate, { strictYear: false }),
-    )
-    .map((candidate) => candidate.price!);
+  return listings.filter(
+    (candidate) =>
+      candidate.price != null &&
+      !Number.isNaN(candidate.price) &&
+      isComparable(base, candidate, { strictYear: false }),
+  );
 }
 
 export function buildMarketValuationMap(listings: AggregatedListing[]): Map<string, MarketValuation> {
@@ -79,8 +106,9 @@ export function buildMarketValuationMap(listings: AggregatedListing[]): Map<stri
   for (const listing of listings) {
     if (listing.price == null || Number.isNaN(listing.price)) continue;
     if (!listing.make || !listing.model) continue;
-    const prices = comparablePrices(listing, listings);
-    if (prices.length < 3) continue;
+    const comparables = findComparables(listing, listings);
+    if (comparables.length < 3) continue;
+    const prices = comparables.map((c) => c.price!);
     const baselinePrice = median(prices);
     if (!Number.isFinite(baselinePrice) || baselinePrice <= 0) continue;
     const deltaAmount = listing.price - baselinePrice;
@@ -91,6 +119,7 @@ export function buildMarketValuationMap(listings: AggregatedListing[]): Map<stri
       baselinePrice,
       deltaAmount,
       deltaPercent,
+      comparables,
     });
   }
   return valuations;
