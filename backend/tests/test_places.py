@@ -438,7 +438,7 @@ async def test_find_dealerships_motorcycles_prefers_category_context(places_api_
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_find_dealerships_motorcycles_keeps_multibrand_fallbacks_when_brand_match_exists(places_api_key: str) -> None:
+async def test_find_dealerships_motorcycles_drops_generic_fallbacks_with_multiple_brand_matches(places_api_key: str) -> None:
     search_response = {
         "places": [
             {
@@ -488,7 +488,6 @@ async def test_find_dealerships_motorcycles_keeps_multibrand_fallbacks_when_bran
     assert [d.name for d in out] == [
         "Honda Powersports of Testville",
         "River Raisin Powersports",
-        "Generic Powersports",
     ]
 
 

@@ -112,7 +112,7 @@ def places_search_cache_key(
 ) -> str:
     return _make_key(
         {
-            "namespace": "places_search_v1",
+            "namespace": "places_search_v2",
             "location": (location or "").strip().lower(),
             "make": (make or "").strip().lower(),
             "model": (model or "").strip().lower(),

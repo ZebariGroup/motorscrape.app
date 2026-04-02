@@ -1070,6 +1070,12 @@ async def find_dealerships(
                 if _name_matches_make(" ".join(filter(None, [d.name, d.website or ""])), make_q)
             ]
             if category_brand_matches:
+                # Keep generic multi-brand fallbacks only when we found very few
+                # make-matching dealers. When we already have multiple strong
+                # make matches, adding generic powersports/marine dealers mostly
+                # adds "no listings" noise in downstream scrape runs.
+                if len(category_brand_matches) >= 2:
+                    return _finalize(category_brand_matches)
                 extras = [d for d in category_matches if d not in category_brand_matches]
                 return _finalize(category_brand_matches + extras[: _generic_category_fallback_cap(category)])
             # For multi-brand categories (boat, motorcycle) with a specific make that
