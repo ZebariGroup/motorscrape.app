@@ -124,6 +124,24 @@ async def test_fetch_page_html_direct_403_retries_with_fallback_headers(clear_sc
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_retries_http_after_sslv3_handshake_failure(clear_scraper_keys: None) -> None:
+    https_url = "https://dealer.example/inventory"
+    http_url = "http://dealer.example/inventory"
+    respx.get(https_url).mock(
+        side_effect=httpx.ConnectError(
+            "[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] ssl/tls alert handshake failure (_ssl.c:1010)"
+        )
+    )
+    respx.get(http_url).mock(return_value=Response(200, text=_inventory_html()))
+
+    html, method = await fetch_page_html(https_url, page_kind="inventory")
+
+    assert method == "direct"
+    assert "vehicle-card" in html
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_inventory_strips_dfr_query_on_direct_retry(clear_scraper_keys: None) -> None:
     noisy = (
         "https://dealer.example/new-vehicles/"
@@ -175,6 +193,43 @@ async def test_fetch_page_html_enriches_dealer_spike_generic_vehinv_cache(clear_
     assert '"make":"Ski-Doo"' in html
     assert '"model":"Summit Expert"' in html
     assert '"price":"19699"' in html
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_page_html_accepts_dealer_spike_table_inventory_from_zenrows_static(
+    zenrows_key: None,
+) -> None:
+    url = "https://www.rosenaupowersports.net/search/inventory"
+    respx.get(url).mock(return_value=Response(403, text="denied"))
+    dealer_spike_html = """
+    <html><body>
+      <div class="inventory-results">
+        <a href="/search/inventory?page=detail&stock=25B041">View Details</a>
+        <a href="/search/inventory?page=detail&stock=25B042">View Details</a>
+        <a href="/search/inventory?page=detail&stock=25B043">View Details</a>
+        <table>
+          <tr><td><strong>Stock #</strong></td><td>25B041</td></tr>
+          <tr><td><strong>MSRP</strong></td><td>$16,999</td></tr>
+          <tr><td><strong>Stock #</strong></td><td>25B042</td></tr>
+          <tr><td><strong>MSRP</strong></td><td>$17,499</td></tr>
+          <tr><td><strong>Stock #</strong></td><td>25B043</td></tr>
+          <tr><td><strong>MSRP</strong></td><td>$18,299</td></tr>
+        </table>
+      </div>
+    </body></html>
+    """
+    respx.get("https://api.zenrows.com/v1/").mock(return_value=Response(200, text=dealer_spike_html))
+
+    html, method = await fetch_page_html(
+        url,
+        page_kind="inventory",
+        platform_id="dealer_spike",
+    )
+
+    assert method == "zenrows_static"
+    assert "Stock #" in html
+    assert html.count("View Details") >= 3
 
 
 @respx.mock

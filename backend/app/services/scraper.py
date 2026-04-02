@@ -378,7 +378,15 @@ async def _direct_get_with_express_www_fallback(url: str, timeout: httpx.Timeout
     try:
         return await _direct_get(url, timeout)
     except httpx.ConnectError as e:
-        if "tlsv1 alert internal error" in str(e).lower() and url.startswith("https://"):
+        err_lower = str(e).lower()
+        if (
+            url.startswith("https://")
+            and (
+                "tlsv1 alert internal error" in err_lower
+                or "sslv3_alert_handshake_failure" in err_lower
+                or "sslv3 alert handshake failure" in err_lower
+            )
+        ):
             logger.info("TLS internal error on %s; retrying with http://", url)
             alt = url.replace("https://", "http://", 1)
             return await _direct_get(alt, timeout)
@@ -1043,6 +1051,14 @@ async def _scrapingbee_fetch(
 
 def _html_looks_inventory_ready(html: str, *, platform_id: str | None = None) -> bool:
     lower = html.lower()
+    if platform_id == "dealer_spike":
+        # Dealer Spike motorcycle SRPs often render inventory rows without modern
+        # card classes; rely on repeated stock/detail signals to avoid false
+        # "insufficient" classifications on fully populated pages.
+        stock_rows = lower.count("stock #</strong>")
+        detail_links = lower.count("view details")
+        if stock_rows >= 3 and detail_links >= 3:
+            return True
     if platform_id in _SONIC_STYLE_INVENTORY_PLATFORMS:
         return (
             "vehicle_results_label" in lower
