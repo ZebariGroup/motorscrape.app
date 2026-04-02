@@ -263,6 +263,11 @@ _SAVE_PRICE_MSRP_RE = re.compile(
     r"save:\s*\$[\d,]+\s*\$(?P<price>[\d,]+)\s*msrp\s*\$(?P<msrp>[\d,]+)",
     re.I,
 )
+_CALL_FOR_PRICE_RE = re.compile(r"\b(?:call|click)\s+(?:for|to)\s+price\b", re.I)
+_INCENTIVE_CONTEXT_RE = re.compile(
+    r"\b(?:bonus|rebate|incentive|savings?|save|discount|dealer\s+cash|offer)\b",
+    re.I,
+)
 _HYUNDAI_SEARCH_TITLE_RE = re.compile(
     r"^(?P<year>20\d{2}|19\d{2})\s+(?P<make>[A-Za-z]+)\s+(?P<model>[A-Z0-9-]+)\s+(?P<trim>.+?)\s+Save:",
     re.I,
@@ -747,18 +752,46 @@ def _coerce_bool(val: Any) -> bool | None:
     return None
 
 
-def _extract_price_from_text(text: str | None) -> float | None:
+def _extract_price_candidates_from_text(
+    text: str | None,
+    *,
+    skip_incentive_context: bool = False,
+) -> list[float]:
     if not text:
-        return None
+        return []
+    out: list[float] = []
     for match in _TEXT_PRICE_RE.finditer(text):
+        if skip_incentive_context:
+            before = text[max(0, match.start() - 30):match.start()]
+            after = text[match.end():min(len(text), match.end() + 44)]
+            has_before_keyword = _INCENTIVE_CONTEXT_RE.search(before) is not None
+            has_after_keyword = False
+            after_keyword = _INCENTIVE_CONTEXT_RE.search(after)
+            if after_keyword is not None:
+                # Ignore "keyword after price" when another $ appears first; that's usually
+                # a second amount on the card, not context for this specific price match.
+                has_after_keyword = "$" not in after[:after_keyword.start()]
+            if has_before_keyword or has_after_keyword:
+                continue
         price = _coerce_float(match.group(0))
         if price and price > 500:
-            return price
+            out.append(price)
+    if out:
+        return out
     for match in _TEXT_EURO_PRICE_RE.finditer(text):
         price = _coerce_float(match.group(0))
         if price and price > 500:
-            return price
-    return None
+            out.append(price)
+    return out
+
+
+def _extract_price_from_text(
+    text: str | None,
+    *,
+    skip_incentive_context: bool = False,
+) -> float | None:
+    candidates = _extract_price_candidates_from_text(text, skip_incentive_context=skip_incentive_context)
+    return candidates[0] if candidates else None
 
 
 def _unwrap_quantitative_value(val: Any) -> Any:
@@ -2104,7 +2137,7 @@ def _extract_search_result_card_vehicles(
         if price_match:
             price = _coerce_float(price_match.group("price"))
         if price is None:
-            price = _extract_price_from_text(card_text)
+            price = _extract_price_from_text(card_text, skip_incentive_context=True)
 
         image_url = None
         img = anchor.select_one("img[src]")
@@ -2213,13 +2246,10 @@ def _extract_inventory_anchor_card_vehicles(
         stock_match = _TEXT_STOCK_RE.search(card_text)
         stock_value = stock_match.group(1) if stock_match else None
         image_url = _pick_dom_vehicle_image(container, page_url)
-        card_prices = [
-            price
-            for price in (_coerce_float(match.group(0)) for match in _TEXT_PRICE_RE.finditer(card_text))
-            if price and price > 500
-        ]
+        card_prices = _extract_price_candidates_from_text(card_text, skip_incentive_context=True)
         current_price = min(card_prices) if card_prices else None
         msrp_price = max(card_prices) if len(card_prices) >= 2 else None
+        has_call_for_price = bool(_CALL_FOR_PRICE_RE.search(card_text))
         # Safety net: if the apparent "sale price" is less than 15% of the other price
         # on the card, it is almost certainly a dealer incentive or bonus-cash amount
         # (e.g. VW Driver Access Bonus "$1,000") rather than the vehicle sale price.
@@ -2228,13 +2258,16 @@ def _extract_inventory_anchor_card_vehicles(
             current_price = msrp_price
             msrp_price = None
 
+        if has_call_for_price and current_price is not None and current_price <= 1500 and msrp_price is None:
+            current_price = None
+
         vehicle = VehicleListing(
             vehicle_category=vehicle_category,
             year=_coerce_int(title_fields.get("year")),
             make=str(title_fields.get("make")).strip() if title_fields.get("make") else None,
             model=str(title_fields.get("model")).strip() if title_fields.get("model") else None,
             trim=str(title_fields.get("trim")).strip() if title_fields.get("trim") else None,
-            price=current_price or _extract_price_from_text(card_text),
+            price=current_price or _extract_price_from_text(card_text, skip_incentive_context=True),
             mileage=usage_value if usage_unit == "miles" else None,
             usage_value=usage_value,
             usage_unit=usage_unit,
@@ -2687,7 +2720,10 @@ def extract_dom_vehicle_cards(
         if not trim:
             trim = title_fields.get("trim")
         if price in (None, 0.0):
-            price = _extract_price_from_text(card_text) or price
+            price = _extract_price_from_text(card_text, skip_incentive_context=True) or price
+        if _CALL_FOR_PRICE_RE.search(card_text or "") and price is not None and price <= 1500 and not card_msrp:
+            # Placeholder "$1,000" style incentive rows are common on call-for-price cards.
+            price = None
         if usage_value is None:
             usage_value, usage_unit = _pick_usage_from_dict(
                 {},

@@ -493,6 +493,56 @@ def test_try_extract_team_velocity_vdp_prefers_cash_price_and_keeps_lease_paymen
     assert v.lease_term_months == 24
 
 
+def test_inventory_anchor_card_ignores_bonus_amount_and_keeps_real_price() -> None:
+    html = """
+    <html><body>
+      <section class="inventory-item">
+        <h2>Used 2005 Honda Accord Cpe EX-L</h2>
+        <div>Stock P1234</div>
+        <div>$3,900</div>
+        <div>$1,000 Customer Bonus</div>
+        <a href="/viewdetails/used/1hgcm72785a006099/2005-honda-accord-cpe-2dr-car">View Details</a>
+      </section>
+      <p>Showing 1 - 1 of 9 results</p>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.pagehondabloomfield.com/used-inventory/index.htm",
+        html=html,
+        make_filter="Honda",
+        model_filter="Accord",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.price == pytest.approx(3900)
+    assert vehicle.price != pytest.approx(1000)
+
+
+def test_inventory_anchor_card_call_for_price_does_not_use_bonus_placeholder() -> None:
+    html = """
+    <html><body>
+      <section class="inventory-item">
+        <h2>Used 2023 Honda Accord Sedan Sport</h2>
+        <div>Call for price</div>
+        <div>$1,000 Loyalty Bonus</div>
+        <a href="/viewdetails/used/1hgcy1f23pa055553/2023-honda-accord-sedan-4dr-car">View Details</a>
+      </section>
+      <p>Showing 1 - 1 of 24 results</p>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.pagehondabloomfield.com/used-inventory/index.htm",
+        html=html,
+        make_filter="Honda",
+        model_filter="Accord",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.price is None
+
+
 def test_try_extract_dom_vehicle_card_reads_data_mileage_attributes() -> None:
     html = """
     <html><body>
