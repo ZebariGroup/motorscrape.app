@@ -96,13 +96,24 @@ def _extract_json_objects_from_html(html: str) -> list[dict[str, Any]]:
         try:
             parsed = json.loads(raw)
         except Exception:
-            # Some Tesla pages embed escaped JSON payload strings.
-            maybe_json = raw.strip().strip(";")
-            if maybe_json.startswith(("'", '"')) and maybe_json.endswith(("'", '"')):
-                try:
-                    parsed = json.loads(json.loads(maybe_json))
-                except Exception:
-                    parsed = None
+            pass
+        # Some Tesla pages embed escaped JSON payload strings assigned to variables.
+        if parsed is None:
+            try:
+                # Look for {"results":[...]} or similar within the script block
+                m = re.search(r'(\{[\s\S]*"results"[\s\S]*\})', raw)
+                if m:
+                    parsed = json.loads(m.group(1))
+            except Exception:
+                pass
+        if parsed is None:
+            try:
+                # Sometimes it's double-encoded string
+                m = re.search(r'["\'](\{[\s\S]*"results"[\s\S]*\})["\']', raw)
+                if m:
+                    parsed = json.loads(m.group(1).encode('utf-8').decode('unicode_escape'))
+            except Exception:
+                pass
         if parsed is None:
             continue
         _walk_objects(parsed, out)
