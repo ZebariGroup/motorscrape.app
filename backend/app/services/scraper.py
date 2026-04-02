@@ -224,6 +224,11 @@ _BLOCK_MARKERS = (
     "access denied",
     "request blocked",
     "client challenge",
+    # Akamai behavioral challenge pages (Tesla and other OEM sites) can return
+    # 200 HTML shells that look "non-empty" but contain no inventory content.
+    "sec-if-cpt-container",
+    "scf-akamai-logo",
+    "akamai-protected-by",
 )
 _STRUCTURE_HINTS = (
     '"inventory":',

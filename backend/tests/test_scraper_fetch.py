@@ -431,6 +431,39 @@ async def test_fetch_page_html_tesla_rendered_payload_is_treated_as_sufficient(
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_fetch_page_html_tesla_akamai_challenge_escalates_to_zenrows_static(
+    zenrows_key: None,
+) -> None:
+    url = "https://www.tesla.com/inventory/new/m3?arrangeby=relevance&zip=60606&range=250"
+    akamai_shell = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <body>
+      <div id="sec-if-cpt-container" role="main">
+        <div class="behavioral-content">
+          <p class="scf-akamai-protected-by">Powered and protected by</p>
+          <div class="scf-akamai-logo"></div>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+    respx.get(url).mock(return_value=Response(200, text=akamai_shell))
+    respx.get("https://api.zenrows.com/v1/").mock(return_value=Response(200, text=_inventory_html()))
+
+    html, method = await fetch_page_html(
+        url,
+        page_kind="inventory",
+        prefer_render=False,
+        platform_id="tesla_inventory",
+    )
+
+    assert method in {"zenrows_static", "zenrows_rendered"}
+    assert "vehicle-card" in html
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_fetch_page_html_does_not_premium_retry_on_zenrows_concurrency_limit(
     zenrows_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
