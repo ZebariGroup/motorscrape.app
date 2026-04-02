@@ -23,6 +23,7 @@ This repo is set up for **[Vercel Services](https://vercel.com/docs/services)**:
    - `NEXT_PUBLIC_API_URL` — set in [`vercel.json`](vercel.json) to `/server` so the browser hits the FastAPI service; override only if you change `routePrefix` or split deployments.
 
 5. **Redeploy** after changing env vars (or push an empty commit) so new env values are picked up if needed.
+   - Redeploy trigger marker: 2026-04-01T21:00Z
 
 ### Recommended: GitHub → Vercel (no CLI deploy)
 
