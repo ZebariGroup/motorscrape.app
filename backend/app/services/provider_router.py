@@ -188,8 +188,9 @@ _KNOWN_BRAND_TOKENS: frozenset[str] = frozenset(
 
 
 def _effective_requires_render(platform_id: str, requires_render: bool) -> bool:
-    # DealerOn SRPs are commonly server-rendered and should stay on the cheap direct path first.
-    if platform_id == "dealer_on":
+    # DealerOn and Tesla SRPs often return useful HTML via direct/static fetches first.
+    # Keep them on the cheaper static path before escalating to managed JS rendering.
+    if platform_id in {"dealer_on", "tesla_inventory"}:
         return False
     return requires_render
 

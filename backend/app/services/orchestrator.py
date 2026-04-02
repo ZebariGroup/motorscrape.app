@@ -2141,6 +2141,16 @@ async def stream_search(
                     model=model,
                     vehicle_condition=vehicle_condition,
                 )
+                if prefetched_route.platform_id == "tesla_inventory":
+                    prefetched_tesla_urls = _tesla_inventory_urls(
+                        candidate_inventory_url,
+                        vehicle_condition=vehicle_condition,
+                        model=model,
+                        fallback_zip=dealer_zip,
+                        fallback_range_miles=radius_miles,
+                    )
+                    if prefetched_tesla_urls:
+                        candidate_inventory_url = prefetched_tesla_urls[0]
                 if candidate_inventory_url and candidate_inventory_url.rstrip("/") != base_url.rstrip("/"):
                     await _emit(
                         sse_pack(
@@ -2370,6 +2380,17 @@ async def stream_search(
 
             current_html = prefetched_html or homepage_html or ""
             current_method = prefetched_method or homepage_method or "unknown"
+
+            if route and route.platform_id == "tesla_inventory":
+                seed_tesla_urls = _tesla_inventory_urls(
+                    inv_url or base_url,
+                    vehicle_condition=vehicle_condition,
+                    model=model,
+                    fallback_zip=dealer_zip,
+                    fallback_range_miles=radius_miles,
+                )
+                if seed_tesla_urls:
+                    inv_url = seed_tesla_urls[0]
 
             # If inventory is on a different URL, fetch it before first parse.
             if seed_inventory_url is None and inv_url and inv_url != base_url:

@@ -60,6 +60,23 @@ def test_provider_route_from_cache_entry_preserves_hint_and_render_preferences()
     assert route.requires_render is False
 
 
+def test_provider_route_from_cache_entry_disables_render_for_tesla_inventory() -> None:
+    entry = PlatformCacheEntry(
+        domain="www.tesla.com",
+        platform_id="tesla_inventory",
+        confidence=0.95,
+        extraction_mode="provider",
+        requires_render=True,
+        inventory_url_hint="https://www.tesla.com/inventory/new?arrangeby=relevance",
+        detection_source="cache",
+        last_verified_at=datetime.now(UTC),
+    )
+    route = provider_route_from_cache_entry(entry, cache_status="warm")
+    assert route is not None
+    assert route.platform_id == "tesla_inventory"
+    assert route.requires_render is False
+
+
 def test_speculative_inventory_url_builds_platform_specific_srp() -> None:
     assert (
         speculative_inventory_url(
