@@ -467,7 +467,7 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
     ),
     PlatformDefinition(
         platform_id="team_velocity",
-        markers=("teamvelocity", "tvs", "team velocity"),
+        markers=("teamvelocity", "tvs", "team velocity", "teamvelocitymarketing.com", "teamvelocityportal.com"),
         inventory_path_hints=(
             "inventory/new",
             "inventory/used",

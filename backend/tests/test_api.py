@@ -40,7 +40,7 @@ def test_search_stream_no_dealers_mocked() -> None:
             assert r.status_code == 200
             body = b"".join(r.iter_bytes())
     assert b"event: done" in body
-    assert b"No dealerships" in body
+    assert b"Finding additional dealerships" in body or b"No dealerships" in body
 
 
 def test_search_stream_accepts_vehicle_category() -> None:

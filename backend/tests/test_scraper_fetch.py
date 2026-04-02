@@ -284,7 +284,7 @@ async def test_fetch_page_html_inventory_uses_single_rendered_wait_attempt(
     html, method = await fetch_page_html(url, page_kind="inventory")
     assert method == "direct_fallback"
     assert html
-    assert rendered_waits == ["3000"]
+    assert rendered_waits == ["2500"]
 
 
 @respx.mock

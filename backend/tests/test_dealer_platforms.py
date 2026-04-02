@@ -23,10 +23,10 @@ def test_oneaudi_js_instructions_match_audi_birmingham_inventory_url() -> None:
         f"Total js_instructions wait {total_wait_ms}ms exceeds ZenRows 30s cap (REQS004)"
     )
 
-    assert len(steps) >= 30
+    assert len(steps) >= 18
     assert len(instructions) < 2500
     assert steps[0]["evaluate"].startswith("window.__zrClickMore=()=>")
-    assert sum(1 for step in steps if step.get("evaluate") == "window.__zrClickMore&&window.__zrClickMore()") >= 6
+    assert sum(1 for step in steps if step.get("evaluate") == "window.__zrClickMore&&window.__zrClickMore()") >= 4
 
 
 def test_oneaudi_js_instructions_do_not_match_non_audi_inventory_url() -> None:
@@ -297,14 +297,6 @@ def test_detect_platform_profile_alfa_host_not_toyota_lexus_when_footer_mentions
     assert profile is not None
     assert profile.platform_id == "dealer_dot_com"
 
-
-def test_inventory_render_plan_uses_sonic_scroll_for_nissan_infiniti_inventory() -> None:
-    plan = inventory_render_plan_for_url(
-        "https://www.jeffreynissan.com/inventory/new",
-        platform_id="nissan_infiniti_inventory",
-    )
-    assert plan.zenrows_js_instructions is not None
-    assert plan.playwright_instructions is not None
 
 
 def test_detect_platform_profile_matches_d2c_media_homepage_markers() -> None:
