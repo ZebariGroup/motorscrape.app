@@ -140,6 +140,30 @@ def _extract_us_zip(value: str) -> str | None:
     return matches[-1]
 
 
+def _looks_like_tesla_site_url(url: str | None) -> bool:
+    if not url:
+        return False
+    parts = urlsplit(url)
+    host = parts.netloc.lower().split("@")[-1].split(":")[0]
+    if not host.endswith("tesla.com"):
+        return False
+    path = parts.path.lower()
+    return path.startswith("/findus/location/store") or path.startswith("/inventory")
+
+
+def _tesla_inventory_has_location_scope(url: str | None) -> bool:
+    if not url:
+        return False
+    parts = urlsplit(url)
+    host = parts.netloc.lower().split("@")[-1].split(":")[0]
+    if not host.endswith("tesla.com"):
+        return False
+    if not parts.path.lower().startswith("/inventory"):
+        return False
+    query = {k.lower(): v for k, v in parse_qsl(parts.query, keep_blank_values=True)}
+    return bool(_extract_us_zip(str(query.get("zip") or "")))
+
+
 def _tesla_inventory_urls(
     url: str | None,
     *,
@@ -352,6 +376,8 @@ def _inventory_url_uses_scoped_filters(url: str | None, *, make: str, model: str
         return False
     parts = urlsplit(url)
     query = {k.lower(): v.lower() for k, v in parse_qsl(parts.query, keep_blank_values=True)}
+    if _tesla_inventory_has_location_scope(url):
+        return True
     if any(
         key in query
         for key in ("make", "model", "modelandtrim", "_dfr[make][0]", "_dfr[model][0]")
@@ -2129,6 +2155,15 @@ async def stream_search(
                 if platform_entry is not None and platform_entry.is_usable
                 else None
             )
+            if prefetched_route is None and _looks_like_tesla_site_url(website):
+                hinted_route = detect_or_lookup_provider(
+                    domain=domain,
+                    website=website,
+                    homepage_html="",
+                )
+                if hinted_route is not None and hinted_route.platform_id == "tesla_inventory":
+                    prefetched_route = hinted_route
+                    prefetched_inventory_url = website
             prefetched_html: str | None = None
             prefetched_method: str | None = None
             if prefetched_route and prefetched_inventory_url:
@@ -2141,17 +2176,18 @@ async def stream_search(
                     model=model,
                     vehicle_condition=vehicle_condition,
                 )
+                candidate_inventory_urls = [candidate_inventory_url] if candidate_inventory_url else []
                 if prefetched_route.platform_id == "tesla_inventory":
-                    prefetched_tesla_urls = _tesla_inventory_urls(
+                    candidate_inventory_urls = _tesla_inventory_urls(
                         candidate_inventory_url,
                         vehicle_condition=vehicle_condition,
                         model=model,
                         fallback_zip=dealer_zip,
                         fallback_range_miles=radius_miles,
                     )
-                    if prefetched_tesla_urls:
-                        candidate_inventory_url = prefetched_tesla_urls[0]
-                if candidate_inventory_url and candidate_inventory_url.rstrip("/") != base_url.rstrip("/"):
+                for candidate_inventory_url in candidate_inventory_urls:
+                    if candidate_inventory_url.rstrip("/") == base_url.rstrip("/"):
+                        continue
                     await _emit(
                         sse_pack(
                             "dealership",
@@ -2190,15 +2226,22 @@ async def stream_search(
                             d.name,
                             candidate_inventory_url,
                         )
+                        break
                     except Exception as prefetched_error:
                         logger.debug(
-                            "%sKnown inventory route failed for %s (%s); falling back to homepage discovery",
+                            "%sKnown inventory route failed for %s (%s); trying next candidate",
                             cid_log,
-                            d.name,
+                            candidate_inventory_url,
                             prefetched_error,
                         )
-                        prefetched_route = None
-                        seed_inventory_url = None
+                if prefetched_route and seed_inventory_url is None:
+                    logger.debug(
+                        "%sKnown inventory route candidates failed for %s; falling back to homepage discovery",
+                        cid_log,
+                        d.name,
+                    )
+                    prefetched_route = None
+                    seed_inventory_url = None
 
             if seed_inventory_url is None:
                 try:
@@ -2346,6 +2389,11 @@ async def stream_search(
                         model=model,
                         vehicle_condition=vehicle_condition,
                     )
+            if route is None and _looks_like_tesla_site_url(website):
+                hinted_route = detect_or_lookup_provider(domain=domain, website=website, homepage_html="")
+                if hinted_route is not None and hinted_route.platform_id == "tesla_inventory":
+                    route = hinted_route
+                    inv_url = website
             if inv_url == base_url and domain in inv_url_cache:
                 cached = inv_url_cache[domain]
                 if cached and cached.rstrip("/") != base_url.rstrip("/"):
@@ -2829,6 +2877,9 @@ async def stream_search(
             )
 
             while current_url and pages_scraped < page_budget:
+                current_url_scoped = _inventory_url_uses_scoped_filters(current_url, make=make, model=model)
+                if current_url_scoped:
+                    scoped_inventory_url = True
                 if pages_scraped > 0:
                     await _emit(
                         sse_pack(
@@ -3310,7 +3361,14 @@ async def stream_search(
                     and not vdicts
                     and _looks_like_zero_inventory_results_page(current_html, current_url)
                 )
-                if ford_scoped_zero_results or tesla_zero_results:
+                tesla_unscoped_retry = bool(
+                    route
+                    and route.platform_id == "tesla_inventory"
+                    and current_url
+                    and not vdicts
+                    and not current_url_scoped
+                )
+                if ford_scoped_zero_results or tesla_zero_results or tesla_unscoped_retry:
                     recovery_candidates = _inventory_url_recovery_candidates(
                         inv_url=current_url,
                         base_url=base_url,
