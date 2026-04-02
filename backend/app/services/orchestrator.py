@@ -127,6 +127,151 @@ def _scope_filter_tokens(raw: str) -> set[str]:
     return {token for token in tokens if token}
 
 
+def _mv_norm(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _mv_tokens(*values: Any) -> set[str]:
+    tokens: set[str] = set()
+    for value in values:
+        text = _mv_norm(value)
+        if not text:
+            continue
+        for token in re.split(r"[^a-z0-9]+", text):
+            token = token.strip()
+            if len(token) >= 2:
+                tokens.add(token)
+    return tokens
+
+
+def _mv_overlap_ratio(base: set[str], candidate: set[str]) -> float:
+    if not base or not candidate:
+        return 0.0
+    overlap = sum(1 for token in base if token in candidate)
+    return overlap / float(len(base))
+
+
+def _mv_similarity(base: VehicleListing, candidate: dict[str, Any]) -> float:
+    candidate_features = candidate.get("feature_highlights")
+    if not isinstance(candidate_features, list):
+        candidate_features = [candidate_features] if candidate_features else []
+    base_tokens = _mv_tokens(
+        base.trim,
+        base.body_style,
+        base.drivetrain,
+        base.engine,
+        base.transmission,
+        base.fuel_type,
+        *(base.feature_highlights or []),
+    )
+    candidate_tokens = _mv_tokens(
+        candidate.get("trim"),
+        candidate.get("body_style"),
+        candidate.get("drivetrain"),
+        candidate.get("engine"),
+        candidate.get("transmission"),
+        candidate.get("fuel_type"),
+        *candidate_features,
+    )
+    score = _mv_overlap_ratio(base_tokens, candidate_tokens)
+    if _mv_norm(base.trim) and _mv_norm(base.trim) == _mv_norm(candidate.get("trim")):
+        score += 0.2
+    if _mv_norm(base.drivetrain) and _mv_norm(base.drivetrain) == _mv_norm(candidate.get("drivetrain")):
+        score += 0.1
+    if _mv_norm(base.body_style) and _mv_norm(base.body_style) == _mv_norm(candidate.get("body_style")):
+        score += 0.1
+    return score
+
+
+def _mv_median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    sorted_values = sorted(values)
+    middle = len(sorted_values) // 2
+    if len(sorted_values) % 2 == 0:
+        return (sorted_values[middle - 1] + sorted_values[middle]) / 2.0
+    return sorted_values[middle]
+
+
+def _listing_market_identity_tokens(listing: VehicleListing) -> tuple[str, str, str]:
+    vin = str(listing.vin or "").strip().upper()
+    vehicle_identifier = str(listing.vehicle_identifier or "").strip().upper()
+    listing_url = str(listing.listing_url or "").strip().lower()
+    return vin, vehicle_identifier, listing_url
+
+
+def _historical_market_points_for_listing(
+    listing: VehicleListing,
+    historical_pool: list[dict[str, Any]],
+    *,
+    max_prices: int = 40,
+) -> list[dict[str, float]]:
+    base_make = _mv_norm(listing.make)
+    base_model = _mv_norm(listing.model)
+    base_category = _mv_norm(listing.vehicle_category)
+    if not base_make or not base_model:
+        return []
+    base_condition = _mv_norm(listing.vehicle_condition)
+    base_vin, base_identifier, base_url = _listing_market_identity_tokens(listing)
+    ranked: list[tuple[float, float, float | None]] = []
+    for candidate in historical_pool:
+        try:
+            price_value = float(candidate.get("price"))
+        except (TypeError, ValueError):
+            continue
+        if price_value <= 0:
+            continue
+        if _mv_norm(candidate.get("make")) != base_make:
+            continue
+        if _mv_norm(candidate.get("model")) != base_model:
+            continue
+        candidate_category = _mv_norm(candidate.get("vehicle_category"))
+        if base_category and candidate_category and candidate_category != base_category:
+            continue
+        candidate_condition = _mv_norm(candidate.get("vehicle_condition"))
+        if base_condition and candidate_condition and candidate_condition != base_condition:
+            continue
+        if listing.year is not None and candidate.get("year") is not None:
+            try:
+                if abs(int(candidate.get("year")) - int(listing.year)) > 1:
+                    continue
+            except (TypeError, ValueError):
+                pass
+
+        candidate_vin = str(candidate.get("vin") or "").strip().upper()
+        candidate_identifier = str(candidate.get("vehicle_identifier") or "").strip().upper()
+        candidate_url = str(candidate.get("listing_url") or "").strip().lower()
+        if (base_vin and candidate_vin and base_vin == candidate_vin) or (
+            base_identifier and candidate_identifier and base_identifier == candidate_identifier
+        ):
+            continue
+        if base_url and candidate_url and base_url == candidate_url:
+            continue
+
+        score = _mv_similarity(listing, candidate)
+        if score < 0.15:
+            continue
+        observed_at: float | None = None
+        observed_raw = candidate.get("_market_observed_at")
+        try:
+            if observed_raw is not None:
+                observed_at = float(observed_raw)
+        except (TypeError, ValueError):
+            observed_at = None
+        ranked.append((score, price_value, observed_at))
+
+    if not ranked:
+        return []
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    points: list[dict[str, float]] = []
+    for _, price, observed_at in ranked[:max_prices]:
+        point: dict[str, float] = {"price": float(price)}
+        if observed_at is not None and observed_at > 0:
+            point["observed_at"] = observed_at
+        points.append(point)
+    return points
+
+
 def _inventory_url_uses_scoped_filters(url: str | None, *, make: str, model: str) -> bool:
     if not url:
         return False
@@ -1254,6 +1399,53 @@ async def stream_search(
     platform_cache_entries: dict[str, Any] = {}
     places_metrics = PlacesSearchMetrics()
     candidate_limit = min(requested_dealerships * max(1, settings.places_candidate_limit_multiplier), 30)
+    historical_snapshot_pool: list[dict[str, Any]] = []
+    historical_snapshot_pool_loaded = False
+
+    def _load_historical_snapshot_pool() -> list[dict[str, Any]]:
+        nonlocal historical_snapshot_pool_loaded, historical_snapshot_pool
+        if historical_snapshot_pool_loaded:
+            return historical_snapshot_pool
+        historical_snapshot_pool_loaded = True
+        if recorder is None or recorder.user_id is None:
+            return historical_snapshot_pool
+        try:
+            prior_runs = recorder.store.list_scrape_runs(user_id=recorder.user_id, limit=30)
+        except Exception:
+            return historical_snapshot_pool
+        aggregated: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for run in prior_runs:
+            if correlation_id and getattr(run, "correlation_id", None) == correlation_id:
+                continue
+            observed_at = getattr(run, "started_at", None)
+            snapshot = getattr(run, "listings_snapshot", None)
+            if not isinstance(snapshot, list):
+                continue
+            for item in snapshot:
+                if not isinstance(item, dict):
+                    continue
+                identity = "|".join(
+                    [
+                        str(item.get("vin") or "").strip().upper(),
+                        str(item.get("vehicle_identifier") or "").strip().upper(),
+                        str(item.get("listing_url") or "").strip().lower(),
+                        str(item.get("price") or "").strip(),
+                    ]
+                )
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                enriched_item = dict(item)
+                if observed_at is not None:
+                    enriched_item["_market_observed_at"] = observed_at
+                aggregated.append(enriched_item)
+                if len(aggregated) >= 4000:
+                    break
+            if len(aggregated) >= 4000:
+                break
+        historical_snapshot_pool = aggregated
+        return historical_snapshot_pool
 
     def finalize_done(base: dict[str, Any], *, ok: bool, status: str | None = None) -> dict[str, Any]:
         duration_ms = int((time.perf_counter() - t0) * 1000)
@@ -2878,6 +3070,28 @@ async def stream_search(
                                 )
                             )
                         deduped_filtered = enriched_for_history
+                if deduped_filtered:
+                    historical_pool = _load_historical_snapshot_pool()
+                    if historical_pool:
+                        enriched_for_market_history: list[VehicleListing] = []
+                        for listing in deduped_filtered:
+                            historical_points = _historical_market_points_for_listing(listing, historical_pool)
+                            if len(historical_points) < 3:
+                                enriched_for_market_history.append(listing)
+                                continue
+                            historical_prices = [float(point["price"]) for point in historical_points if point.get("price")]
+                            historical_median = _mv_median(historical_prices)
+                            enriched_for_market_history.append(
+                                listing.model_copy(
+                                    update={
+                                        "historical_market_prices": historical_prices,
+                                        "historical_market_price_points": historical_points,
+                                        "historical_market_sample_count": len(historical_prices),
+                                        "historical_market_median": historical_median,
+                                    }
+                                )
+                            )
+                        deduped_filtered = enriched_for_market_history
                 vdicts = [v.model_dump(exclude_none=True) for v in deduped_filtered]
                 logger.info(
                     "scrape_inventory_page dealer=%r domain=%s platform=%s url=%s page=%s/%s "

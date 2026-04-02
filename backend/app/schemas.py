@@ -175,6 +175,27 @@ class VehicleListing(BaseModel):
         default_factory=list,
         description="Recent observed price points for this unit across tracked runs.",
     )
+    historical_market_prices: list[float] = Field(
+        default_factory=list,
+        description=(
+            "Historical comparable prices from prior account scrape runs, excluding the current listing identity, "
+            "used to stabilize market valuation when current-run inventory is sparse."
+        ),
+    )
+    historical_market_price_points: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Historical comparable price points with observed_at timestamps used for recency-weighted market valuation."
+        ),
+    )
+    historical_market_sample_count: int | None = Field(
+        default=None,
+        description="Count of matched historical comparable listings used to build historical_market_prices.",
+    )
+    historical_market_median: float | None = Field(
+        default=None,
+        description="Median of historical_market_prices for this listing's comparable bucket.",
+    )
 
     @field_validator("incentive_labels", "feature_highlights", mode="before")
     @classmethod
@@ -194,6 +215,47 @@ class VehicleListing(BaseModel):
             return []
         if isinstance(v, list):
             return [dict(item) for item in v if isinstance(item, dict)]
+        return []
+
+    @field_validator("historical_market_prices", mode="before")
+    @classmethod
+    def _coerce_historical_market_prices(cls, v: Any) -> list[float]:
+        if v is None:
+            return []
+        if isinstance(v, list):
+            out: list[float] = []
+            for item in v:
+                try:
+                    out.append(float(item))
+                except (TypeError, ValueError):
+                    continue
+            return out
+        return []
+
+    @field_validator("historical_market_price_points", mode="before")
+    @classmethod
+    def _coerce_historical_market_price_points(cls, v: Any) -> list[dict[str, Any]]:
+        if v is None:
+            return []
+        if isinstance(v, list):
+            out: list[dict[str, Any]] = []
+            for item in v:
+                if not isinstance(item, dict):
+                    continue
+                price_raw = item.get("price")
+                observed_at_raw = item.get("observed_at")
+                try:
+                    price_value = float(price_raw)
+                except (TypeError, ValueError):
+                    continue
+                point: dict[str, Any] = {"price": price_value}
+                try:
+                    if observed_at_raw is not None:
+                        point["observed_at"] = float(observed_at_raw)
+                except (TypeError, ValueError):
+                    pass
+                out.append(point)
+            return out
         return []
 
 

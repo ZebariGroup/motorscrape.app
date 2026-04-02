@@ -556,6 +556,18 @@ export function InventoryResultsSection({
                         Comparable listings <span className="font-semibold">{selectedValuation.comparableCount}</span>
                       </p>
                       <p className="text-zinc-700 dark:text-zinc-300">
+                        Trim/Package confidence{" "}
+                        <span className="font-semibold">
+                          {selectedValuation.trimPackageConfidenceLabel} ({selectedValuation.trimPackageConfidenceScore}/100)
+                        </span>
+                      </p>
+                      {selectedValuation.historicalComparableCount > 0 ? (
+                        <p className="text-zinc-700 dark:text-zinc-300">
+                          Historical comps{" "}
+                          <span className="font-semibold">{selectedValuation.historicalComparableCount}</span>
+                        </p>
+                      ) : null}
+                      <p className="text-zinc-700 dark:text-zinc-300">
                         Local median <span className="font-semibold">{formatMoney(selectedValuation.baselinePrice)}</span>
                       </p>
                       <p className="text-zinc-700 dark:text-zinc-300">
@@ -576,7 +588,7 @@ export function InventoryResultsSection({
                       <div className="mt-4 border-t border-zinc-200/60 pt-4 dark:border-zinc-700/60">
                         <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-3 leading-relaxed">
                           This vehicle is priced <strong>{Math.abs(selectedValuation.deltaPercent * 100).toFixed(1)}% {selectedValuation.deltaAmount < 0 ? "below" : "above"}</strong> the local median price of <strong>{formatMoney(selectedValuation.baselinePrice)}</strong>. 
-                          We compared it against <strong>{selectedValuation.comparableCount}</strong> similar vehicles in your search results to determine this market position.
+                          We compared it against <strong>{selectedValuation.comparableCount}</strong> similar vehicles from current and prior tracked searches, with newer observations weighted more heavily.
                         </p>
                         <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">
                           Comparable Vehicles

@@ -151,4 +151,93 @@ describe("market valuation", () => {
     expect(loadedX7?.baselinePrice).toBeGreaterThan(100000);
     expect(loadedX7?.label === "Fair price" || loadedX7?.label === "Above market").toBe(true);
   });
+
+  it("uses historical comparable prices to stabilize baseline", () => {
+    const listings: AggregatedListing[] = [
+      {
+        dealership: "A",
+        dealership_website: "https://a.example",
+        vehicle_category: "car",
+        year: 2025,
+        make: "BMW",
+        model: "X7",
+        trim: "xDrive40i",
+        price: 104500,
+        historical_market_prices: [103900, 104200, 105100, 103750],
+      },
+      {
+        dealership: "B",
+        dealership_website: "https://b.example",
+        vehicle_category: "car",
+        year: 2025,
+        make: "BMW",
+        model: "X7",
+        trim: "xDrive40i",
+        price: 104900,
+      },
+      {
+        dealership: "C",
+        dealership_website: "https://c.example",
+        vehicle_category: "car",
+        year: 2025,
+        make: "BMW",
+        model: "X7",
+        trim: "xDrive40i",
+        price: 105300,
+      },
+    ];
+
+    const valuations = buildMarketValuationMap(listings);
+    const subject = valuations.get(listingIdentityKey(listings[0]));
+    expect(subject).toBeDefined();
+    expect(subject?.historicalComparableCount).toBeGreaterThan(0);
+    expect(subject?.comparableCount).toBeGreaterThan(3);
+    expect(subject?.trimPackageConfidenceScore).toBeGreaterThan(0);
+  });
+
+  it("weights newer historical prices more heavily", () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const listings: AggregatedListing[] = [
+      {
+        dealership: "A",
+        dealership_website: "https://a.example",
+        vehicle_category: "car",
+        year: 2024,
+        make: "Audi",
+        model: "Q7",
+        trim: "Premium Plus",
+        price: 56000,
+        historical_market_price_points: [
+          { price: 61000, observed_at: nowSeconds - 60 * 60 * 24 * 220 },
+          { price: 55000, observed_at: nowSeconds - 60 * 60 * 24 * 7 },
+          { price: 54800, observed_at: nowSeconds - 60 * 60 * 24 * 5 },
+        ],
+      },
+      {
+        dealership: "B",
+        dealership_website: "https://b.example",
+        vehicle_category: "car",
+        year: 2024,
+        make: "Audi",
+        model: "Q7",
+        trim: "Premium Plus",
+        price: 56100,
+      },
+      {
+        dealership: "C",
+        dealership_website: "https://c.example",
+        vehicle_category: "car",
+        year: 2024,
+        make: "Audi",
+        model: "Q7",
+        trim: "Premium Plus",
+        price: 56200,
+      },
+    ];
+
+    const valuations = buildMarketValuationMap(listings);
+    const subject = valuations.get(listingIdentityKey(listings[0]));
+    expect(subject).toBeDefined();
+    expect(subject?.baselinePrice).toBeLessThan(57000);
+  });
 });

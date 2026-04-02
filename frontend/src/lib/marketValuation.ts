@@ -7,10 +7,13 @@ export type MarketValuation = {
   band: MarketValuationBand;
   label: string;
   comparableCount: number;
+  historicalComparableCount: number;
   baselinePrice: number;
   deltaAmount: number;
   deltaPercent: number;
   comparables: AggregatedListing[];
+  trimPackageConfidenceScore: number;
+  trimPackageConfidenceLabel: "Low" | "Medium" | "High";
 };
 
 function median(values: number[]): number {
@@ -90,6 +93,47 @@ function valuationBand(deltaPercent: number): Pick<MarketValuation, "band" | "la
   if (deltaPercent < 0.05) return { band: "fair_price", label: "Fair price" };
   if (deltaPercent < 0.12) return { band: "above_market", label: "Above market" };
   return { band: "overpriced", label: "Overpriced" };
+}
+
+function weightedMedian(values: Array<{ value: number; weight: number }>): number | null {
+  const filtered = values
+    .filter((entry) => Number.isFinite(entry.value) && entry.value > 0 && Number.isFinite(entry.weight) && entry.weight > 0)
+    .sort((a, b) => a.value - b.value);
+  if (filtered.length === 0) return null;
+  const totalWeight = filtered.reduce((sum, entry) => sum + entry.weight, 0);
+  if (!Number.isFinite(totalWeight) || totalWeight <= 0) return null;
+  const halfway = totalWeight / 2;
+  let running = 0;
+  for (const entry of filtered) {
+    running += entry.weight;
+    if (running >= halfway) return entry.value;
+  }
+  return filtered[filtered.length - 1]?.value ?? null;
+}
+
+function recencyWeight(observedAt: number | undefined, nowMs: number): number {
+  if (!observedAt || !Number.isFinite(observedAt) || observedAt <= 0) return 0.45;
+  const ageDays = Math.max(0, (nowMs - observedAt * 1000) / (1000 * 60 * 60 * 24));
+  const halfLifeDays = 45;
+  const weight = Math.pow(0.5, ageDays / halfLifeDays);
+  return Math.max(0.2, Math.min(1, weight));
+}
+
+function trimPackageConfidence(
+  listing: AggregatedListing,
+  currentComparableCount: number,
+  historicalComparableCount: number,
+): { score: number; label: "Low" | "Medium" | "High" } {
+  const sampleScore = Math.min(1, (currentComparableCount + historicalComparableCount) / 18);
+  const currentScore = Math.min(1, currentComparableCount / 8);
+  const historicalScore = Math.min(1, historicalComparableCount / 10);
+  const specFields = [listing.trim, listing.body_style, listing.drivetrain, listing.engine, listing.transmission, listing.fuel_type];
+  const specCompleteness = specFields.filter((value) => normalizedText(value).length > 0).length / specFields.length;
+  const featureSignal = Math.min(1, (listing.feature_highlights?.length ?? 0) / 3);
+  const score = Math.round((sampleScore * 0.35 + currentScore * 0.2 + historicalScore * 0.15 + specCompleteness * 0.2 + featureSignal * 0.1) * 100);
+  if (score >= 75) return { score, label: "High" };
+  if (score >= 50) return { score, label: "Medium" };
+  return { score, label: "Low" };
 }
 
 function isComparable(
@@ -218,23 +262,42 @@ function findComparables(base: AggregatedListing, listings: AggregatedListing[])
 
 export function buildMarketValuationMap(listings: AggregatedListing[]): Map<string, MarketValuation> {
   const valuations = new Map<string, MarketValuation>();
+  const nowMs = Date.now();
   for (const listing of listings) {
     if (listing.price == null || Number.isNaN(listing.price)) continue;
     if (!listing.make || !listing.model) continue;
     const comparables = findComparables(listing, listings);
-    if (comparables.length < 3) continue;
     const prices = comparables.map((c) => c.price!);
-    const baselinePrice = median(prices);
+    const historicalPrices = (listing.historical_market_prices ?? []).filter(
+      (value) => Number.isFinite(value) && value > 0,
+    );
+    const historicalPoints = (listing.historical_market_price_points ?? [])
+      .map((point) => ({ price: point.price, observedAt: point.observed_at }))
+      .filter((point) => point.price != null && Number.isFinite(point.price) && point.price > 0);
+    const weightedSamples: Array<{ value: number; weight: number }> = [
+      ...prices.map((value) => ({ value, weight: 1 })),
+      ...historicalPoints.map((point) => ({ value: point.price!, weight: recencyWeight(point.observedAt, nowMs) })),
+    ];
+    if (historicalPoints.length === 0 && historicalPrices.length > 0) {
+      weightedSamples.push(...historicalPrices.map((value) => ({ value, weight: 0.45 })));
+    }
+    const combinedPrices = [...prices, ...historicalPrices];
+    if (combinedPrices.length < 3) continue;
+    const baselinePrice = weightedMedian(weightedSamples) ?? median(combinedPrices);
     if (!Number.isFinite(baselinePrice) || baselinePrice <= 0) continue;
     const deltaAmount = listing.price - baselinePrice;
     const deltaPercent = deltaAmount / baselinePrice;
+    const confidence = trimPackageConfidence(listing, prices.length, historicalPrices.length);
     valuations.set(listingIdentityKey(listing), {
       ...valuationBand(deltaPercent),
-      comparableCount: prices.length,
+      comparableCount: combinedPrices.length,
+      historicalComparableCount: historicalPrices.length,
       baselinePrice,
       deltaAmount,
       deltaPercent,
       comparables,
+      trimPackageConfidenceScore: confidence.score,
+      trimPackageConfidenceLabel: confidence.label,
     });
   }
   return valuations;
