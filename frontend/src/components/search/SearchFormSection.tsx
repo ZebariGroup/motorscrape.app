@@ -215,7 +215,7 @@ export function SearchFormSection({
               <div className="relative">
                 <input
                   className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 pr-10 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
-                  placeholder="City or ZIP"
+                  placeholder="City, ZIP, or multiple separated by |"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   disabled={running}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { useSearchStream } from "@/hooks/useSearchStream";
@@ -8,9 +9,11 @@ import { DealerProgressList } from "@/components/search/DealerProgressList";
 import { EmailAlertPanel } from "@/components/search/EmailAlertPanel";
 import { InventoryResultsSection } from "@/components/search/InventoryResultsSection";
 import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
+import { SavedSearchQuickPanel } from "@/components/search/SavedSearchQuickPanel";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
 import { resolveApiUrl } from "@/lib/apiBase";
+import { parseSearchCriteriaQuery } from "@/lib/searchCriteriaUrl";
 import { vehicleCategoryLabel } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import {
@@ -70,11 +73,13 @@ const CATEGORY_BUTTONS: {
 ];
 
 export function SearchExperience() {
+  const searchParams = useSearchParams();
   const { access, refresh } = useAccessSummary();
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [dismissedQuotaMessage, setDismissedQuotaMessage] = useState<string | null>(null);
+  const [appliedCriteriaQuery, setAppliedCriteriaQuery] = useState<string | null>(null);
 
   useEffect(() => {
     refresh();
@@ -83,6 +88,7 @@ export function SearchExperience() {
   const { form, search, dealers, listings, filters } = useSearchStream({
     onStreamFinished: refresh,
   });
+  const applySavedSearchCriteria = search.applySavedSearchCriteria;
 
   useEffect(() => {
     const hits = search.errors.find(
@@ -93,6 +99,15 @@ export function SearchExperience() {
       setUpgradeError(null);
     }
   }, [search.errors, upgradeModalOpen, dismissedQuotaMessage]);
+
+  useEffect(() => {
+    const qs = searchParams.toString();
+    if (!qs || qs === appliedCriteriaQuery) return;
+    const parsed = parseSearchCriteriaQuery(new URLSearchParams(qs));
+    if (!parsed) return;
+    void applySavedSearchCriteria(parsed);
+    setAppliedCriteriaQuery(qs);
+  }, [appliedCriteriaQuery, applySavedSearchCriteria, searchParams]);
 
   const startCheckout = async (tier: "standard" | "premium" | "max_pro") => {
     setUpgradeError(null);
@@ -318,6 +333,12 @@ export function SearchExperience() {
               onClearFilters={filters.clearFilters}
             />
             <EmailAlertPanel access={access} criteria={alertCriteria} canSearch={canSearch} compact />
+            <SavedSearchQuickPanel
+              access={access}
+              criteria={alertCriteria}
+              canSearch={canSearch}
+              onApplySavedSearch={applySavedSearchCriteria}
+            />
             <DealerProgressList
               dealerList={dealers.dealerList}
               running={search.running}

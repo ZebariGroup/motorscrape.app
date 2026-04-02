@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from typing import Any
+from urllib.parse import unquote
 
 from app.config import settings
 
@@ -208,16 +209,30 @@ async def fetch_html_via_playwright(url: str, js_instructions: str | None = None
         context: Any = None
         try:
             browser = await _ensure_browser()
-            context = await browser.new_context(
-                user_agent=_UA,
-                viewport={"width": 1920, "height": 1080},
-                locale="en-US",
-                timezone_id="America/New_York",
-                device_scale_factor=1,
-                has_touch=False,
-                is_mobile=False,
-                ignore_https_errors=True,
-            )
+            context_kwargs: dict[str, Any] = {
+                "user_agent": _UA,
+                "viewport": {"width": 1920, "height": 1080},
+                "locale": "en-US",
+                "timezone_id": "America/New_York",
+                "device_scale_factor": 1,
+                "has_touch": False,
+                "is_mobile": False,
+                "ignore_https_errors": True,
+            }
+            if settings.playwright_proxy_url:
+                from urllib.parse import urlparse
+                parsed_proxy = urlparse(settings.playwright_proxy_url)
+                proxy_server = f"{parsed_proxy.scheme}://{parsed_proxy.hostname}"
+                if parsed_proxy.port:
+                    proxy_server += f":{parsed_proxy.port}"
+                proxy_config: dict[str, str] = {"server": proxy_server}
+                if parsed_proxy.username:
+                    proxy_config["username"] = unquote(parsed_proxy.username)
+                if parsed_proxy.password:
+                    proxy_config["password"] = unquote(parsed_proxy.password)
+                context_kwargs["proxy"] = proxy_config
+
+            context = await browser.new_context(**context_kwargs)
             # Add stealth script to avoid basic bot detection
             await context.add_init_script(
                 """

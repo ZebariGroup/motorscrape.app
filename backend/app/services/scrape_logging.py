@@ -41,6 +41,7 @@ class ScrapeRunRecorder:
     correlation_id: str
     trigger_source: str
     started_at: float
+    user_id: str | None = None
     persist_listing_snapshot: bool = False
     max_events: int = MAX_SCRAPE_EVENTS
     sequence_no: int = 0
@@ -246,6 +247,7 @@ class ScrapeRunRecorder:
                 if self.persist_listing_snapshot and self._listings_snapshot
                 else None
             )
+        completed_at = time.time()
         self.store.finalize_scrape_run(
             self.run_id,
             status=final_status,
@@ -260,9 +262,19 @@ class ScrapeRunRecorder:
             error_message=self.latest_error_message,
             summary=summary,
             economics=economics,
-            completed_at=time.time(),
+            completed_at=completed_at,
             listings_snapshot=listings_snapshot,
         )
+        if self.user_id is not None and listings_snapshot:
+            try:
+                self.store.record_inventory_history(
+                    self.user_id,
+                    scrape_run_id=self.run_id,
+                    listings=listings_snapshot,
+                    observed_at=completed_at,
+                )
+            except Exception:
+                logger.exception("Failed to record inventory history for run %s", self.run_id)
 
 
 def create_scrape_run_recorder(
@@ -306,5 +318,6 @@ def create_scrape_run_recorder(
         correlation_id=correlation_id,
         trigger_source=trigger_source,
         started_at=started_at,
-        persist_listing_snapshot=trigger_source == "interactive",
+        user_id=user_id,
+        persist_listing_snapshot=trigger_source == "interactive" or trigger_source.startswith("alert_"),
     )

@@ -5,6 +5,10 @@ export type VehicleListing = {
   model?: string;
   trim?: string;
   body_style?: string;
+  drivetrain?: string;
+  engine?: string;
+  transmission?: string;
+  fuel_type?: string;
   exterior_color?: string;
   price?: number;
   mileage?: number;
@@ -35,6 +39,16 @@ export type VehicleListing = {
   /** YYYY-MM-DD when the dealer exposes a stock date */
   stock_date?: string;
   days_on_lot?: number;
+  history_seen_count?: number;
+  history_first_seen_at?: string;
+  history_last_seen_at?: string;
+  history_days_tracked?: number;
+  history_previous_price?: number;
+  history_lowest_price?: number;
+  history_highest_price?: number;
+  history_price_change?: number;
+  history_price_change_since_first?: number;
+  price_history?: Array<{ observed_at?: string; price?: number }>;
 };
 
 export type DealershipProgress = {

@@ -14,10 +14,13 @@ from app.db.account_store import (
     AdminAuditLogRecord,
     AlertRunRecord,
     AlertSubscriptionRecord,
+    InventoryHistoryRecord,
+    SavedSearchRecord,
     ScrapeEventRecord,
     ScrapeRunRecord,
     UserRecord,
 )
+from app.services.inventory_tracking import inventory_history_key
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,19 @@ class EmailNotVerifiedError(Exception):
 
 class EmailAlreadyRegisteredError(Exception):
     """Public sign_up rejected because the email is already registered in Supabase Auth."""
+
+
+class _ListingProxy:
+    def __init__(self, data: dict[str, Any]) -> None:
+        self.dealership_website = data.get("dealership_website")
+        self.vin = data.get("vin")
+        self.vehicle_identifier = data.get("vehicle_identifier")
+        self.listing_url = data.get("listing_url")
+        self.year = data.get("year")
+        self.make = data.get("make")
+        self.model = data.get("model")
+        self.trim = data.get("trim")
+        self.raw_title = data.get("raw_title")
 
 
 class SupabaseAccountStore:
@@ -263,6 +279,183 @@ class SupabaseAccountStore:
     def prune_old_rate_buckets(self, *, max_age_windows: int = 5, window_seconds: int = 60) -> None:
         cutoff = int(time.time() // window_seconds) - max_age_windows
         self.client.table("rate_buckets").delete().lt("window_start", cutoff).execute()
+
+    def create_saved_search(
+        self,
+        user_id: str,
+        *,
+        name: str,
+        criteria: dict[str, Any],
+    ) -> SavedSearchRecord:
+        payload = {
+            "user_id": user_id,
+            "name": name,
+            "criteria_json": criteria,
+        }
+        res = self.client.table("saved_searches").insert(payload).execute()
+        return _row_to_saved_search(res.data[0])
+
+    def list_saved_searches(self, user_id: str) -> list[SavedSearchRecord]:
+        res = (
+            self.client.table("saved_searches")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        return [_row_to_saved_search(row) for row in (res.data or [])]
+
+    def get_saved_search(self, user_id: str, saved_search_id: str) -> SavedSearchRecord | None:
+        res = (
+            self.client.table("saved_searches")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("id", saved_search_id)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+        return _row_to_saved_search(res.data[0])
+
+    def update_saved_search(
+        self,
+        user_id: str,
+        saved_search_id: str,
+        *,
+        name: str | None = None,
+        criteria: dict[str, Any] | None = None,
+    ) -> SavedSearchRecord | None:
+        updates: dict[str, Any] = {}
+        if name is not None:
+            updates["name"] = name
+        if criteria is not None:
+            updates["criteria_json"] = criteria
+        if not updates:
+            return self.get_saved_search(user_id, saved_search_id)
+        self.client.table("saved_searches").update(updates).eq("user_id", user_id).eq("id", saved_search_id).execute()
+        return self.get_saved_search(user_id, saved_search_id)
+
+    def delete_saved_search(self, user_id: str, saved_search_id: str) -> bool:
+        res = self.client.table("saved_searches").delete().eq("user_id", user_id).eq("id", saved_search_id).execute()
+        return bool(res.data)
+
+    def get_inventory_history_map(
+        self,
+        user_id: str,
+        listings: list[Any],
+    ) -> dict[str, InventoryHistoryRecord]:
+        keys_set: set[str] = set()
+        for listing in listings:
+            target = _ListingProxy(listing) if isinstance(listing, dict) else listing
+            key = inventory_history_key(target)
+            if key:
+                keys_set.add(key)
+        keys = sorted(keys_set)
+        if not keys:
+            return {}
+        res = self.client.table("inventory_history").select("*").eq("user_id", user_id).in_("vehicle_key", keys).execute()
+        rows = [_row_to_inventory_history(row) for row in (res.data or [])]
+        return {row.vehicle_key: row for row in rows}
+
+    def record_inventory_history(
+        self,
+        user_id: str,
+        *,
+        scrape_run_id: str,
+        listings: list[dict[str, Any]],
+        observed_at: float,
+    ) -> None:
+        deduped: dict[str, dict[str, Any]] = {}
+        for listing in listings:
+            key = inventory_history_key(_ListingProxy(listing))
+            if key:
+                deduped[key] = listing
+        if not deduped:
+            return
+        keys = list(deduped.keys())
+        existing_res = (
+            self.client.table("inventory_history").select("*").eq("user_id", user_id).in_("vehicle_key", keys).execute()
+        )
+        existing_map = {
+            row.vehicle_key: row for row in (_row_to_inventory_history(item) for item in (existing_res.data or []))
+        }
+        observed_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(observed_at))
+        upserts: list[dict[str, Any]] = []
+        for vehicle_key, listing in deduped.items():
+            existing = existing_map.get(vehicle_key)
+            current_price = _maybe_float(listing.get("price"))
+            current_days_on_lot = _maybe_int(listing.get("days_on_lot"))
+            if existing is None:
+                price_history = [{"observed_at": observed_at, "price": current_price}] if current_price is not None else []
+                upserts.append(
+                    {
+                        "user_id": user_id,
+                        "vehicle_key": vehicle_key,
+                        "dealership_key": str(listing.get("dealership_website") or ""),
+                        "vin": listing.get("vin"),
+                        "vehicle_identifier": listing.get("vehicle_identifier"),
+                        "listing_url": listing.get("listing_url"),
+                        "raw_title": listing.get("raw_title"),
+                        "first_seen_at": observed_at_iso,
+                        "last_seen_at": observed_at_iso,
+                        "first_scrape_run_id": str(scrape_run_id),
+                        "latest_scrape_run_id": str(scrape_run_id),
+                        "seen_count": 1,
+                        "first_price": current_price,
+                        "previous_price": None,
+                        "latest_price": current_price,
+                        "lowest_price": current_price,
+                        "highest_price": current_price,
+                        "latest_days_on_lot": current_days_on_lot,
+                        "price_history_json": price_history,
+                        "created_at": observed_at_iso,
+                        "updated_at": observed_at_iso,
+                    }
+                )
+                continue
+
+            price_history = list(existing.price_history)
+            previous_price = existing.previous_price
+            latest_price = existing.latest_price
+            lowest_price = existing.lowest_price
+            highest_price = existing.highest_price
+            if current_price is not None:
+                previous_price = latest_price if latest_price is not None else previous_price
+                latest_price = current_price
+                lowest_price = current_price if lowest_price is None else min(lowest_price, current_price)
+                highest_price = current_price if highest_price is None else max(highest_price, current_price)
+                price_history.append({"observed_at": observed_at, "price": current_price})
+                price_history = price_history[-12:]
+
+            upserts.append(
+                {
+                    "id": existing.id,
+                    "user_id": user_id,
+                    "vehicle_key": vehicle_key,
+                    "dealership_key": str(listing.get("dealership_website") or existing.dealership_key or ""),
+                    "vin": listing.get("vin") or existing.vin,
+                    "vehicle_identifier": listing.get("vehicle_identifier") or existing.vehicle_identifier,
+                    "listing_url": listing.get("listing_url") or existing.listing_url,
+                    "raw_title": listing.get("raw_title") or existing.raw_title,
+                    "first_seen_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(existing.first_seen_at)),
+                    "last_seen_at": observed_at_iso,
+                    "first_scrape_run_id": existing.first_scrape_run_id,
+                    "latest_scrape_run_id": str(scrape_run_id),
+                    "seen_count": existing.seen_count + 1,
+                    "first_price": existing.first_price,
+                    "previous_price": previous_price,
+                    "latest_price": latest_price,
+                    "lowest_price": lowest_price,
+                    "highest_price": highest_price,
+                    "latest_days_on_lot": current_days_on_lot if current_days_on_lot is not None else existing.latest_days_on_lot,
+                    "price_history_json": price_history,
+                    "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(existing.created_at)),
+                    "updated_at": observed_at_iso,
+                }
+            )
+        if upserts:
+            self.client.table("inventory_history").upsert(upserts, on_conflict="user_id,vehicle_key").execute()
 
     def create_alert_subscription(
         self,
@@ -844,6 +1037,44 @@ def _row_to_alert_run(row: dict[str, Any]) -> AlertRunRecord:
     )
 
 
+def _row_to_saved_search(row: dict[str, Any]) -> SavedSearchRecord:
+    return SavedSearchRecord(
+        id=str(row["id"]),
+        user_id=str(row["user_id"]),
+        name=str(row["name"]),
+        criteria=dict(row.get("criteria_json") or {}),
+        created_at=_ts(row.get("created_at")),
+        updated_at=_ts(row.get("updated_at")),
+    )
+
+
+def _row_to_inventory_history(row: dict[str, Any]) -> InventoryHistoryRecord:
+    return InventoryHistoryRecord(
+        id=str(row["id"]),
+        user_id=str(row["user_id"]),
+        vehicle_key=str(row["vehicle_key"]),
+        dealership_key=str(row.get("dealership_key") or ""),
+        vin=str(row["vin"]) if row.get("vin") is not None else None,
+        vehicle_identifier=str(row["vehicle_identifier"]) if row.get("vehicle_identifier") is not None else None,
+        listing_url=str(row["listing_url"]) if row.get("listing_url") is not None else None,
+        raw_title=str(row["raw_title"]) if row.get("raw_title") is not None else None,
+        first_seen_at=_ts(row.get("first_seen_at")),
+        last_seen_at=_ts(row.get("last_seen_at")),
+        first_scrape_run_id=str(row["first_scrape_run_id"]) if row.get("first_scrape_run_id") is not None else None,
+        latest_scrape_run_id=str(row["latest_scrape_run_id"]) if row.get("latest_scrape_run_id") is not None else None,
+        seen_count=int(row.get("seen_count") or 0),
+        first_price=_maybe_float(row.get("first_price")),
+        previous_price=_maybe_float(row.get("previous_price")),
+        latest_price=_maybe_float(row.get("latest_price")),
+        lowest_price=_maybe_float(row.get("lowest_price")),
+        highest_price=_maybe_float(row.get("highest_price")),
+        latest_days_on_lot=_maybe_int(row.get("latest_days_on_lot")),
+        price_history=_json_list(row.get("price_history_json")),
+        created_at=_ts(row.get("created_at")),
+        updated_at=_ts(row.get("updated_at")),
+    )
+
+
 def _row_to_scrape_run(row: dict[str, Any]) -> ScrapeRunRecord:
     return ScrapeRunRecord(
         id=str(row["id"]),
@@ -926,6 +1157,32 @@ def _coerce_listings_snapshot(value: Any) -> list[dict[str, Any]] | None:
         out = [x for x in value if isinstance(x, dict)]
         return out or None
     return None
+
+
+def _json_list(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [dict(item) for item in value if isinstance(item, dict)]
+    return []
+
+
+def _maybe_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _maybe_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _ts(value: Any) -> float:

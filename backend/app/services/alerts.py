@@ -55,6 +55,7 @@ def next_subscription_run(subscription: AlertSubscriptionRecord, *, now_ts: floa
 def alert_run_summary(result: SearchRunResult) -> dict[str, Any]:
     top_results: list[dict[str, Any]] = []
     for listing in result.listings[:10]:
+        price_change = listing.get("history_price_change")
         top_results.append(
             {
                 "title": listing.get("raw_title") or "Vehicle",
@@ -62,6 +63,7 @@ def alert_run_summary(result: SearchRunResult) -> dict[str, Any]:
                 "dealer": listing.get("dealership"),
                 "location": listing.get("inventory_location") or listing.get("availability_status"),
                 "vin": listing.get("vehicle_identifier") or listing.get("vin"),
+                "history_price_change": price_change,
                 "url": listing.get("listing_url"),
             }
         )
@@ -89,10 +91,14 @@ def _render_email(subscription: AlertSubscriptionRecord, result: SearchRunResult
     def html_row(listing: dict[str, Any]) -> str:
         price = listing.get("price")
         price_text = f" - ${int(price):,}" if isinstance(price, (int, float)) else ""
+        price_change = listing.get("history_price_change")
+        trend_text = ""
+        if isinstance(price_change, (int, float)) and price_change < 0:
+            trend_text = f" (down ${int(abs(price_change)):,} since the last tracked run)"
         return (
             f"<li><a href=\"{listing.get('listing_url') or '#'}\">"
             f"{listing.get('raw_title') or 'Vehicle'}</a> at "
-            f"{listing.get('dealership') or 'Dealer'}{price_text}</li>"
+            f"{listing.get('dealership') or 'Dealer'}{price_text}{trend_text}</li>"
         )
 
     rows_html = "".join(
@@ -106,8 +112,12 @@ def _render_email(subscription: AlertSubscriptionRecord, result: SearchRunResult
     for listing in result.listings[:10]:
         price = listing.get("price")
         price_text = f" - ${int(price):,}" if isinstance(price, (int, float)) else ""
+        price_change = listing.get("history_price_change")
+        trend_text = ""
+        if isinstance(price_change, (int, float)) and price_change < 0:
+            trend_text = f" | down ${int(abs(price_change)):,} since last tracked run"
         text_lines.append(
-            f"- {(listing.get('raw_title') or 'Vehicle')} | {(listing.get('dealership') or 'Dealer')}{price_text}"
+            f"- {(listing.get('raw_title') or 'Vehicle')} | {(listing.get('dealership') or 'Dealer')}{price_text}{trend_text}"
         )
         if listing.get("listing_url"):
             text_lines.append(f"  {listing['listing_url']}")

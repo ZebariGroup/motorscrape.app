@@ -73,6 +73,10 @@ class VehicleListing(BaseModel):
     model: str | None = Field(default=None, description="Model of the vehicle, e.g. Camry.")
     trim: str | None = Field(default=None, description="Trim level of the vehicle.")
     body_style: str | None = Field(default=None, description="Body style such as SUV, Sedan, or Truck.")
+    drivetrain: str | None = Field(default=None, description="Drive type such as AWD, FWD, or 4x4.")
+    engine: str | None = Field(default=None, description="Engine summary such as 2.0L 4-cyl.")
+    transmission: str | None = Field(default=None, description="Transmission summary when decoded or listed.")
+    fuel_type: str | None = Field(default=None, description="Primary fuel type such as Gasoline, Diesel, or Electric.")
     exterior_color: str | None = Field(default=None, description="Exterior color of the vehicle when available.")
     price: float | None = Field(default=None, description="Price in USD as a number, no symbols.")
     mileage: int | None = Field(default=None, description="Mileage as an integer, no commas.")
@@ -131,6 +135,46 @@ class VehicleListing(BaseModel):
         default=None,
         description="Approximate days the unit has been in inventory when stated or derived from stock_date.",
     )
+    history_seen_count: int | None = Field(
+        default=None,
+        description="How many prior completed runs from this account have observed the same unit.",
+    )
+    history_first_seen_at: str | None = Field(
+        default=None,
+        description="ISO timestamp when this account first observed the same vehicle across runs.",
+    )
+    history_last_seen_at: str | None = Field(
+        default=None,
+        description="ISO timestamp when this account most recently observed the same vehicle across runs.",
+    )
+    history_days_tracked: int | None = Field(
+        default=None,
+        description="Approximate days between the first and latest tracked observations for this account.",
+    )
+    history_previous_price: float | None = Field(
+        default=None,
+        description="Previous observed price before the current/latest tracked observation.",
+    )
+    history_lowest_price: float | None = Field(
+        default=None,
+        description="Lowest observed price for this unit across tracked runs.",
+    )
+    history_highest_price: float | None = Field(
+        default=None,
+        description="Highest observed price for this unit across tracked runs.",
+    )
+    history_price_change: float | None = Field(
+        default=None,
+        description="Difference between the current/latest tracked price and the immediately previous tracked price.",
+    )
+    history_price_change_since_first: float | None = Field(
+        default=None,
+        description="Difference between the current/latest tracked price and the first tracked price.",
+    )
+    price_history: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Recent observed price points for this unit across tracked runs.",
+    )
 
     @field_validator("incentive_labels", "feature_highlights", mode="before")
     @classmethod
@@ -141,6 +185,15 @@ class VehicleListing(BaseModel):
             return [str(x).strip() for x in v if str(x).strip()]
         if isinstance(v, str) and v.strip():
             return [v.strip()]
+        return []
+
+    @field_validator("price_history", mode="before")
+    @classmethod
+    def _coerce_price_history(cls, v: Any) -> list[dict[str, Any]]:
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return [dict(item) for item in v if isinstance(item, dict)]
         return []
 
 

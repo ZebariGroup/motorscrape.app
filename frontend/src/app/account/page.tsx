@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { SiteHeader } from "@/components/SiteHeader";
 import { AlertManagerSection } from "@/components/account/AlertManagerSection";
+import { SavedSearchManagerSection } from "@/components/account/SavedSearchManagerSection";
 import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { resolveApiUrl } from "@/lib/apiBase";
 import { MAX_PRO_BULLETS, PRO_BULLETS, STANDARD_BULLETS } from "@/lib/tierMarketingCopy";
@@ -292,6 +293,7 @@ export default function AccountPage() {
               </form>
             </section>
 
+            <SavedSearchManagerSection authenticated={Boolean(me)} tier={me.tier} />
             <AlertManagerSection authenticated={Boolean(me)} tier={me.tier} access={access} />
           </div>
         )}

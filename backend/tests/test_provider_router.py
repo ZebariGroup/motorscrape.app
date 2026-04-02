@@ -78,6 +78,24 @@ def test_speculative_inventory_url_builds_platform_specific_srp() -> None:
         )
         == "https://www.exampleford.com/inventory/new/"
     )
+    assert (
+        speculative_inventory_url(
+            "dealer.example",
+            "foxdealer",
+            "used",
+            website="https://dealer.example/",
+        )
+        == "https://dealer.example/used-inventory"
+    )
+    assert (
+        speculative_inventory_url(
+            "dealer.example",
+            "sincro_digital",
+            "all",
+            website="https://dealer.example/",
+        )
+        == "https://dealer.example/inventory"
+    )
 
 
 def test_resolve_inventory_url_for_provider_canonicalizes_oneaudi_all_to_generic_new_root() -> None:

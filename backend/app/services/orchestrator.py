@@ -34,6 +34,7 @@ from app.services.inventory_result_cache import (
     inventory_listings_cache_key,
     set_cached_inventory_listings,
 )
+from app.services.inventory_tracking import build_listing_history_fields, inventory_history_key
 from app.services.orchestrator_utils import (
     dedupe_dealers_by_domain,
     domain_fetch_limiter,
@@ -60,6 +61,7 @@ from app.services.provider_router import (
 from app.services.providers import extract_with_provider
 from app.services.scrape_logging import ScrapeRunRecorder
 from app.services.scraper import PageKind, _looks_like_block_page, fetch_page_html
+from app.services.vin_decoder import enrich_vehicle_listings_with_vin_data
 from app.sse import sse_pack
 
 logger = logging.getLogger(__name__)
@@ -1303,28 +1305,45 @@ async def stream_search(
         return payload
 
     async def _discover_dealers(*, query_variant_limit: int | None = None) -> list[DealershipFound]:
-        if (vehicle_category or "car").strip().lower() == "car":
-            return await find_car_dealerships(
-                location,
+        locations = [loc.strip() for loc in location.split("|") if loc.strip()]
+        if not locations:
+            locations = [location]
+        if len(locations) > 5:
+            locations = locations[:5]
+        
+        async def _fetch_for_loc(loc: str) -> list[DealershipFound]:
+            if (vehicle_category or "car").strip().lower() == "car":
+                return await find_car_dealerships(
+                    loc,
+                    make=make,
+                    model=model,
+                    limit=candidate_limit,
+                    radius_miles=radius_miles,
+                    market_region=market_region,
+                    metrics=places_metrics,
+                    query_variant_limit=query_variant_limit,
+                )
+            return await find_dealerships(
+                loc,
                 make=make,
                 model=model,
+                vehicle_category=vehicle_category,
                 limit=candidate_limit,
                 radius_miles=radius_miles,
                 market_region=market_region,
                 metrics=places_metrics,
                 query_variant_limit=query_variant_limit,
             )
-        return await find_dealerships(
-            location,
-            make=make,
-            model=model,
-            vehicle_category=vehicle_category,
-            limit=candidate_limit,
-            radius_miles=radius_miles,
-            market_region=market_region,
-            metrics=places_metrics,
-            query_variant_limit=query_variant_limit,
-        )
+
+        results = await asyncio.gather(*[_fetch_for_loc(loc) for loc in locations])
+        all_dealers: list[DealershipFound] = []
+        seen_place_ids: set[str] = set()
+        for dealers in results:
+            for d in dealers:
+                if d.place_id not in seen_place_ids:
+                    seen_place_ids.add(d.place_id)
+                    all_dealers.append(d)
+        return all_dealers
 
     async def _warm_dealer_metadata(candidate_dealers: list[DealershipFound]) -> None:
         dealer_domains = [normalize_dealer_domain((dealer.website or "").strip()) for dealer in candidate_dealers]
@@ -1601,7 +1620,7 @@ async def stream_search(
             return html, method
 
         async def _try_oneaudi_initial_inventory_alternates(primary_url: str) -> bool:
-            nonlocal current_html, current_method, inv_url
+            nonlocal current_html, current_method, inv_url, current_url
             if not (
                 route
                 and route.platform_id == "oneaudi_falcon"
@@ -1633,13 +1652,14 @@ async def stream_search(
                     current_html, current_method = await asyncio.wait_for(
                         _fetch(
                             retry_url,
-                            "inventory",
+                            page_kind="inventory",
                             prefer_render=bool(route.requires_render),
                             platform_id=route.platform_id,
                         ),
                         timeout=retry_timeout,
                     )
                     inv_url = retry_url
+                    current_url = retry_url
                     route.inventory_url_hint = retry_url
                     logger.info(
                         "Recovered OneAudi initial inventory URL for %s via alternate %s",
@@ -2834,6 +2854,30 @@ async def stream_search(
                         )
                         for idx, enriched_listing in zip(target_indexes, enriched_listings, strict=False):
                             deduped_filtered[idx] = enriched_listing
+                if deduped_filtered:
+                    deduped_filtered = await enrich_vehicle_listings_with_vin_data(deduped_filtered)
+                if deduped_filtered and recorder is not None and recorder.user_id is not None:
+                    try:
+                        history_map = recorder.store.get_inventory_history_map(recorder.user_id, deduped_filtered)
+                    except Exception:
+                        history_map = {}
+                    if history_map:
+                        enriched_for_history: list[VehicleListing] = []
+                        for listing in deduped_filtered:
+                            history = history_map.get(inventory_history_key(listing))
+                            if history is None:
+                                enriched_for_history.append(listing)
+                                continue
+                            enriched_for_history.append(
+                                listing.model_copy(
+                                    update=build_listing_history_fields(
+                                        history,
+                                        current_price=listing.price,
+                                        observed_at=time.time(),
+                                    )
+                                )
+                            )
+                        deduped_filtered = enriched_for_history
                 vdicts = [v.model_dump(exclude_none=True) for v in deduped_filtered]
                 logger.info(
                     "scrape_inventory_page dealer=%r domain=%s platform=%s url=%s page=%s/%s "

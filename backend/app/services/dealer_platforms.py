@@ -680,6 +680,28 @@ _PLATFORM_REGISTRY: tuple[PlatformDefinition, ...] = (
         inventory_path_hints=("inventory", "new-inventory", "used-inventory"),
         extraction_mode="hybrid",
     ),
+    PlatformDefinition(
+        platform_id="foxdealer",
+        markers=(
+            "foxdealer",
+            "fox dealer",
+            "inventory - fox dealer",
+            "powered by fox dealer",
+        ),
+        inventory_path_hints=("inventory", "new-inventory", "used-inventory", "certified-pre-owned"),
+        extraction_mode="hybrid",
+    ),
+    PlatformDefinition(
+        platform_id="sincro_digital",
+        markers=(
+            "sincrodigital",
+            "sincro digital",
+            "assets.sincrod.com",
+            "media.assets.sincrod.com",
+        ),
+        inventory_path_hints=("inventory", "inventory/new", "inventory/used", "new-inventory", "used-inventory"),
+        extraction_mode="hybrid",
+    ),
 )
 
 
@@ -806,6 +828,10 @@ def _platform_tie_break_priority(
         return 5 if "__next_data__" in target else 0
     if definition.platform_id == "dealer_spike":
         return 35 if any(marker in target for marker in _DEALER_SPIKE_STRONG_MARKERS) else 0
+    if definition.platform_id == "foxdealer":
+        return 20 if "foxdealer" in target or "fox dealer" in target else 0
+    if definition.platform_id == "sincro_digital":
+        return 20 if "assets.sincrod.com" in target or "sincrodigital" in target else 0
     if definition.platform_id == "nissan_infiniti_inventory":
         if "nissan" in host or "infiniti" in host:
             sonic = sum(1 for marker in _NISSAN_INFINITI_SONIC_MARKERS if marker in target)

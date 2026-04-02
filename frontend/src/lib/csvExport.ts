@@ -1,4 +1,6 @@
 import type { AggregatedListing } from "@/lib/inventoryFormat";
+import { buildMarketValuationMap } from "@/lib/marketValuation";
+import { listingIdentityKey } from "@/lib/inventoryFormat";
 
 /** Escape a value for RFC 4180-style CSV (comma-separated). */
 export function escapeCsvField(value: string): string {
@@ -17,6 +19,10 @@ const CSV_HEADERS = [
   "model",
   "trim",
   "body_style",
+  "drivetrain",
+  "engine",
+  "transmission",
+  "fuel_type",
   "exterior_color",
   "price",
   "msrp",
@@ -26,6 +32,18 @@ const CSV_HEADERS = [
   "usage_unit",
   "days_on_lot",
   "stock_date",
+  "history_seen_count",
+  "history_days_tracked",
+  "history_previous_price",
+  "history_lowest_price",
+  "history_highest_price",
+  "history_price_change",
+  "history_price_change_since_first",
+  "market_valuation",
+  "market_comparable_count",
+  "market_median_price",
+  "market_price_delta",
+  "market_price_delta_percent",
   "incentive_labels",
   "feature_highlights",
   "vin",
@@ -38,7 +56,9 @@ const CSV_HEADERS = [
 /** Build CSV text from currently visible listings (e.g. filtered + sorted). */
 export function listingsToCsv(listings: AggregatedListing[]): string {
   const lines: string[] = [CSV_HEADERS.join(",")];
+  const valuationMap = buildMarketValuationMap(listings);
   for (const v of listings) {
+    const valuation = valuationMap.get(listingIdentityKey(v));
     const row = [
       v.dealership ?? "",
       v.dealership_website ?? "",
@@ -48,6 +68,10 @@ export function listingsToCsv(listings: AggregatedListing[]): string {
       v.model ?? "",
       v.trim ?? "",
       v.body_style ?? "",
+      v.drivetrain ?? "",
+      v.engine ?? "",
+      v.transmission ?? "",
+      v.fuel_type ?? "",
       v.exterior_color ?? "",
       v.price != null ? String(v.price) : "",
       v.msrp != null ? String(v.msrp) : "",
@@ -57,6 +81,18 @@ export function listingsToCsv(listings: AggregatedListing[]): string {
       v.usage_unit ?? "",
       v.days_on_lot != null ? String(v.days_on_lot) : "",
       v.stock_date ?? "",
+      v.history_seen_count != null ? String(v.history_seen_count) : "",
+      v.history_days_tracked != null ? String(v.history_days_tracked) : "",
+      v.history_previous_price != null ? String(v.history_previous_price) : "",
+      v.history_lowest_price != null ? String(v.history_lowest_price) : "",
+      v.history_highest_price != null ? String(v.history_highest_price) : "",
+      v.history_price_change != null ? String(v.history_price_change) : "",
+      v.history_price_change_since_first != null ? String(v.history_price_change_since_first) : "",
+      valuation?.label ?? "",
+      valuation != null ? String(valuation.comparableCount) : "",
+      valuation != null ? String(valuation.baselinePrice) : "",
+      valuation != null ? String(valuation.deltaAmount) : "",
+      valuation != null ? String(valuation.deltaPercent) : "",
       (v.incentive_labels ?? []).join(" | "),
       (v.feature_highlights ?? []).join(" | "),
       v.vin ?? "",

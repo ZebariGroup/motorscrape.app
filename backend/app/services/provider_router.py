@@ -1081,6 +1081,12 @@ def _speculative_inventory_path(platform_id: str, vehicle_condition: str) -> str
         if condition == "all":
             return "/--inventory"
         return "/inventory/new"
+    if platform_id in {"foxdealer", "sincro_digital"}:
+        if condition == "used":
+            return "/used-inventory"
+        if condition == "new":
+            return "/new-inventory"
+        return "/inventory"
     if platform_id == "oneaudi_falcon":
         return "/inventory/used/" if condition == "used" else "/inventory/new/"
     return None

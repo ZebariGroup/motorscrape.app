@@ -14,6 +14,7 @@ import {
 import { categoryUsesCatalog, defaultVehicleCategory, getMakesForCategory, getModelsForMake } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { DealershipProgress, VehicleListing } from "@/types/inventory";
+import type { SavedSearchCriteria } from "@/types/savedSearch";
 import type { SearchHistoryRunRow } from "@/types/searchHistory";
 
 export type SearchHistoryView = {
@@ -633,6 +634,41 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     }
   }, [flushPendingListings]);
 
+  const applySavedSearchCriteria = useCallback(
+    async (criteria: SavedSearchCriteria) => {
+      await stopStream();
+      pendingListingsRef.current = [];
+      cancelScheduledPaint(listingFlushHandleRef.current);
+      listingFlushHandleRef.current = null;
+      sawFirstVehicleBatchRef.current = false;
+      setErrors([]);
+      setDealers({});
+      setPinnedDealerWebsite(null);
+      setStatus(null);
+      setListings([]);
+      setHistoryView(null);
+      setPriceFilterMin(null);
+      setPriceFilterMax(null);
+      setYearFilter("");
+      setBodyStyleFilter("");
+      setColorFilter("");
+      setLocation(criteria.location.trim());
+      setVehicleCategory(parseVehicleCategory(criteria.vehicle_category));
+      setMake(criteria.make.trim());
+      setModel(criteria.model.trim());
+      setVehicleCondition(criteria.vehicle_condition);
+      setRadiusMiles(String(criteria.radius_miles || 25));
+      setInventoryScope(criteria.inventory_scope || "all");
+      if (criteria.max_dealerships != null) {
+        setMaxDealerships(String(criteria.max_dealerships));
+      }
+      if (criteria.market_region) {
+        setMarketRegion(criteria.market_region);
+      }
+    },
+    [stopStream],
+  );
+
   const applyFormFromHistoryRun = useCallback((run: SearchHistoryRunRow) => {
     setLocation(run.location ?? "");
     setVehicleCategory(parseVehicleCategory(run.vehicle_category));
@@ -977,6 +1013,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       status,
       errors,
       historyView,
+      applySavedSearchCriteria,
       applySavedSearchFromHistory,
       applyHistoryCriteriaOnly,
       clearHistoryView,

@@ -4,6 +4,15 @@ from unittest.mock import patch
 
 from app.services.providers.autohausen_ahp6 import extract_inventory as extract_autohausen_ahp6
 from app.services.providers.carzilla_search import extract_inventory as extract_carzilla_search
+from app.services.providers.cdk_dealerfire import extract_inventory as extract_cdk_dealerfire
+from app.services.providers.dealer_spike import extract_inventory as extract_dealer_spike
+from app.services.providers.foxdealer import extract_inventory as extract_foxdealer
+from app.services.providers.fusionzone import extract_inventory as extract_fusionzone
+from app.services.providers.jazel import extract_inventory as extract_jazel
+from app.services.providers.purecars import extract_inventory as extract_purecars
+from app.services.providers.shift_digital import extract_inventory as extract_shift_digital
+from app.services.providers.sincro_digital import extract_inventory as extract_sincro_digital
+from app.services.providers.team_velocity import extract_inventory as extract_team_velocity
 
 
 class _FakeResponse:
@@ -20,6 +29,395 @@ class _FakeResponse:
         if self._json_data is None:
             raise RuntimeError("No JSON payload configured")
         return self._json_data
+
+
+def test_shift_digital_extract_inventory_normalizes_structured_payload_fields() -> None:
+    html = """
+    <html><body>
+      <script type="application/json">
+        {
+          "vehicles": [
+            {
+              "vehicleTitle": "2024 Harley-Davidson Road Glide",
+              "vehicleMake": "Harley-Davidson",
+              "vehicleModel": "Road Glide",
+              "vehicleTrim": "FLTRX",
+              "vehicleYear": 2024,
+              "currentPrice": "21999",
+              "listPrice": "24999",
+              "detailUrl": "/inventory/road-glide",
+              "stockNumber": "RG123",
+              "vin": "1HD1KTC10RB000111"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+
+    result = extract_shift_digital(
+        page_url="https://www.exampleharley.com/new-inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="motorcycle",
+    )
+
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "Harley-Davidson"
+    assert vehicle.model == "Road Glide"
+    assert vehicle.trim == "FLTRX"
+    assert vehicle.price == 21999
+    assert vehicle.msrp == 24999
+    assert vehicle.dealer_discount == 3000
+    assert vehicle.listing_url == "https://www.exampleharley.com/inventory/road-glide"
+    assert vehicle.vehicle_identifier == "1HD1KTC10RB000111"
+
+
+def test_team_velocity_extract_inventory_normalizes_structured_payload_fields() -> None:
+    html = """
+    <html><body>
+      <script type="application/json">
+        {
+          "vehicles": [
+            {
+              "vehicleTitle": "2025 Can-Am Defender DPS HD9",
+              "vehicleMake": "Can-Am",
+              "vehicleModel": "Defender",
+              "vehicleTrim": "DPS HD9",
+              "vehicleYear": 2025,
+              "priceCurrent": "12699",
+              "priceOld": "16699",
+              "vehicleLink": "/new-2025-can-am-defender",
+              "stocknumber": "TV2341",
+              "vin": "3JBUGAP49SK002341"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+
+    result = extract_team_velocity(
+        page_url="https://www.examplepowersports.com/inventory/new",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="other",
+    )
+
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "Can-Am"
+    assert vehicle.model == "Defender"
+    assert vehicle.trim == "DPS HD9"
+    assert vehicle.price == 12699
+    assert vehicle.msrp == 16699
+    assert vehicle.dealer_discount == 4000
+    assert vehicle.listing_url == "https://www.examplepowersports.com/new-2025-can-am-defender"
+    assert vehicle.vehicle_identifier == "3JBUGAP49SK002341"
+
+
+def test_purecars_extract_inventory_normalizes_structured_payload_fields() -> None:
+    html = """
+    <html><body>
+      <script type="application/json">
+        {
+          "vehicles": [
+            {
+              "vehicleTitle": "2024 BMW X3 xDrive30i",
+              "makeName": "BMW",
+              "modelName": "X3",
+              "seriesName": "xDrive30i",
+              "modelYear": 2024,
+              "ourPrice": "46995",
+              "retailPrice": "49995",
+              "detailPageUrl": "/inventory/2024-bmw-x3",
+              "unitNumber": "BX3001",
+              "vin": "5UX53DP02R9D00011"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+    result = extract_purecars(
+        page_url="https://www.examplebmw.com/inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="car",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "BMW"
+    assert vehicle.model == "X3"
+    assert vehicle.trim == "xDrive30i"
+    assert vehicle.price == 46995
+    assert vehicle.msrp == 49995
+    assert vehicle.dealer_discount == 3000
+    assert vehicle.listing_url == "https://www.examplebmw.com/inventory/2024-bmw-x3"
+    assert vehicle.vehicle_identifier == "5UX53DP02R9D00011"
+
+
+def test_jazel_extract_inventory_normalizes_structured_payload_fields() -> None:
+    html = """
+    <html><body>
+      <script type="application/json">
+        {
+          "inventory": [
+            {
+              "vehicleTitle": "2023 Jeep Grand Cherokee Limited",
+              "brandName": "Jeep",
+              "vehicleModel": "Grand Cherokee",
+              "trimName": "Limited",
+              "vehicleYear": 2023,
+              "salePrice": "38995",
+              "listPrice": "41995",
+              "detailUrl": "/used/2023-jeep-grand-cherokee",
+              "stockNo": "JGC123",
+              "vin": "1C4RJHBG7PC000222"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+    result = extract_jazel(
+        page_url="https://www.examplejeep.com/used-inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="car",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "Jeep"
+    assert vehicle.model == "Grand Cherokee"
+    assert vehicle.trim == "Limited"
+    assert vehicle.price == 38995
+    assert vehicle.msrp == 41995
+    assert vehicle.dealer_discount == 3000
+    assert vehicle.listing_url == "https://www.examplejeep.com/used/2023-jeep-grand-cherokee"
+    assert vehicle.vehicle_identifier == "1C4RJHBG7PC000222"
+
+
+def test_foxdealer_extract_inventory_normalizes_structured_payload_fields() -> None:
+    html = """
+    <html><body>
+      <script type="application/json">
+        {
+          "vehicles": [
+            {
+              "vehicleTitle": "2024 Ford F-150 XLT",
+              "manufacturerName": "Ford",
+              "modelName": "F-150",
+              "trimName": "XLT",
+              "vehicleYear": 2024,
+              "currentPrice": "55995",
+              "msrpPrice": "58995",
+              "permalink": "/new/2024-ford-f150-xlt",
+              "stockNumber": "F15024",
+              "vin": "1FTFW3L50RFA00233"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+    result = extract_foxdealer(
+        page_url="https://www.exampleford.com/new-inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="car",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "Ford"
+    assert vehicle.model == "F-150"
+    assert vehicle.trim == "XLT"
+    assert vehicle.price == 55995
+    assert vehicle.msrp == 58995
+    assert vehicle.dealer_discount == 3000
+    assert vehicle.listing_url == "https://www.exampleford.com/new/2024-ford-f150-xlt"
+
+
+def test_sincro_digital_extract_inventory_normalizes_structured_payload_fields() -> None:
+    html = """
+    <html><body>
+      <script type="application/json">
+        {
+          "results": [
+            {
+              "vehicleTitle": "2024 GMC Sierra 1500 AT4",
+              "vehicleMake": "GMC",
+              "vehicleModel": "Sierra 1500",
+              "vehicleTrim": "AT4",
+              "yearModel": 2024,
+              "sellingPrice": "62995",
+              "listPrice": "65995",
+              "vehicleUrl": "/inventory/2024-gmc-sierra-at4",
+              "unitNumber": "GMCAT4",
+              "vin": "3GTUUEEL2RG000444"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+    result = extract_sincro_digital(
+        page_url="https://www.examplegmc.com/inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="car",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "GMC"
+    assert vehicle.model == "Sierra 1500"
+    assert vehicle.trim == "AT4"
+    assert vehicle.price == 62995
+    assert vehicle.msrp == 65995
+    assert vehicle.dealer_discount == 3000
+    assert vehicle.listing_url == "https://www.examplegmc.com/inventory/2024-gmc-sierra-at4"
+
+
+def test_cdk_dealerfire_extract_inventory_normalizes_structured_payload_fields() -> None:
+    html = """
+    <html><body>
+      <script type="application/json">
+        {
+          "vehicles": [
+            {
+              "vehicleTitle": "2024 Honda Accord EX",
+              "makeName": "Honda",
+              "modelName": "Accord",
+              "trimName": "EX",
+              "modelYear": 2024,
+              "internetPrice": "29995",
+              "msrpPrice": "31995",
+              "vehicleUrl": "/inventory/2024-honda-accord",
+              "stockNo": "HA24001",
+              "vin": "1HGCV1F30MA000001"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+    result = extract_cdk_dealerfire(
+        page_url="https://www.examplehonda.com/inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="car",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "Honda"
+    assert vehicle.model == "Accord"
+    assert vehicle.trim == "EX"
+    assert vehicle.year == 2024
+    assert vehicle.price == 29995
+    assert vehicle.msrp == 31995
+    assert vehicle.dealer_discount == 2000
+    assert vehicle.listing_url == "https://www.examplehonda.com/inventory/2024-honda-accord"
+    assert vehicle.vehicle_identifier == "1HGCV1F30MA000001"
+
+
+def test_fusionzone_extract_inventory_normalizes_structured_payload_fields() -> None:
+    html = """
+    <html><body>
+      <script type="application/json">
+        {
+          "vehicles": [
+            {
+              "name": "2024 Subaru Outback Limited",
+              "brandName": "Subaru",
+              "modelName": "Outback",
+              "trimName": "Limited",
+              "vehicleYear": 2024,
+              "ourPrice": "38995",
+              "retailPrice": "41995",
+              "detailPageUrl": "/inventory/2024-subaru-outback",
+              "stockNumber": "SO24001",
+              "vin": "4S4BTCCC1R3000001"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+    result = extract_fusionzone(
+        page_url="https://www.examplesubaru.com/inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="car",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "Subaru"
+    assert vehicle.model == "Outback"
+    assert vehicle.trim == "Limited"
+    assert vehicle.year == 2024
+    assert vehicle.price == 38995
+    assert vehicle.msrp == 41995
+    assert vehicle.dealer_discount == 3000
+    assert vehicle.listing_url == "https://www.examplesubaru.com/inventory/2024-subaru-outback"
+    assert vehicle.vehicle_identifier == "4S4BTCCC1R3000001"
+
+
+def test_dealer_spike_extract_inventory_normalizes_structured_payload_fields() -> None:
+    html = """
+    <html><body>
+      <script type="application/json">
+        {
+          "inventory": [
+            {
+              "name": "2025 Sea-Doo Spark",
+              "manuf": "Sea-Doo",
+              "itemModel": "Spark",
+              "itemYear": 2025,
+              "itemPrice": "7999",
+              "itemUrl": "/inventory/2025-sea-doo-spark",
+              "stockNo": "SD001",
+              "vin": "YDV12345A125"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+    result = extract_dealer_spike(
+        page_url="https://www.examplemarine.com/inventory",
+        html=html,
+        make_filter="",
+        model_filter="",
+        vehicle_category="boat",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "Sea-Doo"
+    assert vehicle.model == "Spark"
+    assert vehicle.year == 2025
+    assert vehicle.price == 7999
+    assert vehicle.listing_url == "https://www.examplemarine.com/inventory/2025-sea-doo-spark"
+    assert vehicle.vin == "YDV12345A125"
+    assert vehicle.vehicle_identifier == "YDV12345A125"
+
 
 
 def test_autohausen_ahp6_extract_inventory_maps_api_rows_and_paginates() -> None:

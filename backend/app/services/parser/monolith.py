@@ -176,19 +176,13 @@ European pages (EN/FR/DE and similar):
 
 _INVENTORY_KEYS = {
     "make",
-    "manuf",  # Dealer Spike Marine uses "manuf" for manufacturer/make
-    "itemmake",  # Dealer Spike / Endeavor inventory payloads
     "model",
-    "itemmodel",  # Dealer Spike / Endeavor inventory payloads
     "vin",
     "hin",
     "stock",
     "stockno",
     "stock_no",
     "stocknumber",
-    "itemurl",  # Dealer Spike / Endeavor inventory payloads
-    "itemprice",  # Dealer Spike / Endeavor inventory payloads
-    "itemyear",  # Dealer Spike / Endeavor inventory payloads
     "bodystyle",
     "bodytype",
     "enginehours",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { downloadCsv, listingsToCsv } from "@/lib/csvExport";
 import {
   formatMoney,
@@ -10,6 +10,7 @@ import {
   usageFieldLabel,
   usageLabel,
 } from "@/lib/inventoryFormat";
+import { buildMarketValuationMap } from "@/lib/marketValuation";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { ListingSortOrder } from "@/hooks/useSearchStream";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
@@ -35,6 +36,34 @@ function leaseLabel(listing: AggregatedListing) {
     return `${payment}/mo · ${listing.lease_term_months} mo lease`;
   }
   return `${payment}/mo lease`;
+}
+
+function formatTrackedWhen(iso: string | undefined) {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString();
+}
+
+function historyPriceDeltaLabel(value: number | undefined) {
+  if (value == null || Number.isNaN(value) || value === 0) return null;
+  const prefix = value < 0 ? "Down" : "Up";
+  return `${prefix} ${formatMoney(Math.abs(value))}`;
+}
+
+function valuationBadgeClasses(label: string) {
+  switch (label) {
+    case "Great deal":
+      return "border-emerald-300/90 bg-emerald-500/95 text-white ring-white/20";
+    case "Good value":
+      return "border-teal-300/90 bg-teal-500/95 text-white ring-white/20";
+    case "Fair price":
+      return "border-zinc-300/90 bg-zinc-900/80 text-white ring-white/15";
+    case "Above market":
+      return "border-amber-300/90 bg-amber-500/95 text-white ring-white/20";
+    default:
+      return "border-rose-300/90 bg-rose-500/95 text-white ring-white/20";
+  }
 }
 
 type Props = {
@@ -82,6 +111,8 @@ export function InventoryResultsSection({
       : Math.min(selectedListingIndex, filteredListings.length - 1);
   const selectedListing =
     effectiveSelectedListingIndex != null ? (filteredListings[effectiveSelectedListingIndex] ?? null) : null;
+  const valuationMap = useMemo(() => buildMarketValuationMap(listings), [listings]);
+  const selectedValuation = selectedListing ? valuationMap.get(listingIdentityKey(selectedListing)) : undefined;
   const canViewPrevious = effectiveSelectedListingIndex != null && effectiveSelectedListingIndex > 0;
   const canViewNext =
     effectiveSelectedListingIndex != null && effectiveSelectedListingIndex < filteredListings.length - 1;
@@ -214,8 +245,12 @@ export function InventoryResultsSection({
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {filteredListings.map((v, idx) => (
+            (() => {
+              const listingKey = listingIdentityKey(v, `${idx}`);
+              const valuation = valuationMap.get(listingKey);
+              return (
             <article
-              key={`inventory-${listingIdentityKey(v, `${idx}`)}`}
+              key={`inventory-${listingKey}`}
               className="flex flex-row sm:flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 cursor-pointer hover:border-emerald-300 hover:ring-1 hover:ring-emerald-500/20 transition-all"
               onClick={() => setSelectedListingIndex(idx)}
             >
@@ -248,6 +283,18 @@ export function InventoryResultsSection({
                     {v.days_on_lot != null ? (
                       <div className="absolute right-1.5 top-1.5 sm:right-2 sm:top-2 rounded-full bg-zinc-900/80 px-2 py-0.5 text-[10px] font-semibold text-white shadow-md ring-1 ring-white/15 backdrop-blur-sm sm:text-xs">
                         {v.days_on_lot}d on lot
+                      </div>
+                    ) : null}
+                    {valuation ? (
+                      <div
+                        className={`absolute right-1.5 top-8 sm:right-2 sm:top-10 rounded-full border px-2 py-0.5 text-[10px] font-semibold shadow-md ring-1 backdrop-blur-sm sm:text-xs ${valuationBadgeClasses(valuation.label)}`}
+                      >
+                        {valuation.label}
+                      </div>
+                    ) : null}
+                    {v.history_days_tracked != null && v.history_days_tracked > 0 ? (
+                      <div className="absolute left-1.5 top-8 sm:left-2 sm:top-10 rounded-full bg-sky-600/90 px-2 py-0.5 text-[10px] font-semibold text-white shadow-md ring-1 ring-white/15 backdrop-blur-sm sm:text-xs">
+                        Tracked {v.history_days_tracked}d
                       </div>
                     ) : null}
                     {(v.feature_highlights?.length ?? 0) > 0 ? (
@@ -317,9 +364,25 @@ export function InventoryResultsSection({
                     <dt className="font-medium text-zinc-500">Dealer</dt>
                     <dd className="truncate text-right max-w-[120px] sm:max-w-none sm:text-left">{v.dealership}</dd>
                   </div>
+                  {valuation ? (
+                    <div className="hidden sm:contents">
+                      <dt className="font-medium text-zinc-500">Market</dt>
+                      <dd>{valuation.label}</dd>
+                    </div>
+                  ) : null}
+                  {historyPriceDeltaLabel(v.history_price_change) ? (
+                    <div className="hidden sm:contents">
+                      <dt className="font-medium text-zinc-500">Price trend</dt>
+                      <dd>{historyPriceDeltaLabel(v.history_price_change)}</dd>
+                    </div>
+                  ) : null}
                   <div className="hidden sm:contents">
                     <dt className="font-medium text-zinc-500">Availability</dt>
                     <dd>{locationBadge(v) ?? "—"}</dd>
+                  </div>
+                  <div className="hidden sm:contents">
+                    <dt className="font-medium text-zinc-500">Engine</dt>
+                    <dd className="truncate">{v.engine ?? "—"}</dd>
                   </div>
                   <div className="hidden sm:contents">
                     <dt className="font-medium text-zinc-500">Location</dt>
@@ -350,6 +413,8 @@ export function InventoryResultsSection({
                 </div>
               </div>
             </article>
+              );
+            })()
           ))}
         </div>
       )}
@@ -461,8 +526,116 @@ export function InventoryResultsSection({
                         {selectedListing.days_on_lot} days on lot
                       </span>
                     ) : null}
+                    {selectedListing.history_days_tracked != null ? (
+                      <span className="rounded-full border border-sky-200/80 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-900 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-100">
+                        Tracked {selectedListing.history_days_tracked} days
+                      </span>
+                    ) : null}
+                    {selectedValuation ? (
+                      <span
+                        className={`rounded-full border px-2.5 py-1 text-xs font-medium ${selectedValuation.band === "great_deal" ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-100" : selectedValuation.band === "good_value" ? "border-teal-200 bg-teal-50 text-teal-900 dark:border-teal-800 dark:bg-teal-950/60 dark:text-teal-100" : selectedValuation.band === "fair_price" ? "border-zinc-200 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" : selectedValuation.band === "above_market" ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100" : "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/60 dark:text-rose-100"}`}
+                      >
+                        {selectedValuation.label}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
+
+                {selectedValuation ? (
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                      Local market valuation
+                    </h3>
+                    <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                      <p className="text-zinc-700 dark:text-zinc-300">
+                        Market position <span className="font-semibold">{selectedValuation.label}</span>
+                      </p>
+                      <p className="text-zinc-700 dark:text-zinc-300">
+                        Comparable listings <span className="font-semibold">{selectedValuation.comparableCount}</span>
+                      </p>
+                      <p className="text-zinc-700 dark:text-zinc-300">
+                        Local median <span className="font-semibold">{formatMoney(selectedValuation.baselinePrice)}</span>
+                      </p>
+                      <p className="text-zinc-700 dark:text-zinc-300">
+                        Difference{" "}
+                        <span className="font-semibold">
+                          {selectedValuation.deltaAmount < 0 ? "-" : "+"}
+                          {formatMoney(Math.abs(selectedValuation.deltaAmount))}
+                        </span>
+                      </p>
+                      <p className="text-zinc-700 dark:text-zinc-300 sm:col-span-2">
+                        Relative to local median{" "}
+                        <span className="font-semibold">
+                          {(selectedValuation.deltaPercent * 100).toFixed(1)}%
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {selectedListing.history_seen_count != null && selectedListing.history_seen_count > 0 ? (
+                  <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900 dark:bg-sky-950/30">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-sky-800 dark:text-sky-200">
+                      Cross-run tracking
+                    </h3>
+                    <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                      <p className="text-zinc-700 dark:text-zinc-300">
+                        Seen in <span className="font-semibold">{selectedListing.history_seen_count}</span> completed searches
+                      </p>
+                      <p className="text-zinc-700 dark:text-zinc-300">
+                        First seen <span className="font-semibold">{formatTrackedWhen(selectedListing.history_first_seen_at)}</span>
+                      </p>
+                      <p className="text-zinc-700 dark:text-zinc-300">
+                        Last seen <span className="font-semibold">{formatTrackedWhen(selectedListing.history_last_seen_at)}</span>
+                      </p>
+                      <p className="text-zinc-700 dark:text-zinc-300">
+                        Previous price{" "}
+                        <span className="font-semibold">{formatMoney(selectedListing.history_previous_price)}</span>
+                      </p>
+                      <p className="text-zinc-700 dark:text-zinc-300">
+                        Lowest tracked{" "}
+                        <span className="font-semibold">{formatMoney(selectedListing.history_lowest_price)}</span>
+                      </p>
+                      <p className="text-zinc-700 dark:text-zinc-300">
+                        Highest tracked{" "}
+                        <span className="font-semibold">{formatMoney(selectedListing.history_highest_price)}</span>
+                      </p>
+                      {historyPriceDeltaLabel(selectedListing.history_price_change) ? (
+                        <p className="text-zinc-700 dark:text-zinc-300">
+                          Since previous run{" "}
+                          <span className="font-semibold">{historyPriceDeltaLabel(selectedListing.history_price_change)}</span>
+                        </p>
+                      ) : null}
+                      {historyPriceDeltaLabel(selectedListing.history_price_change_since_first) ? (
+                        <p className="text-zinc-700 dark:text-zinc-300">
+                          Since first seen{" "}
+                          <span className="font-semibold">
+                            {historyPriceDeltaLabel(selectedListing.history_price_change_since_first)}
+                          </span>
+                        </p>
+                      ) : null}
+                    </div>
+                    {(selectedListing.price_history?.length ?? 0) > 0 ? (
+                      <div className="mt-4">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-sky-800 dark:text-sky-200">
+                          Recent observed prices
+                        </h4>
+                        <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                          {selectedListing.price_history!.slice(-6).reverse().map((point, index) => (
+                            <li
+                              key={`${point.observed_at ?? "point"}-${index}`}
+                              className="rounded-lg border border-sky-200/70 bg-white/80 px-3 py-2 text-xs text-zinc-800 dark:border-sky-900 dark:bg-zinc-950/40 dark:text-zinc-100"
+                            >
+                              <span className="font-medium">{formatTrackedWhen(point.observed_at)}</span>
+                              {" · "}
+                              <span>{formatMoney(point.price)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {(selectedListing.incentive_labels?.length ?? 0) > 0 ? (
                   <div className="space-y-2">
@@ -527,8 +700,24 @@ export function InventoryResultsSection({
                     <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.exterior_color ?? "—"}</dd>
                   </div>
                   <div className="space-y-1">
+                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Engine</dt>
+                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.engine ?? "—"}</dd>
+                  </div>
+                  <div className="space-y-1">
                     <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Trim</dt>
                     <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.trim ?? "—"}</dd>
+                  </div>
+                  <div className="space-y-1">
+                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Drivetrain</dt>
+                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.drivetrain ?? "—"}</dd>
+                  </div>
+                  <div className="space-y-1">
+                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Transmission</dt>
+                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.transmission ?? "—"}</dd>
+                  </div>
+                  <div className="space-y-1">
+                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Fuel Type</dt>
+                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.fuel_type ?? "—"}</dd>
                   </div>
                   <div className="space-y-1">
                     <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Availability</dt>

@@ -13,6 +13,7 @@ from typing import Any
 from passlib.context import CryptContext
 
 from app.config import settings
+from app.services.inventory_tracking import inventory_history_key
 
 _pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -96,6 +97,49 @@ CREATE TABLE IF NOT EXISTS alert_runs (
 
 CREATE INDEX IF NOT EXISTS idx_alert_runs_user_id
 ON alert_runs (user_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS saved_searches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    criteria_json TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_saved_searches_user_id
+ON saved_searches (user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS inventory_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    vehicle_key TEXT NOT NULL,
+    dealership_key TEXT NOT NULL,
+    vin TEXT,
+    vehicle_identifier TEXT,
+    listing_url TEXT,
+    raw_title TEXT,
+    first_seen_at REAL NOT NULL,
+    last_seen_at REAL NOT NULL,
+    first_scrape_run_id TEXT,
+    latest_scrape_run_id TEXT,
+    seen_count INTEGER NOT NULL DEFAULT 1,
+    first_price REAL,
+    previous_price REAL,
+    latest_price REAL,
+    lowest_price REAL,
+    highest_price REAL,
+    latest_days_on_lot INTEGER,
+    price_history_json TEXT NOT NULL DEFAULT '[]',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE(user_id, vehicle_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_history_user_id
+ON inventory_history (user_id, last_seen_at DESC);
 
 CREATE TABLE IF NOT EXISTS scrape_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -250,6 +294,42 @@ class AlertRunRecord:
     summary: dict[str, Any]
     started_at: float
     completed_at: float | None
+
+
+@dataclass(slots=True)
+class SavedSearchRecord:
+    id: str
+    user_id: str
+    name: str
+    criteria: dict[str, Any]
+    created_at: float
+    updated_at: float
+
+
+@dataclass(slots=True)
+class InventoryHistoryRecord:
+    id: str
+    user_id: str
+    vehicle_key: str
+    dealership_key: str
+    vin: str | None
+    vehicle_identifier: str | None
+    listing_url: str | None
+    raw_title: str | None
+    first_seen_at: float
+    last_seen_at: float
+    first_scrape_run_id: str | None
+    latest_scrape_run_id: str | None
+    seen_count: int
+    first_price: float | None
+    previous_price: float | None
+    latest_price: float | None
+    lowest_price: float | None
+    highest_price: float | None
+    latest_days_on_lot: int | None
+    price_history: list[dict[str, Any]]
+    created_at: float
+    updated_at: float
 
 
 @dataclass(slots=True)
@@ -565,6 +645,240 @@ class AccountStore:
                 args,
             ).fetchone()
         return int(row["count"]) if row is not None else 0
+
+    def create_saved_search(
+        self,
+        user_id: int | str,
+        *,
+        name: str,
+        criteria: dict[str, Any],
+    ) -> SavedSearchRecord:
+        now = time.time()
+        with self._conn() as c:
+            cur = c.execute(
+                """
+                INSERT INTO saved_searches (
+                    user_id, name, criteria_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    name,
+                    json.dumps(criteria, separators=(",", ":"), sort_keys=True),
+                    now,
+                    now,
+                ),
+            )
+            saved_search_id = int(cur.lastrowid)
+            c.commit()
+        return self.get_saved_search(user_id, saved_search_id)  # type: ignore[return-value]
+
+    def list_saved_searches(self, user_id: int | str) -> list[SavedSearchRecord]:
+        with self._conn() as c:
+            rows = c.execute(
+                """
+                SELECT *
+                FROM saved_searches
+                WHERE user_id = ?
+                ORDER BY updated_at DESC, id DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [_row_to_saved_search(row) for row in rows]
+
+    def get_saved_search(self, user_id: int | str, saved_search_id: int | str) -> SavedSearchRecord | None:
+        with self._conn() as c:
+            row = c.execute(
+                """
+                SELECT *
+                FROM saved_searches
+                WHERE user_id = ? AND id = ?
+                LIMIT 1
+                """,
+                (user_id, saved_search_id),
+            ).fetchone()
+        return _row_to_saved_search(row) if row is not None else None
+
+    def update_saved_search(
+        self,
+        user_id: int | str,
+        saved_search_id: int | str,
+        *,
+        name: str | None = None,
+        criteria: dict[str, Any] | None = None,
+    ) -> SavedSearchRecord | None:
+        fields: list[str] = []
+        args: list[Any] = []
+        if name is not None:
+            fields.append("name = ?")
+            args.append(name)
+        if criteria is not None:
+            fields.append("criteria_json = ?")
+            args.append(json.dumps(criteria, separators=(",", ":"), sort_keys=True))
+        if not fields:
+            return self.get_saved_search(user_id, saved_search_id)
+        fields.append("updated_at = ?")
+        args.append(time.time())
+        args.extend((user_id, saved_search_id))
+        with self._conn() as c:
+            c.execute(
+                f"UPDATE saved_searches SET {', '.join(fields)} WHERE user_id = ? AND id = ?",
+                args,
+            )
+            c.commit()
+        return self.get_saved_search(user_id, saved_search_id)
+
+    def delete_saved_search(self, user_id: int | str, saved_search_id: int | str) -> bool:
+        with self._conn() as c:
+            cur = c.execute(
+                "DELETE FROM saved_searches WHERE user_id = ? AND id = ?",
+                (user_id, saved_search_id),
+            )
+            c.commit()
+        return (cur.rowcount or 0) > 0
+
+    def get_inventory_history_map(
+        self,
+        user_id: int | str,
+        listings: list[Any],
+    ) -> dict[str, InventoryHistoryRecord]:
+        keys_set: set[str] = set()
+        for listing in listings:
+            target = _ListingProxy(listing) if isinstance(listing, dict) else listing
+            key = inventory_history_key(target)
+            if key:
+                keys_set.add(key)
+        keys = sorted(keys_set)
+        if not keys:
+            return {}
+        placeholders = ",".join("?" for _ in keys)
+        with self._conn() as c:
+            rows = c.execute(
+                f"""
+                SELECT *
+                FROM inventory_history
+                WHERE user_id = ? AND vehicle_key IN ({placeholders})
+                """,
+                [user_id, *keys],
+            ).fetchall()
+        return {record.vehicle_key: record for record in (_row_to_inventory_history(row) for row in rows)}
+
+    def record_inventory_history(
+        self,
+        user_id: int | str,
+        *,
+        scrape_run_id: int | str,
+        listings: list[dict[str, Any]],
+        observed_at: float,
+    ) -> None:
+        deduped: dict[str, dict[str, Any]] = {}
+        for listing in listings:
+            key = inventory_history_key(_ListingProxy(listing))
+            if key:
+                deduped[key] = listing
+        if not deduped:
+            return
+
+        with self._conn() as c:
+            for vehicle_key, listing in deduped.items():
+                current_price = _maybe_float(listing.get("price"))
+                current_days_on_lot = _maybe_int(listing.get("days_on_lot"))
+                current_history_entry = (
+                    {"observed_at": observed_at, "price": current_price}
+                    if current_price is not None
+                    else None
+                )
+                existing_row = c.execute(
+                    """
+                    SELECT *
+                    FROM inventory_history
+                    WHERE user_id = ? AND vehicle_key = ?
+                    LIMIT 1
+                    """,
+                    (user_id, vehicle_key),
+                ).fetchone()
+                if existing_row is None:
+                    price_history = [current_history_entry] if current_history_entry is not None else []
+                    c.execute(
+                        """
+                        INSERT INTO inventory_history (
+                            user_id, vehicle_key, dealership_key, vin, vehicle_identifier, listing_url, raw_title,
+                            first_seen_at, last_seen_at, first_scrape_run_id, latest_scrape_run_id, seen_count,
+                            first_price, previous_price, latest_price, lowest_price, highest_price, latest_days_on_lot,
+                            price_history_json, created_at, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            user_id,
+                            vehicle_key,
+                            str(listing.get("dealership_website") or ""),
+                            listing.get("vin"),
+                            listing.get("vehicle_identifier"),
+                            listing.get("listing_url"),
+                            listing.get("raw_title"),
+                            observed_at,
+                            observed_at,
+                            str(scrape_run_id),
+                            str(scrape_run_id),
+                            1,
+                            current_price,
+                            None,
+                            current_price,
+                            current_price,
+                            current_price,
+                            current_days_on_lot,
+                            json.dumps(price_history, separators=(",", ":"), sort_keys=True),
+                            observed_at,
+                            observed_at,
+                        ),
+                    )
+                    continue
+
+                existing = _row_to_inventory_history(existing_row)
+                price_history = list(existing.price_history)
+                previous_price = existing.previous_price
+                latest_price = existing.latest_price
+                lowest_price = existing.lowest_price
+                highest_price = existing.highest_price
+                if current_price is not None:
+                    previous_price = latest_price if latest_price is not None else previous_price
+                    latest_price = current_price
+                    lowest_price = current_price if lowest_price is None else min(lowest_price, current_price)
+                    highest_price = current_price if highest_price is None else max(highest_price, current_price)
+                    price_history.append({"observed_at": observed_at, "price": current_price})
+                    price_history = price_history[-12:]
+
+                c.execute(
+                    """
+                    UPDATE inventory_history
+                    SET dealership_key = ?, vin = ?, vehicle_identifier = ?, listing_url = ?, raw_title = ?,
+                        last_seen_at = ?, latest_scrape_run_id = ?, seen_count = ?, previous_price = ?, latest_price = ?,
+                        lowest_price = ?, highest_price = ?, latest_days_on_lot = ?, price_history_json = ?, updated_at = ?
+                    WHERE user_id = ? AND vehicle_key = ?
+                    """,
+                    (
+                        str(listing.get("dealership_website") or existing.dealership_key or ""),
+                        listing.get("vin") or existing.vin,
+                        listing.get("vehicle_identifier") or existing.vehicle_identifier,
+                        listing.get("listing_url") or existing.listing_url,
+                        listing.get("raw_title") or existing.raw_title,
+                        observed_at,
+                        str(scrape_run_id),
+                        existing.seen_count + 1,
+                        previous_price,
+                        latest_price,
+                        lowest_price,
+                        highest_price,
+                        current_days_on_lot if current_days_on_lot is not None else existing.latest_days_on_lot,
+                        json.dumps(price_history, separators=(",", ":"), sort_keys=True),
+                        observed_at,
+                        user_id,
+                        vehicle_key,
+                    ),
+                )
+            c.commit()
 
     def admin_list_scrape_runs(
         self,
@@ -1460,6 +1774,52 @@ def _json_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
+class _ListingProxy:
+    def __init__(self, data: dict[str, Any]) -> None:
+        self.dealership_website = data.get("dealership_website")
+        self.vin = data.get("vin")
+        self.vehicle_identifier = data.get("vehicle_identifier")
+        self.listing_url = data.get("listing_url")
+        self.year = data.get("year")
+        self.make = data.get("make")
+        self.model = data.get("model")
+        self.trim = data.get("trim")
+        self.raw_title = data.get("raw_title")
+
+
+def _json_list(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [dict(item) for item in value if isinstance(item, dict)]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        if isinstance(parsed, list):
+            return [dict(item) for item in parsed if isinstance(item, dict)]
+    return []
+
+
+def _maybe_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _maybe_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _row_to_alert_subscription(row: sqlite3.Row) -> AlertSubscriptionRecord:
     return AlertSubscriptionRecord(
         id=str(row["id"]),
@@ -1496,6 +1856,44 @@ def _row_to_alert_run(row: sqlite3.Row) -> AlertRunRecord:
         summary=_json_dict(row["summary_json"]),
         started_at=float(row["started_at"]),
         completed_at=float(row["completed_at"]) if row["completed_at"] is not None else None,
+    )
+
+
+def _row_to_saved_search(row: sqlite3.Row) -> SavedSearchRecord:
+    return SavedSearchRecord(
+        id=str(row["id"]),
+        user_id=str(row["user_id"]),
+        name=str(row["name"]),
+        criteria=_json_dict(row["criteria_json"]),
+        created_at=float(row["created_at"]),
+        updated_at=float(row["updated_at"]),
+    )
+
+
+def _row_to_inventory_history(row: sqlite3.Row) -> InventoryHistoryRecord:
+    return InventoryHistoryRecord(
+        id=str(row["id"]),
+        user_id=str(row["user_id"]),
+        vehicle_key=str(row["vehicle_key"]),
+        dealership_key=str(row["dealership_key"]),
+        vin=str(row["vin"]) if row["vin"] is not None else None,
+        vehicle_identifier=str(row["vehicle_identifier"]) if row["vehicle_identifier"] is not None else None,
+        listing_url=str(row["listing_url"]) if row["listing_url"] is not None else None,
+        raw_title=str(row["raw_title"]) if row["raw_title"] is not None else None,
+        first_seen_at=float(row["first_seen_at"]),
+        last_seen_at=float(row["last_seen_at"]),
+        first_scrape_run_id=str(row["first_scrape_run_id"]) if row["first_scrape_run_id"] is not None else None,
+        latest_scrape_run_id=str(row["latest_scrape_run_id"]) if row["latest_scrape_run_id"] is not None else None,
+        seen_count=int(row["seen_count"]),
+        first_price=_maybe_float(row["first_price"]),
+        previous_price=_maybe_float(row["previous_price"]),
+        latest_price=_maybe_float(row["latest_price"]),
+        lowest_price=_maybe_float(row["lowest_price"]),
+        highest_price=_maybe_float(row["highest_price"]),
+        latest_days_on_lot=_maybe_int(row["latest_days_on_lot"]),
+        price_history=_json_list(row["price_history_json"]),
+        created_at=float(row["created_at"]),
+        updated_at=float(row["updated_at"]),
     )
 
 

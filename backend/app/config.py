@@ -117,6 +117,9 @@ class Settings(BaseSettings):
     playwright_timeout_ms: int = 45_000
     # Baseline settle wait before any platform-specific Playwright interaction recipe runs.
     playwright_post_load_wait_ms: int = 2500
+    # Optional proxy server for Playwright (e.g. "http://user:pass@proxy.example.com:8080").
+    # Helps bypass WAFs on strict dealer sites without paying for ZenRows/ScrapingBee.
+    playwright_proxy_url: str = ""
 
     # Max dealerships per search (quality vs speed tradeoff).
     max_dealerships: int = 8
@@ -143,6 +146,12 @@ class Settings(BaseSettings):
     max_html_chars: int = 60_000
     # HTTP timeout for each scraper call (seconds). Keep this moderate so stuck sites fail fast.
     scrape_timeout: float = 30.0
+    # Free VIN decoding via the NHTSA vPIC API. Used to fill missing specs like
+    # trim, body style, drivetrain, engine, and transmission when a valid VIN is available.
+    vin_decoder_enabled: bool = True
+    vin_decoder_timeout: float = 8.0
+    vin_decoder_max_concurrency: int = 8
+    vin_decoder_cache_ttl_seconds: int = 60 * 60 * 24 * 14
     # Platform detection cache. Override PLATFORM_CACHE_PATH on Vercel if using persistent storage.
     platform_cache_enabled: bool = True
     platform_cache_path: str = Field(default_factory=_default_platform_cache_path)

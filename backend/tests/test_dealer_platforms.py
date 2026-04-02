@@ -322,6 +322,32 @@ def test_detect_platform_profile_matches_d2c_media_homepage_markers() -> None:
     assert profile.extraction_mode == "structured_html"
 
 
+def test_detect_platform_profile_matches_foxdealer_markers() -> None:
+    html = """
+    <html><body>
+      <footer>Powered by Fox Dealer</footer>
+      <a href="/inventory">Inventory</a>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.exampleforddealer.com/")
+    assert profile is not None
+    assert profile.platform_id == "foxdealer"
+    assert "inventory" in inventory_hints_for_platform("foxdealer")
+
+
+def test_detect_platform_profile_matches_sincro_markers() -> None:
+    html = """
+    <html><body>
+      <script src="https://media.assets.sincrod.com/websites/content/example/app.js"></script>
+      <a href="/inventory/new">New Inventory</a>
+    </body></html>
+    """
+    profile = detect_platform_profile(html, page_url="https://www.examplegmdealer.com/")
+    assert profile is not None
+    assert profile.platform_id == "sincro_digital"
+    assert "inventory/new" in inventory_hints_for_platform("sincro_digital")
+
+
 def test_detect_platform_profile_breaks_dealer_inspire_ties_toward_team_velocity() -> None:
     html = """
     <html><body>

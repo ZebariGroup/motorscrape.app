@@ -15,6 +15,7 @@ from app.api.routes_admin import router as admin_router
 from app.api.routes_alerts import router as alerts_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_billing import router as billing_router
+from app.api.routes_saved_searches import router as saved_searches_router
 from app.api.routes_search_logs import router as search_logs_router
 from app.api.search_quota import evaluate_search_start, record_search_completed
 from app.config import settings, vehicle_category_enabled
@@ -281,6 +282,12 @@ async def lifespan(_app: FastAPI):
         await shutdown_playwright()
     except Exception:
         pass
+    try:
+        from app.services.vin_decoder import close_vin_decoder_http_client
+
+        await close_vin_decoder_http_client()
+    except Exception:
+        pass
 
 
 app = FastAPI(title="Motorscrape API", version="0.1.0", lifespan=lifespan)
@@ -303,6 +310,7 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(billing_router)
 app.include_router(alerts_router)
+app.include_router(saved_searches_router)
 app.include_router(search_logs_router)
 
 # Mount twice so the same deployment works locally (/health) and on Vercel Services
@@ -313,4 +321,5 @@ app.include_router(auth_router, prefix="/server")
 app.include_router(admin_router, prefix="/server")
 app.include_router(billing_router, prefix="/server")
 app.include_router(alerts_router, prefix="/server")
+app.include_router(saved_searches_router, prefix="/server")
 app.include_router(search_logs_router, prefix="/server")

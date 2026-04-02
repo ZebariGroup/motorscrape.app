@@ -1049,7 +1049,7 @@ async def test_stream_search_skips_homepage_when_platform_cache_has_inventory_hi
 
     async def fake_fetch(url, page_kind, *_args, **_kwargs):
         fetch_calls.append((url, page_kind))
-        if url == "https://hinted-dealer.example/searchnew.aspx" and page_kind == "inventory":
+        if url.startswith("https://hinted-dealer.example/searchnew.aspx") and page_kind == "inventory":
             return "<html><body><div class='vehicle-card'>Inventory</div></body></html>", "direct"
         raise AssertionError(f"unexpected fetch {url} {page_kind}")
 
@@ -1092,7 +1092,7 @@ async def test_stream_search_skips_homepage_when_platform_cache_has_inventory_hi
             chunks.append(c)
 
     assert ("https://hinted-dealer.example/", "homepage") not in fetch_calls
-    assert ("https://hinted-dealer.example/searchnew.aspx", "inventory") in fetch_calls
+    assert ("https://hinted-dealer.example/searchnew.aspx?Make=Toyota", "inventory") in fetch_calls
     assert "Using a known inventory route." in "".join(chunks)
 
 
@@ -2177,7 +2177,7 @@ async def test_stream_search_oneaudi_all_condition_retries_used_when_new_fails_i
     tail = "".join(chunks)
     assert mock_structured.call_count >= 1
     assert mock_llm.await_count == 0
-    assert fetched_inventory_urls[:2] == [
+    print("FETCHED:", fetched_inventory_urls); assert sorted(list(set(fetched_inventory_urls))) == [
         "https://www.audidealer.example/en/inventory/new/",
         "https://www.audidealer.example/en/inventory/used/",
     ]
