@@ -196,31 +196,6 @@ class VehicleListing(BaseModel):
         default=None,
         description="Median of historical_market_prices for this listing's comparable bucket.",
     )
-    external_valuation_provider: str | None = Field(
-        default=None,
-        description="External valuation provider name when third-party market value enrichment is available.",
-    )
-    external_retail_value: float | None = Field(
-        default=None,
-        description="External retail market value estimate in USD.",
-    )
-    external_trade_in_value: float | None = Field(
-        default=None,
-        description="External trade-in market value estimate in USD.",
-    )
-    external_valuation_range_low: float | None = Field(
-        default=None,
-        description="External lower valuation bound in USD when provided.",
-    )
-    external_valuation_range_high: float | None = Field(
-        default=None,
-        description="External upper valuation bound in USD when provided.",
-    )
-    external_valuation_confidence: float | None = Field(
-        default=None,
-        description="External valuation confidence score when provided (0-1 or 0-100 normalized to 0-1).",
-    )
-
     @field_validator("incentive_labels", "feature_highlights", mode="before")
     @classmethod
     def _coerce_str_lists(cls, v: Any) -> list[str]:

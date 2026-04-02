@@ -8,7 +8,6 @@ export type MarketValuation = {
   label: string;
   comparableCount: number;
   historicalComparableCount: number;
-  externalComparableCount: number;
   baselinePrice: number;
   deltaAmount: number;
   deltaPercent: number;
@@ -166,16 +165,14 @@ function trimPackageConfidence(
   listing: AggregatedListing,
   currentComparableCount: number,
   historicalComparableCount: number,
-  externalComparableCount: number,
 ): { score: number; label: "Low" | "Medium" | "High" } {
-  const sampleScore = Math.min(1, (currentComparableCount + historicalComparableCount + externalComparableCount) / 20);
+  const sampleScore = Math.min(1, (currentComparableCount + historicalComparableCount) / 18);
   const currentScore = Math.min(1, currentComparableCount / 8);
   const historicalScore = Math.min(1, historicalComparableCount / 10);
-  const externalScore = Math.min(1, externalComparableCount / 3);
   const specFields = [listing.trim, listing.body_style, listing.drivetrain, listing.engine, listing.transmission, listing.fuel_type];
   const specCompleteness = specFields.filter((value) => normalizedText(value).length > 0).length / specFields.length;
   const featureSignal = Math.min(1, (listing.feature_highlights?.length ?? 0) / 3);
-  const score = Math.round((sampleScore * 0.3 + currentScore * 0.2 + historicalScore * 0.15 + externalScore * 0.1 + specCompleteness * 0.15 + featureSignal * 0.1) * 100);
+  const score = Math.round((sampleScore * 0.35 + currentScore * 0.2 + historicalScore * 0.15 + specCompleteness * 0.2 + featureSignal * 0.1) * 100);
   if (score >= 75) return { score, label: "High" };
   if (score >= 50) return { score, label: "Medium" };
   return { score, label: "Low" };
@@ -321,20 +318,14 @@ export function buildMarketValuationMap(listings: AggregatedListing[]): Map<stri
     const historicalPoints = (listing.historical_market_price_points ?? [])
       .map((point) => ({ price: point.price, observedAt: point.observed_at }))
       .filter((point) => point.price != null && Number.isFinite(point.price) && point.price > 0);
-    const externalValues = [
-      listing.external_retail_value,
-      listing.external_valuation_range_low,
-      listing.external_valuation_range_high,
-    ].filter((value) => value != null && Number.isFinite(value) && value > 0) as number[];
     const weightedSamples: Array<{ value: number; weight: number }> = [
       ...normalizedComparablePrices.map((value) => ({ value, weight: 1 })),
       ...historicalPoints.map((point) => ({ value: point.price!, weight: recencyWeight(point.observedAt, nowMs) })),
-      ...externalValues.map((value, idx) => ({ value, weight: idx === 0 ? 0.7 : 0.45 })),
     ];
     if (historicalPoints.length === 0 && historicalPrices.length > 0) {
       weightedSamples.push(...historicalPrices.map((value) => ({ value, weight: 0.45 })));
     }
-    const combinedPrices = [...normalizedComparablePrices, ...historicalPrices, ...externalValues];
+    const combinedPrices = [...normalizedComparablePrices, ...historicalPrices];
     if (combinedPrices.length < 3) continue;
     const baselinePrice = weightedMedian(weightedSamples) ?? median(combinedPrices);
     if (!Number.isFinite(baselinePrice) || baselinePrice <= 0) continue;
@@ -344,13 +335,11 @@ export function buildMarketValuationMap(listings: AggregatedListing[]): Map<stri
       listing,
       normalizedComparablePrices.length,
       historicalPrices.length,
-      externalValues.length,
     );
     valuations.set(listingIdentityKey(listing), {
       ...valuationBand(deltaPercent),
       comparableCount: combinedPrices.length,
       historicalComparableCount: historicalPrices.length,
-      externalComparableCount: externalValues.length,
       baselinePrice,
       deltaAmount,
       deltaPercent,

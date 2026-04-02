@@ -567,18 +567,6 @@ export function InventoryResultsSection({
                           <span className="font-semibold">{selectedValuation.historicalComparableCount}</span>
                         </p>
                       ) : null}
-                      {selectedValuation.externalComparableCount > 0 ? (
-                        <p className="text-zinc-700 dark:text-zinc-300">
-                          External comps{" "}
-                          <span className="font-semibold">{selectedValuation.externalComparableCount}</span>
-                        </p>
-                      ) : null}
-                      {selectedListing.external_valuation_provider ? (
-                        <p className="text-zinc-700 dark:text-zinc-300">
-                          External source{" "}
-                          <span className="font-semibold">{selectedListing.external_valuation_provider}</span>
-                        </p>
-                      ) : null}
                       <p className="text-zinc-700 dark:text-zinc-300">
                         Local median <span className="font-semibold">{formatMoney(selectedValuation.baselinePrice)}</span>
                       </p>
