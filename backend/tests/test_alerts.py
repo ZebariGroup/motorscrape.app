@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import sqlite3
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.config import settings
-from app.db.account_store import get_account_store
+from app.db.account_store import _row_to_alert_subscription, get_account_store
 from app.main import app
 from app.schemas import SearchRequest
 from app.services.search_runner import SearchRunResult
@@ -312,6 +313,51 @@ def test_manual_alert_run_sends_for_thresholded_price_drop(monkeypatch) -> None:
     assert run["summary"]["delta"]["price_drop_count"] == 1
     assert run["summary"]["delta"]["largest_price_drop"] == 600
     assert send_email.await_count == 1
+
+
+def test_alert_subscription_row_defaults_when_new_columns_are_missing() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        """
+        CREATE TABLE alert_subscriptions (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            criteria_json TEXT NOT NULL,
+            cadence TEXT NOT NULL,
+            day_of_week INTEGER,
+            hour_local INTEGER NOT NULL,
+            timezone TEXT NOT NULL,
+            deliver_csv INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            next_run_at REAL NOT NULL,
+            last_run_at REAL,
+            last_run_status TEXT,
+            last_result_count INTEGER,
+            last_error TEXT,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO alert_subscriptions (
+            id, user_id, name, criteria_json, cadence, day_of_week, hour_local,
+            timezone, deliver_csv, is_active, next_run_at, created_at, updated_at
+        ) VALUES (1, 7, 'Legacy alert', '{}', 'daily', NULL, 8, 'UTC', 1, 1, 1.0, 1.0, 1.0)
+        """
+    )
+    row = conn.execute("SELECT * FROM alert_subscriptions WHERE id = 1").fetchone()
+    assert row is not None
+
+    subscription = _row_to_alert_subscription(row)
+
+    assert subscription.only_send_on_changes is False
+    assert subscription.include_new_listings is True
+    assert subscription.include_price_drops is True
+    assert subscription.min_price_drop_usd is None
 
 
 @pytest.mark.asyncio

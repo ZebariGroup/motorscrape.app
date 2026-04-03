@@ -1824,6 +1824,13 @@ def _row_to_user(row: sqlite3.Row | None) -> UserRecord | None:
     )
 
 
+def _row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return default
+
+
 def _json_dict(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
@@ -1886,27 +1893,37 @@ def _maybe_int(value: Any) -> int | None:
 
 def _row_to_alert_subscription(row: sqlite3.Row) -> AlertSubscriptionRecord:
     return AlertSubscriptionRecord(
-        id=str(row["id"]),
-        user_id=str(row["user_id"]),
-        name=str(row["name"]),
-        criteria=_json_dict(row["criteria_json"]),
-        cadence=str(row["cadence"]),
-        day_of_week=int(row["day_of_week"]) if row["day_of_week"] is not None else None,
-        hour_local=int(row["hour_local"]),
-        timezone=str(row["timezone"]),
-        deliver_csv=bool(row["deliver_csv"]),
-        only_send_on_changes=bool(row["only_send_on_changes"]),
-        include_new_listings=bool(row["include_new_listings"]),
-        include_price_drops=bool(row["include_price_drops"]),
-        min_price_drop_usd=_maybe_float(row["min_price_drop_usd"]),
-        is_active=bool(row["is_active"]),
-        next_run_at=float(row["next_run_at"]),
-        last_run_at=float(row["last_run_at"]) if row["last_run_at"] is not None else None,
-        last_run_status=str(row["last_run_status"]) if row["last_run_status"] is not None else None,
-        last_result_count=int(row["last_result_count"]) if row["last_result_count"] is not None else None,
-        last_error=str(row["last_error"]) if row["last_error"] is not None else None,
-        created_at=float(row["created_at"]),
-        updated_at=float(row["updated_at"]),
+        id=str(_row_value(row, "id")),
+        user_id=str(_row_value(row, "user_id")),
+        name=str(_row_value(row, "name")),
+        criteria=_json_dict(_row_value(row, "criteria_json")),
+        cadence=str(_row_value(row, "cadence")),
+        day_of_week=(
+            int(_row_value(row, "day_of_week")) if _row_value(row, "day_of_week") is not None else None
+        ),
+        hour_local=int(_row_value(row, "hour_local", 8)),
+        timezone=str(_row_value(row, "timezone", "UTC")),
+        deliver_csv=bool(_row_value(row, "deliver_csv", 0)),
+        only_send_on_changes=bool(_row_value(row, "only_send_on_changes", 0)),
+        include_new_listings=bool(_row_value(row, "include_new_listings", 1)),
+        include_price_drops=bool(_row_value(row, "include_price_drops", 1)),
+        min_price_drop_usd=_maybe_float(_row_value(row, "min_price_drop_usd")),
+        is_active=bool(_row_value(row, "is_active", 1)),
+        next_run_at=float(_row_value(row, "next_run_at", 0.0)),
+        last_run_at=(
+            float(_row_value(row, "last_run_at")) if _row_value(row, "last_run_at") is not None else None
+        ),
+        last_run_status=(
+            str(_row_value(row, "last_run_status")) if _row_value(row, "last_run_status") is not None else None
+        ),
+        last_result_count=(
+            int(_row_value(row, "last_result_count"))
+            if _row_value(row, "last_result_count") is not None
+            else None
+        ),
+        last_error=str(_row_value(row, "last_error")) if _row_value(row, "last_error") is not None else None,
+        created_at=float(_row_value(row, "created_at", 0.0)),
+        updated_at=float(_row_value(row, "updated_at", 0.0)),
     )
 
 
@@ -2061,6 +2078,7 @@ def get_account_store(path: str) -> AccountStore | Any:
         from app.db.supabase_store import get_supabase_store
         return get_supabase_store()
     global _store
+    init_db(path)
     if _store is None or _store.path != path:
         _store = AccountStore(path)
     return _store
