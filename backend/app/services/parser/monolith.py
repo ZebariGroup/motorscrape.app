@@ -1706,6 +1706,7 @@ def dict_to_vehicle_listing(
     base_url: str,
     *,
     vehicle_category: str = "car",
+    fallback_text: str | None = None,
 ) -> VehicleListing | None:
     """Map a loose inventory/schema dict to VehicleListing; returns None if not vehicle-like."""
     make = (
@@ -1873,7 +1874,7 @@ def dict_to_vehicle_listing(
     usage_value, usage_unit = _pick_usage_from_dict(
         d,
         vehicle_category=normalized_category,
-        fallback_text=raw_title,
+        fallback_text=fallback_text or raw_title,
     )
 
     return VehicleListing(
@@ -1986,6 +1987,26 @@ def _page_looks_like_inventory_results(page_url: str, html: str) -> bool:
     if re.search(r"\b\d{1,5}\s*(?:-|to|–|—)\s*\d{1,5}\s+of\s+\d{1,7}\s+results?\b", lower_html):
         return True
     return "search inventory" in lower_html and "sort by" in lower_html and "results" in lower_html
+
+
+def _page_looks_like_vehicle_detail(page_url: str, html: str) -> bool:
+    path = urlsplit(page_url or "").path.lower()
+    if _INVENTORY_DETAIL_PATH_RE.search(path):
+        return True
+    if re.search(r"/(?:new|used|certified|pre-owned|preowned|cpo)/[^/?#]+/.+\.htm$", path):
+        return True
+    if _page_looks_like_inventory_results(page_url, html):
+        return False
+    lower_html = (html or "").lower()
+    detail_markers = (
+        ("window sticker" in lower_html)
+        + ("dealer notes" in lower_html)
+        + ("highlighted features" in lower_html)
+        + ("stock number" in lower_html)
+        + ("odometer" in lower_html)
+        + (" vin" in lower_html)
+    )
+    return detail_markers >= 3
 
 
 def _text_or_none(node: Any) -> str | None:
@@ -3358,6 +3379,9 @@ def try_extract_vehicles_without_llm(
     Returns None when structured data is missing or too weak.
     """
     dicts = collect_structured_vehicle_dicts(html, page_url)
+    page_fallback_text = None
+    if dicts and _page_looks_like_vehicle_detail(page_url, html):
+        page_fallback_text = BeautifulSoup(html, "lxml").get_text(" ", strip=True)
     if platform_id is not None:
         from app.services.parser.factory import inventory_parser_for_platform
 
@@ -3388,7 +3412,12 @@ def try_extract_vehicles_without_llm(
         _register_vehicle_aliases(v, key, alias_to_key)
 
     for d in dicts:
-        v = dict_to_vehicle_listing(d, page_url, vehicle_category=vehicle_category)
+        v = dict_to_vehicle_listing(
+            d,
+            page_url,
+            vehicle_category=vehicle_category,
+            fallback_text=page_fallback_text,
+        )
         if v:
             _merge_vehicle(v)
             # Register additional identifiers that live in the raw dict but may not

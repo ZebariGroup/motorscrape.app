@@ -493,6 +493,47 @@ def test_try_extract_team_velocity_vdp_prefers_cash_price_and_keeps_lease_paymen
     assert v.lease_term_months == 24
 
 
+def test_try_extract_dealer_dot_com_certified_vdp_reads_odometer_from_page_text() -> None:
+    pad = "x" * 220
+    html = f"""
+    <html><body>
+      <script type="application/json">
+        {{"vehicles":[{{"make":"Ram","model":"1500","year":2023,"trim":"Tradesman",
+        "vin":"1C6RRFGG4PN624486","vdpUrl":"/certified/Ram/2023-Ram-1500-southfield-b09740dfac183da746fed0836cbd2eb2.htm",
+        "_pad":"{pad}"}}]}}
+      </script>
+      <h1>Certified Pre-Owned 2023 Ram 1500 Tradesman</h1>
+      <div>Exterior Color</div>
+      <div>Granite Crystal Metallic Clearcoat</div>
+      <div>Interior Color</div>
+      <div>Black</div>
+      <div>Odometer</div>
+      <div>19,269 miles</div>
+      <div>Body/Seating</div>
+      <div>Truck/6 seats</div>
+      <div>VIN</div>
+      <div>1C6RRFGG4PN624486</div>
+      <div>Stock Number</div>
+      <div>12040</div>
+    </body></html>
+    """
+
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.foxchryslerdodgejeepramsouthfield.com/certified/Ram/2023-Ram-1500-southfield-b09740dfac183da746fed0836cbd2eb2.htm",
+        html=html,
+        make_filter="Ram",
+        model_filter="1500",
+        platform_id="dealer_dot_com",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    v = result.vehicles[0]
+    assert v.vin == "1C6RRFGG4PN624486"
+    assert v.mileage == 19269
+    assert v.usage_value == 19269
+    assert v.usage_unit == "miles"
+
+
 def test_inventory_anchor_card_ignores_bonus_amount_and_keeps_real_price() -> None:
     html = """
     <html><body>
