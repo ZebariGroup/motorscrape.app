@@ -38,6 +38,10 @@ class AlertSubscriptionBody(BaseModel):
     hour_local: int = Field(default=8, ge=0, le=23)
     timezone: str = Field(default="UTC", min_length=1, max_length=120)
     deliver_csv: bool = False
+    only_send_on_changes: bool = False
+    include_new_listings: bool = True
+    include_price_drops: bool = True
+    min_price_drop_usd: float | None = Field(default=None, ge=0)
     is_active: bool = True
 
     @field_validator("timezone")
@@ -54,6 +58,10 @@ class AlertSubscriptionUpdateBody(BaseModel):
     hour_local: int | None = Field(default=None, ge=0, le=23)
     timezone: str | None = Field(default=None, min_length=1, max_length=120)
     deliver_csv: bool | None = None
+    only_send_on_changes: bool | None = None
+    include_new_listings: bool | None = None
+    include_price_drops: bool | None = None
+    min_price_drop_usd: float | None = Field(default=None, ge=0)
     is_active: bool | None = None
 
     @field_validator("timezone")
@@ -90,6 +98,10 @@ def _serialize_subscription(record: AlertSubscriptionRecord) -> dict[str, Any]:
         "hour_local": record.hour_local,
         "timezone": record.timezone,
         "deliver_csv": record.deliver_csv,
+        "only_send_on_changes": record.only_send_on_changes,
+        "include_new_listings": record.include_new_listings,
+        "include_price_drops": record.include_price_drops,
+        "min_price_drop_usd": record.min_price_drop_usd,
         "is_active": record.is_active,
         "next_run_at": _iso(record.next_run_at),
         "last_run_at": _iso(record.last_run_at),
@@ -165,6 +177,10 @@ def create_alert_subscription(
         hour_local=body.hour_local,
         timezone=body.timezone,
         deliver_csv=body.deliver_csv,
+        only_send_on_changes=body.only_send_on_changes,
+        include_new_listings=body.include_new_listings,
+        include_price_drops=body.include_price_drops,
+        min_price_drop_usd=body.min_price_drop_usd,
         next_run_at=_next_run_for_body(body),
     )
     if not body.is_active:
@@ -205,6 +221,26 @@ def update_alert_subscription(
             hour_local=hour_local,
             timezone=timezone_name,
             deliver_csv=body.deliver_csv if body.deliver_csv is not None else existing.deliver_csv,
+            only_send_on_changes=(
+                body.only_send_on_changes
+                if body.only_send_on_changes is not None
+                else existing.only_send_on_changes
+            ),
+            include_new_listings=(
+                body.include_new_listings
+                if body.include_new_listings is not None
+                else existing.include_new_listings
+            ),
+            include_price_drops=(
+                body.include_price_drops
+                if body.include_price_drops is not None
+                else existing.include_price_drops
+            ),
+            min_price_drop_usd=(
+                body.min_price_drop_usd
+                if "min_price_drop_usd" in body.model_fields_set
+                else existing.min_price_drop_usd
+            ),
             is_active=body.is_active if body.is_active is not None else existing.is_active,
         )
     )
@@ -218,6 +254,11 @@ def update_alert_subscription(
         hour_local=body.hour_local,
         timezone=body.timezone,
         deliver_csv=body.deliver_csv,
+        only_send_on_changes=body.only_send_on_changes,
+        include_new_listings=body.include_new_listings,
+        include_price_drops=body.include_price_drops,
+        min_price_drop_usd=body.min_price_drop_usd,
+        min_price_drop_usd_provided="min_price_drop_usd" in body.model_fields_set,
         is_active=body.is_active,
         next_run_at=next_run_at,
     )

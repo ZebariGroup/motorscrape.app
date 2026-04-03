@@ -53,6 +53,10 @@ export function EmailAlertPanel({
   const [dayOfWeek, setDayOfWeek] = useState("0");
   const [hourLocal, setHourLocal] = useState("8");
   const [deliverCsv, setDeliverCsv] = useState(true);
+  const [onlySendOnChanges, setOnlySendOnChanges] = useState(false);
+  const [includeNewListings, setIncludeNewListings] = useState(true);
+  const [includePriceDrops, setIncludePriceDrops] = useState(true);
+  const [minPriceDropUsd, setMinPriceDropUsd] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +102,10 @@ export function EmailAlertPanel({
           hour_local: Number(hourLocal),
           timezone,
           deliver_csv: deliverCsv,
+          only_send_on_changes: onlySendOnChanges,
+          include_new_listings: includeNewListings,
+          include_price_drops: includePriceDrops,
+          min_price_drop_usd: includePriceDrops && minPriceDropUsd.trim() ? Number(minPriceDropUsd) : null,
           is_active: true,
         }),
       });
@@ -255,6 +263,48 @@ export function EmailAlertPanel({
                     Attach a CSV export to each email when results are sent.
                   </span>
                 </label>
+                <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-zinc-200 px-3 py-3 text-sm dark:border-zinc-800">
+                  <input
+                    type="checkbox"
+                    checked={onlySendOnChanges}
+                    onChange={(e) => setOnlySendOnChanges(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-zinc-700 dark:text-zinc-300">
+                    Only send this alert when meaningful changes are detected.
+                  </span>
+                </label>
+                <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-zinc-200 px-3 py-3 text-sm dark:border-zinc-800">
+                  <input
+                    type="checkbox"
+                    checked={includeNewListings}
+                    onChange={(e) => setIncludeNewListings(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-zinc-700 dark:text-zinc-300">Include newly seen listings as changes.</span>
+                </label>
+                <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-zinc-200 px-3 py-3 text-sm dark:border-zinc-800">
+                  <input
+                    type="checkbox"
+                    checked={includePriceDrops}
+                    onChange={(e) => setIncludePriceDrops(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-zinc-700 dark:text-zinc-300">Include price drops as changes.</span>
+                </label>
+                <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
+                  <span className="font-medium text-zinc-800 dark:text-zinc-200">Minimum price drop (USD)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="100"
+                    value={minPriceDropUsd}
+                    onChange={(e) => setMinPriceDropUsd(e.target.value)}
+                    disabled={!includePriceDrops}
+                    placeholder="Any price drop"
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  />
+                </label>
               </div>
 
               <div className="mt-4 rounded-xl bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
@@ -263,6 +313,11 @@ export function EmailAlertPanel({
                 </p>
                 <p className="mt-1">
                   Search: {criteria.vehicle_category} · {criteria.location} · {criteria.make || "Any make"} · {criteria.model || "Any model"} · {radiusLabel}
+                </p>
+                <p className="mt-1">
+                  Delivery: {onlySendOnChanges ? "Only on changes" : "Every run"} · New listings{" "}
+                  {includeNewListings ? "on" : "off"} · Price drops {includePriceDrops ? "on" : "off"}
+                  {includePriceDrops && minPriceDropUsd.trim() ? ` · Min drop $${minPriceDropUsd}` : ""}
                 </p>
               </div>
 
@@ -429,6 +484,48 @@ export function EmailAlertPanel({
                   Attach a CSV export to each email when results are sent.
                 </span>
               </label>
+              <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-zinc-200 px-3 py-3 text-sm dark:border-zinc-800">
+                <input
+                  type="checkbox"
+                  checked={onlySendOnChanges}
+                  onChange={(e) => setOnlySendOnChanges(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="text-zinc-700 dark:text-zinc-300">
+                  Only send this alert when meaningful changes are detected.
+                </span>
+              </label>
+              <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-zinc-200 px-3 py-3 text-sm dark:border-zinc-800">
+                <input
+                  type="checkbox"
+                  checked={includeNewListings}
+                  onChange={(e) => setIncludeNewListings(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="text-zinc-700 dark:text-zinc-300">Include newly seen listings as changes.</span>
+              </label>
+              <label className="sm:col-span-2 flex items-start gap-3 rounded-xl border border-zinc-200 px-3 py-3 text-sm dark:border-zinc-800">
+                <input
+                  type="checkbox"
+                  checked={includePriceDrops}
+                  onChange={(e) => setIncludePriceDrops(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="text-zinc-700 dark:text-zinc-300">Include price drops as changes.</span>
+              </label>
+              <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">Minimum price drop (USD)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="100"
+                  value={minPriceDropUsd}
+                  onChange={(e) => setMinPriceDropUsd(e.target.value)}
+                  disabled={!includePriceDrops}
+                  placeholder="Any price drop"
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                />
+              </label>
             </div>
 
             <div className="mt-4 rounded-xl bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
@@ -437,6 +534,11 @@ export function EmailAlertPanel({
               </p>
               <p className="mt-1">
                 Search: {criteria.location} · {criteria.make || "Any make"} · {criteria.model || "Any model"} · {radiusLabel}
+              </p>
+              <p className="mt-1">
+                Delivery: {onlySendOnChanges ? "Only on changes" : "Every run"} · New listings{" "}
+                {includeNewListings ? "on" : "off"} · Price drops {includePriceDrops ? "on" : "off"}
+                {includePriceDrops && minPriceDropUsd.trim() ? ` · Min drop $${minPriceDropUsd}` : ""}
               </p>
             </div>
 

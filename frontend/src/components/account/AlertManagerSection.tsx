@@ -33,6 +33,13 @@ type Props = {
   access: AccessSummary | null;
 };
 
+type DeliverySettingsDraft = {
+  only_send_on_changes: boolean;
+  include_new_listings: boolean;
+  include_price_drops: boolean;
+  min_price_drop_usd: string;
+};
+
 function dealerChoices(cap: number): number[] {
   const xs = DEALER_STEPS.filter((n) => n <= cap);
   if (xs.length > 0) return [...xs];
@@ -55,11 +62,34 @@ function criteriaLabel(criteria: AlertSubscription["criteria"]): string {
   return parts.join(" · ");
 }
 
+function buildDeliveryDraft(subscription: AlertSubscription): DeliverySettingsDraft {
+  return {
+    only_send_on_changes: subscription.only_send_on_changes,
+    include_new_listings: subscription.include_new_listings,
+    include_price_drops: subscription.include_price_drops,
+    min_price_drop_usd: subscription.min_price_drop_usd != null ? String(subscription.min_price_drop_usd) : "",
+  };
+}
+
+function deliveryLabel(subscription: AlertSubscription): string {
+  return [
+    subscription.only_send_on_changes ? "Only on changes" : "Every run",
+    `new listings ${subscription.include_new_listings ? "on" : "off"}`,
+    `price drops ${subscription.include_price_drops ? "on" : "off"}`,
+    subscription.include_price_drops && subscription.min_price_drop_usd != null
+      ? `min drop $${subscription.min_price_drop_usd}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export function AlertManagerSection({ authenticated, tier, access }: Props) {
   const paid = useMemo(() => isPaidTier(tier), [tier]);
   const [data, setData] = useState<AlertDashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deliveryDrafts, setDeliveryDrafts] = useState<Record<string, DeliverySettingsDraft>>({});
   const [location, setLocation] = useState("");
   const [vehicleCategory, setVehicleCategory] = useState<VehicleCategory>(() => defaultVehicleCategory());
   const [make, setMake] = useState("");
@@ -92,6 +122,13 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!data?.subscriptions) return;
+    setDeliveryDrafts(
+      Object.fromEntries(data.subscriptions.map((subscription) => [subscription.id, buildDeliveryDraft(subscription)])),
+    );
+  }, [data]);
 
   const maxDealersCap = access?.limits?.max_dealerships ?? data?.limits.max_dealerships ?? 30;
   const maxRadiusCap = access?.limits?.max_radius_miles ?? data?.limits.max_radius_miles ?? 250;
@@ -211,6 +248,36 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
     } finally {
       setBusyId(null);
     }
+  };
+
+  const updateDeliveryDraft = (
+    subscriptionId: string,
+    patch: Partial<DeliverySettingsDraft>,
+  ) => {
+    setDeliveryDrafts((current) => ({
+      ...current,
+      [subscriptionId]: {
+        ...(current[subscriptionId] ?? {
+          only_send_on_changes: false,
+          include_new_listings: true,
+          include_price_drops: true,
+          min_price_drop_usd: "",
+        }),
+        ...patch,
+      },
+    }));
+  };
+
+  const saveDeliveryRules = async (subscription: AlertSubscription) => {
+    const draft = deliveryDrafts[subscription.id] ?? buildDeliveryDraft(subscription);
+    await mutateSubscription(subscription.id, {
+      only_send_on_changes: draft.only_send_on_changes,
+      include_new_listings: draft.include_new_listings,
+      include_price_drops: draft.include_price_drops,
+      min_price_drop_usd: draft.include_price_drops && draft.min_price_drop_usd.trim()
+        ? Number(draft.min_price_drop_usd)
+        : null,
+    });
   };
 
   return (
@@ -414,59 +481,133 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-50">Active subscriptions</h3>
             {data?.subscriptions.length ? (
-              data.subscriptions.map((subscription) => (
-                <article
-                  key={subscription.id}
-                  className="rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-800"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <p className="font-medium text-zinc-900 dark:text-zinc-50">{subscription.name}</p>
-                      <p className="text-sm text-zinc-600 dark:text-zinc-400">{criteriaLabel(subscription.criteria)}</p>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                        {subscription.cadence === "weekly" ? "Weekly" : "Daily"} at{" "}
-                        {subscription.hour_local.toString().padStart(2, "0")}:00 ({subscription.timezone})
-                        {" · "}Next run {formatWhen(subscription.next_run_at)}
-                      </p>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                        Last run: {subscription.last_run_status ?? "never"}{" "}
-                        {subscription.last_result_count != null ? `· ${subscription.last_result_count} vehicles` : ""}
-                      </p>
-                      {subscription.last_error ? (
-                        <p className="text-xs text-red-600 dark:text-red-400">{subscription.last_error}</p>
-                      ) : null}
+              data.subscriptions.map((subscription) => {
+                const deliveryDraft = deliveryDrafts[subscription.id] ?? buildDeliveryDraft(subscription);
+                return (
+                  <article
+                    key={subscription.id}
+                    className="rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-800"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="space-y-1">
+                        <p className="font-medium text-zinc-900 dark:text-zinc-50">{subscription.name}</p>
+                        <p className="text-sm text-zinc-600 dark:text-zinc-400">{criteriaLabel(subscription.criteria)}</p>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                          {subscription.cadence === "weekly" ? "Weekly" : "Daily"} at{" "}
+                          {subscription.hour_local.toString().padStart(2, "0")}:00 ({subscription.timezone})
+                          {" · "}Next run {formatWhen(subscription.next_run_at)}
+                        </p>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                          Last run: {subscription.last_run_status ?? "never"}{" "}
+                          {subscription.last_result_count != null ? `· ${subscription.last_result_count} vehicles` : ""}
+                        </p>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                          Delivery rules: {deliveryLabel(subscription)}
+                        </p>
+                        {subscription.last_error ? (
+                          <p className="text-xs text-red-600 dark:text-red-400">{subscription.last_error}</p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={busyId === subscription.id}
+                          onClick={() =>
+                            void mutateSubscription(subscription.id, { is_active: !subscription.is_active })
+                          }
+                          className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-100 disabled:opacity-50"
+                        >
+                          {subscription.is_active ? "Pause" : "Resume"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyId === subscription.id}
+                          onClick={() => void runNow(subscription.id)}
+                          className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:text-emerald-300 disabled:opacity-50"
+                        >
+                          Run now
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyId === subscription.id}
+                          onClick={() => void removeSubscription(subscription.id)}
+                          className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 dark:border-red-900 dark:text-red-300 disabled:opacity-50"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="mt-4 grid gap-3 rounded-xl border border-zinc-200 p-3 text-sm dark:border-zinc-800 md:grid-cols-2">
+                      <label className="flex items-start gap-2 text-zinc-700 dark:text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={deliveryDraft.only_send_on_changes}
+                          onChange={(event) =>
+                            updateDeliveryDraft(subscription.id, {
+                              only_send_on_changes: event.target.checked,
+                            })
+                          }
+                          className="mt-0.5"
+                        />
+                        <span>Only send when meaningful changes are detected</span>
+                      </label>
+                      <label className="flex items-start gap-2 text-zinc-700 dark:text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={deliveryDraft.include_new_listings}
+                          onChange={(event) =>
+                            updateDeliveryDraft(subscription.id, {
+                              include_new_listings: event.target.checked,
+                            })
+                          }
+                          className="mt-0.5"
+                        />
+                        <span>Count new listings as changes</span>
+                      </label>
+                      <label className="flex items-start gap-2 text-zinc-700 dark:text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={deliveryDraft.include_price_drops}
+                          onChange={(event) =>
+                            updateDeliveryDraft(subscription.id, {
+                              include_price_drops: event.target.checked,
+                            })
+                          }
+                          className="mt-0.5"
+                        />
+                        <span>Count price drops as changes</span>
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="font-medium text-zinc-800 dark:text-zinc-200">Minimum price drop (USD)</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="100"
+                          value={deliveryDraft.min_price_drop_usd}
+                          onChange={(event) =>
+                            updateDeliveryDraft(subscription.id, {
+                              min_price_drop_usd: event.target.value,
+                            })
+                          }
+                          disabled={!deliveryDraft.include_price_drops}
+                          placeholder="Any price drop"
+                          className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-3 flex justify-end">
                       <button
                         type="button"
                         disabled={busyId === subscription.id}
-                        onClick={() =>
-                          void mutateSubscription(subscription.id, { is_active: !subscription.is_active })
-                        }
+                        onClick={() => void saveDeliveryRules(subscription)}
                         className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-100 disabled:opacity-50"
                       >
-                        {subscription.is_active ? "Pause" : "Resume"}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busyId === subscription.id}
-                        onClick={() => void runNow(subscription.id)}
-                        className="rounded-lg border border-emerald-300 px-3 py-1.5 text-sm font-medium text-emerald-800 dark:border-emerald-800 dark:text-emerald-300 disabled:opacity-50"
-                      >
-                        Run now
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busyId === subscription.id}
-                        onClick={() => void removeSubscription(subscription.id)}
-                        className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 dark:border-red-900 dark:text-red-300 disabled:opacity-50"
-                      >
-                        Delete
+                        Save delivery rules
                       </button>
                     </div>
-                  </div>
-                </article>
-              ))
+                  </article>
+                );
+              })
             ) : (
               <p className="text-sm text-zinc-500 dark:text-zinc-400">No alert subscriptions yet.</p>
             )}
@@ -487,6 +628,14 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
                         {run.emailed ? " · emailed" : " · email not sent"}
                         {run.csv_attached ? " · CSV attached" : ""}
                       </p>
+                      {run.summary.delta ? (
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                          Changes: {run.summary.delta.total_change_count ?? 0}
+                          {" · "}new {run.summary.delta.new_listings_count ?? 0}
+                          {" · "}drops {run.summary.delta.price_drop_count ?? 0}
+                          {" · "}removed {run.summary.delta.removed_count ?? 0}
+                        </p>
+                      ) : null}
                       {run.error_message ? (
                         <p className="text-xs text-red-600 dark:text-red-400">{run.error_message}</p>
                       ) : null}

@@ -64,6 +64,10 @@ CREATE TABLE IF NOT EXISTS alert_subscriptions (
     hour_local INTEGER NOT NULL,
     timezone TEXT NOT NULL,
     deliver_csv INTEGER NOT NULL DEFAULT 0,
+    only_send_on_changes INTEGER NOT NULL DEFAULT 0,
+    include_new_listings INTEGER NOT NULL DEFAULT 1,
+    include_price_drops INTEGER NOT NULL DEFAULT 1,
+    min_price_drop_usd REAL,
     is_active INTEGER NOT NULL DEFAULT 1,
     next_run_at REAL NOT NULL,
     last_run_at REAL,
@@ -237,6 +241,17 @@ def init_db(path: str) -> None:
             columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(users)").fetchall()}
             if "is_admin" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+            alert_columns = {
+                str(row["name"]) for row in conn.execute("PRAGMA table_info(alert_subscriptions)").fetchall()
+            }
+            if "only_send_on_changes" not in alert_columns:
+                conn.execute("ALTER TABLE alert_subscriptions ADD COLUMN only_send_on_changes INTEGER NOT NULL DEFAULT 0")
+            if "include_new_listings" not in alert_columns:
+                conn.execute("ALTER TABLE alert_subscriptions ADD COLUMN include_new_listings INTEGER NOT NULL DEFAULT 1")
+            if "include_price_drops" not in alert_columns:
+                conn.execute("ALTER TABLE alert_subscriptions ADD COLUMN include_price_drops INTEGER NOT NULL DEFAULT 1")
+            if "min_price_drop_usd" not in alert_columns:
+                conn.execute("ALTER TABLE alert_subscriptions ADD COLUMN min_price_drop_usd REAL")
             scrape_cols = {str(row["name"]) for row in conn.execute("PRAGMA table_info(scrape_runs)").fetchall()}
             if "listings_snapshot_json" not in scrape_cols:
                 conn.execute("ALTER TABLE scrape_runs ADD COLUMN listings_snapshot_json TEXT")
@@ -270,6 +285,10 @@ class AlertSubscriptionRecord:
     hour_local: int
     timezone: str
     deliver_csv: bool
+    only_send_on_changes: bool
+    include_new_listings: bool
+    include_price_drops: bool
+    min_price_drop_usd: float | None
     is_active: bool
     next_run_at: float
     last_run_at: float | None
@@ -1101,6 +1120,10 @@ class AccountStore:
         hour_local: int,
         timezone: str,
         deliver_csv: bool,
+        only_send_on_changes: bool,
+        include_new_listings: bool,
+        include_price_drops: bool,
+        min_price_drop_usd: float | None,
         next_run_at: float,
     ) -> AlertSubscriptionRecord:
         now = time.time()
@@ -1109,9 +1132,11 @@ class AccountStore:
                 """
                 INSERT INTO alert_subscriptions (
                     user_id, name, criteria_json, cadence, day_of_week, hour_local,
-                    timezone, deliver_csv, is_active, next_run_at, created_at, updated_at
+                    timezone, deliver_csv, only_send_on_changes, include_new_listings,
+                    include_price_drops, min_price_drop_usd, is_active, next_run_at,
+                    created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
                 """,
                 (
                     user_id,
@@ -1122,6 +1147,10 @@ class AccountStore:
                     hour_local,
                     timezone,
                     1 if deliver_csv else 0,
+                    1 if only_send_on_changes else 0,
+                    1 if include_new_listings else 0,
+                    1 if include_price_drops else 0,
+                    min_price_drop_usd,
                     next_run_at,
                     now,
                     now,
@@ -1172,6 +1201,11 @@ class AccountStore:
         hour_local: int | None = None,
         timezone: str | None = None,
         deliver_csv: bool | None = None,
+        only_send_on_changes: bool | None = None,
+        include_new_listings: bool | None = None,
+        include_price_drops: bool | None = None,
+        min_price_drop_usd: float | None = None,
+        min_price_drop_usd_provided: bool = False,
         is_active: bool | None = None,
         next_run_at: float | None = None,
         last_run_at: float | None = None,
@@ -1201,6 +1235,18 @@ class AccountStore:
         if deliver_csv is not None:
             fields.append("deliver_csv = ?")
             args.append(1 if deliver_csv else 0)
+        if only_send_on_changes is not None:
+            fields.append("only_send_on_changes = ?")
+            args.append(1 if only_send_on_changes else 0)
+        if include_new_listings is not None:
+            fields.append("include_new_listings = ?")
+            args.append(1 if include_new_listings else 0)
+        if include_price_drops is not None:
+            fields.append("include_price_drops = ?")
+            args.append(1 if include_price_drops else 0)
+        if min_price_drop_usd is not None or min_price_drop_usd_provided:
+            fields.append("min_price_drop_usd = ?")
+            args.append(min_price_drop_usd)
         if is_active is not None:
             fields.append("is_active = ?")
             args.append(1 if is_active else 0)
@@ -1385,6 +1431,24 @@ class AccountStore:
                 (user_id, limit),
             ).fetchall()
         return [_row_to_alert_run(row) for row in rows]
+
+    def get_latest_alert_run_for_subscription(
+        self,
+        user_id: int | str,
+        subscription_id: int | str,
+    ) -> AlertRunRecord | None:
+        with self._conn() as c:
+            row = c.execute(
+                """
+                SELECT *
+                FROM alert_runs
+                WHERE user_id = ? AND subscription_id = ?
+                ORDER BY started_at DESC, id DESC
+                LIMIT 1
+                """,
+                (user_id, subscription_id),
+            ).fetchone()
+        return _row_to_alert_run(row) if row is not None else None
 
     def admin_list_alert_runs(
         self,
@@ -1831,6 +1895,10 @@ def _row_to_alert_subscription(row: sqlite3.Row) -> AlertSubscriptionRecord:
         hour_local=int(row["hour_local"]),
         timezone=str(row["timezone"]),
         deliver_csv=bool(row["deliver_csv"]),
+        only_send_on_changes=bool(row["only_send_on_changes"]),
+        include_new_listings=bool(row["include_new_listings"]),
+        include_price_drops=bool(row["include_price_drops"]),
+        min_price_drop_usd=_maybe_float(row["min_price_drop_usd"]),
         is_active=bool(row["is_active"]),
         next_run_at=float(row["next_run_at"]),
         last_run_at=float(row["last_run_at"]) if row["last_run_at"] is not None else None,

@@ -20,6 +20,10 @@ export type AlertSubscription = {
   hour_local: number;
   timezone: string;
   deliver_csv: boolean;
+  only_send_on_changes: boolean;
+  include_new_listings: boolean;
+  include_price_drops: boolean;
+  min_price_drop_usd: number | null;
   is_active: boolean;
   next_run_at: string | null;
   last_run_at: string | null;
@@ -42,10 +46,38 @@ export type AlertRun = {
   summary: {
     result_count?: number;
     errors?: string[];
+    delta?: {
+      only_send_on_changes?: boolean;
+      include_new_listings?: boolean;
+      include_price_drops?: boolean;
+      min_price_drop_usd?: number | null;
+      matching_change_count?: number;
+      total_change_count?: number;
+      new_listings_count?: number;
+      price_drop_count?: number;
+      removed_count?: number;
+      largest_price_drop?: number | null;
+      email_skipped_no_changes?: boolean;
+      sent_due_to_changes?: boolean;
+      new_listings?: Array<{
+        title?: string;
+        dealer?: string;
+        price?: number | null;
+        url?: string | null;
+      }>;
+      price_drops?: Array<{
+        title?: string;
+        dealer?: string;
+        price?: number | null;
+        history_price_change?: number | null;
+        url?: string | null;
+      }>;
+    };
     top_results?: Array<{
       title?: string;
       dealer?: string;
       price?: number | null;
+      history_price_change?: number | null;
       url?: string | null;
     }>;
   };

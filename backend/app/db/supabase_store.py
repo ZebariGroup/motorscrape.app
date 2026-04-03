@@ -468,6 +468,10 @@ class SupabaseAccountStore:
         hour_local: int,
         timezone: str,
         deliver_csv: bool,
+        only_send_on_changes: bool,
+        include_new_listings: bool,
+        include_price_drops: bool,
+        min_price_drop_usd: float | None,
         next_run_at: float,
     ) -> AlertSubscriptionRecord:
         payload = {
@@ -479,6 +483,10 @@ class SupabaseAccountStore:
             "hour_local": hour_local,
             "timezone": timezone,
             "deliver_csv": deliver_csv,
+            "only_send_on_changes": only_send_on_changes,
+            "include_new_listings": include_new_listings,
+            "include_price_drops": include_price_drops,
+            "min_price_drop_usd": min_price_drop_usd,
             "is_active": True,
             "next_run_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(next_run_at)),
         }
@@ -521,6 +529,11 @@ class SupabaseAccountStore:
         hour_local: int | None = None,
         timezone: str | None = None,
         deliver_csv: bool | None = None,
+        only_send_on_changes: bool | None = None,
+        include_new_listings: bool | None = None,
+        include_price_drops: bool | None = None,
+        min_price_drop_usd: float | None = None,
+        min_price_drop_usd_provided: bool = False,
         is_active: bool | None = None,
         next_run_at: float | None = None,
         last_run_at: float | None = None,
@@ -542,6 +555,14 @@ class SupabaseAccountStore:
             updates["timezone"] = timezone
         if deliver_csv is not None:
             updates["deliver_csv"] = deliver_csv
+        if only_send_on_changes is not None:
+            updates["only_send_on_changes"] = only_send_on_changes
+        if include_new_listings is not None:
+            updates["include_new_listings"] = include_new_listings
+        if include_price_drops is not None:
+            updates["include_price_drops"] = include_price_drops
+        if min_price_drop_usd is not None or min_price_drop_usd_provided:
+            updates["min_price_drop_usd"] = min_price_drop_usd
         if is_active is not None:
             updates["is_active"] = is_active
         if next_run_at is not None:
@@ -676,6 +697,24 @@ class SupabaseAccountStore:
             .execute()
         )
         return [_row_to_alert_run(row) for row in (res.data or [])]
+
+    def get_latest_alert_run_for_subscription(
+        self,
+        user_id: str,
+        subscription_id: str,
+    ) -> AlertRunRecord | None:
+        res = (
+            self.client.table("alert_runs")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("subscription_id", subscription_id)
+            .order("started_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+        return _row_to_alert_run(res.data[0])
 
     def admin_list_alert_runs(
         self,
@@ -1009,6 +1048,10 @@ def _row_to_alert_subscription(row: dict[str, Any]) -> AlertSubscriptionRecord:
         hour_local=int(row["hour_local"]),
         timezone=str(row["timezone"]),
         deliver_csv=bool(row.get("deliver_csv")),
+        only_send_on_changes=bool(row.get("only_send_on_changes")),
+        include_new_listings=bool(row.get("include_new_listings", True)),
+        include_price_drops=bool(row.get("include_price_drops", True)),
+        min_price_drop_usd=_maybe_float(row.get("min_price_drop_usd")),
         is_active=bool(row.get("is_active")),
         next_run_at=_ts(row.get("next_run_at")),
         last_run_at=_ts(row.get("last_run_at")) if row.get("last_run_at") is not None else None,
