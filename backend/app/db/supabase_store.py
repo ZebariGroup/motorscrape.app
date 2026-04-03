@@ -23,6 +23,14 @@ from app.db.account_store import (
 from app.services.inventory_tracking import inventory_history_key
 
 logger = logging.getLogger(__name__)
+_ALERT_CHANGE_OPTION_FIELDS = frozenset(
+    {
+        "only_send_on_changes",
+        "include_new_listings",
+        "include_price_drops",
+        "min_price_drop_usd",
+    }
+)
 
 
 class EmailNotVerifiedError(Exception):
@@ -44,6 +52,18 @@ class _ListingProxy:
         self.model = data.get("model")
         self.trim = data.get("trim")
         self.raw_title = data.get("raw_title")
+
+
+def _strip_alert_change_option_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if key not in _ALERT_CHANGE_OPTION_FIELDS}
+
+
+def _missing_alert_change_columns_error(exc: Exception) -> bool:
+    message = (getattr(exc, "message", None) or str(exc)).lower()
+    return (
+        any(field in message for field in _ALERT_CHANGE_OPTION_FIELDS)
+        and ("column" in message or "schema cache" in message)
+    )
 
 
 class SupabaseAccountStore:
@@ -490,7 +510,13 @@ class SupabaseAccountStore:
             "is_active": True,
             "next_run_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(next_run_at)),
         }
-        res = self.client.table("alert_subscriptions").insert(payload).execute()
+        try:
+            res = self.client.table("alert_subscriptions").insert(payload).execute()
+        except Exception as exc:
+            if not _missing_alert_change_columns_error(exc):
+                raise
+            logger.warning("alert_subscriptions missing change-option columns; retrying legacy insert: %s", exc)
+            res = self.client.table("alert_subscriptions").insert(_strip_alert_change_option_fields(payload)).execute()
         return _row_to_alert_subscription(res.data[0])
 
     def list_alert_subscriptions(self, user_id: str) -> list[AlertSubscriptionRecord]:
@@ -577,7 +603,17 @@ class SupabaseAccountStore:
             updates["last_error"] = last_error
         if not updates:
             return self.get_alert_subscription(user_id, subscription_id)
-        self.client.table("alert_subscriptions").update(updates).eq("user_id", user_id).eq("id", subscription_id).execute()
+        try:
+            self.client.table("alert_subscriptions").update(updates).eq("user_id", user_id).eq("id", subscription_id).execute()
+        except Exception as exc:
+            if not _missing_alert_change_columns_error(exc):
+                raise
+            legacy_updates = _strip_alert_change_option_fields(updates)
+            logger.warning("alert_subscriptions missing change-option columns; retrying legacy update: %s", exc)
+            if legacy_updates:
+                self.client.table("alert_subscriptions").update(legacy_updates).eq("user_id", user_id).eq(
+                    "id", subscription_id
+                ).execute()
         return self.get_alert_subscription(user_id, subscription_id)
 
     def delete_alert_subscription(self, user_id: str, subscription_id: str) -> bool:
