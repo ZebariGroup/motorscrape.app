@@ -5,9 +5,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.config import settings
+from app.db.account_store import AlertSubscriptionRecord
 from app.db.account_store import _row_to_alert_subscription, get_account_store
 from app.main import app
 from app.schemas import SearchRequest
+from app.services.alerts import _render_email
 from app.services.search_runner import SearchRunResult
 from app.services.search_runner import run_search_once
 from fastapi.testclient import TestClient
@@ -35,6 +37,38 @@ def _search_result(
         outcome={"ok": True, "correlation_id": correlation_id},
         correlation_id=correlation_id,
         scrape_run_id=scrape_run_id,
+    )
+
+
+def _subscription_record() -> AlertSubscriptionRecord:
+    return AlertSubscriptionRecord(
+        id="sub_123",
+        user_id="user_123",
+        name="Seattle Tacoma tracker",
+        criteria={
+            "vehicle_category": "car",
+            "location": "Seattle, WA",
+            "make": "Toyota",
+            "model": "Tacoma",
+            "radius_miles": 25,
+        },
+        cadence="daily",
+        day_of_week=None,
+        hour_local=8,
+        timezone="UTC",
+        deliver_csv=True,
+        only_send_on_changes=True,
+        include_new_listings=True,
+        include_price_drops=True,
+        min_price_drop_usd=500,
+        is_active=True,
+        next_run_at=1.0,
+        last_run_at=None,
+        last_run_status=None,
+        last_result_count=None,
+        last_error=None,
+        created_at=1.0,
+        updated_at=1.0,
     )
 
 
@@ -358,6 +392,59 @@ def test_alert_subscription_row_defaults_when_new_columns_are_missing() -> None:
     assert subscription.include_new_listings is True
     assert subscription.include_price_drops is True
     assert subscription.min_price_drop_usd is None
+
+
+def test_render_email_uses_branded_layout_and_management_cta(monkeypatch) -> None:
+    monkeypatch.setattr("app.config.settings.public_web_url", "https://www.motorscrape.com")
+    subscription = _subscription_record()
+    result = _search_result(
+        listings=[
+            {
+                "raw_title": "2024 Toyota Tacoma TRD Off-Road",
+                "dealership": "Example Toyota",
+                "price": 38900,
+                "listing_url": "https://dealer.example.com/listings/1",
+                "image_url": "https://dealer.example.com/listings/1.jpg",
+                "history_price_change": -900,
+            }
+        ]
+    )
+    summary = {
+        "delta": {
+            "new_listings_count": 1,
+            "price_drop_count": 1,
+            "removed_count": 0,
+            "new_listings": [
+                {
+                    "title": "2024 Toyota Tacoma TRD Off-Road",
+                    "dealer": "Example Toyota",
+                    "price": 38900,
+                    "url": "https://dealer.example.com/listings/1",
+                    "image_url": "https://dealer.example.com/listings/1.jpg",
+                }
+            ],
+            "price_drops": [
+                {
+                    "title": "2024 Toyota Tacoma TRD Off-Road",
+                    "dealer": "Example Toyota",
+                    "price": 38900,
+                    "url": "https://dealer.example.com/listings/1",
+                    "image_url": "https://dealer.example.com/listings/1.jpg",
+                    "history_price_change": -900,
+                }
+            ],
+        }
+    }
+
+    subject, html, text = _render_email(subscription, result, summary=summary)
+
+    assert "1 new match and 1 price drop" in subject
+    assert "Manage alerts" in html
+    assert "View vehicle" in html
+    assert "What changed" in html
+    assert "Top vehicles this run" in html
+    assert "https://dealer.example.com/listings/1.jpg" in html
+    assert "Manage alerts: https://www.motorscrape.com/account" in text
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from html import escape
 import time
 from typing import Any
 
 from app.api.deps import AccessContext
 from app.api.search_quota import evaluate_search_start, record_search_completed
-from app.config import vehicle_category_enabled
+from app.config import settings, vehicle_category_enabled
 from app.db.account_store import AlertSubscriptionRecord, UserRecord
 from app.schemas import SearchRequest
 from app.services.alert_schedule import next_run_at_utc
@@ -88,6 +89,7 @@ def _listing_digest(listing: dict[str, Any], *, include_price_drop: bool = False
         "location": listing.get("inventory_location") or listing.get("availability_status"),
         "vin": listing.get("vehicle_identifier") or listing.get("vin"),
         "url": listing.get("listing_url"),
+        "image_url": listing.get("image_url"),
     }
     if include_price_drop:
         digest["history_price_change"] = listing.get("history_price_change")
@@ -179,6 +181,128 @@ def _dt_utc(ts: float):
     return datetime.fromtimestamp(ts, UTC)
 
 
+def _format_price(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        return f"${int(value):,}"
+    return "Price unavailable"
+
+
+def _html_money_delta(value: Any) -> str:
+    if isinstance(value, (int, float)) and value < 0:
+        return f"Down ${int(abs(value)):,}"
+    return ""
+
+
+def _criteria_summary(criteria: dict[str, Any]) -> list[str]:
+    radius = criteria.get("radius_miles")
+    radius_text = f"{int(radius)} mi" if isinstance(radius, (int, float)) else None
+    parts = [
+        criteria.get("vehicle_category"),
+        criteria.get("location"),
+        criteria.get("make") or "Any make",
+        criteria.get("model") or "Any model",
+        radius_text,
+    ]
+    return [str(part) for part in parts if part]
+
+
+def _count_label(count: int, singular: str, plural: str | None = None) -> str:
+    word = singular if count == 1 else (plural or f"{singular}s")
+    return f"{count} {word}"
+
+
+def _subject_for_alert(subscription: AlertSubscriptionRecord, *, result_count: int, delta: dict[str, Any]) -> str:
+    new_count = int(delta.get("new_listings_count") or 0)
+    drop_count = int(delta.get("price_drop_count") or 0)
+    removed_count = int(delta.get("removed_count") or 0)
+    if drop_count and new_count:
+        return (
+            f"Motorscrape: {_count_label(new_count, 'new match')} and "
+            f"{_count_label(drop_count, 'price drop')} for {subscription.name}"
+        )
+    if new_count:
+        return f"Motorscrape: {_count_label(new_count, 'new match')} for {subscription.name}"
+    if drop_count:
+        return f"Motorscrape: {_count_label(drop_count, 'price drop')} for {subscription.name}"
+    if removed_count:
+        return f"Motorscrape: inventory changed for {subscription.name}"
+    return f"Motorscrape alert: {subscription.name} ({result_count} vehicles)"
+
+
+def _html_button(url: str, label: str, *, secondary: bool = False) -> str:
+    background = "#ffffff" if secondary else "#111827"
+    color = "#111827" if secondary else "#ffffff"
+    border = "#d1d5db" if secondary else "#111827"
+    return (
+        f"<a href=\"{escape(url, quote=True)}\" "
+        "style=\"display:inline-block;border-radius:10px;padding:12px 18px;"
+        f"background:{background};color:{color};border:1px solid {border};"
+        "font-weight:600;font-size:14px;line-height:20px;text-decoration:none;"
+        "margin-right:8px;margin-bottom:8px;\">"
+        f"{escape(label)}</a>"
+    )
+
+
+def _render_metric_card(label: str, value: str, accent: str) -> str:
+    return (
+        "<td style=\"padding:0 8px 8px 0;vertical-align:top;\">"
+        f"<div style=\"min-width:120px;border-radius:14px;padding:14px 16px;background:{accent};\">"
+        f"<div style=\"font-size:24px;line-height:28px;font-weight:700;color:#111827;\">{escape(value)}</div>"
+        f"<div style=\"margin-top:4px;font-size:13px;line-height:18px;color:#374151;\">{escape(label)}</div>"
+        "</div></td>"
+    )
+
+
+def _render_listing_card(listing: dict[str, Any], *, highlight_label: str | None = None) -> str:
+    title = str(listing.get("title") or listing.get("raw_title") or "Vehicle")
+    dealer = str(listing.get("dealer") or listing.get("dealership") or "Dealer")
+    location = str(listing.get("location") or "")
+    price_text = _format_price(listing.get("price"))
+    url = str(listing.get("url") or listing.get("listing_url") or "").strip()
+    image_url = str(listing.get("image_url") or "").strip()
+    price_drop = _html_money_delta(listing.get("history_price_change"))
+
+    image_html = ""
+    if image_url:
+        image_html = (
+            f"<img src=\"{escape(image_url, quote=True)}\" alt=\"{escape(title)}\" "
+            "style=\"width:100%;max-width:520px;height:auto;display:block;border-radius:12px 12px 0 0;"
+            "object-fit:cover;background:#f3f4f6;\" />"
+        )
+
+    meta_parts = [dealer]
+    if location:
+        meta_parts.append(location)
+    meta = " | ".join(part for part in meta_parts if part)
+    cta = _html_button(url, "View vehicle") if url else ""
+    badge = (
+        f"<div style=\"display:inline-block;margin-bottom:10px;border-radius:999px;padding:6px 10px;"
+        "background:#eef2ff;color:#3730a3;font-size:12px;font-weight:600;\">"
+        f"{escape(highlight_label)}</div>"
+        if highlight_label
+        else ""
+    )
+    drop_html = (
+        f"<div style=\"margin-top:6px;font-size:13px;line-height:18px;color:#047857;font-weight:600;\">{escape(price_drop)}</div>"
+        if price_drop
+        else ""
+    )
+
+    return (
+        "<tr><td style=\"padding:0 0 16px 0;\">"
+        "<div style=\"border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;background:#ffffff;\">"
+        f"{image_html}"
+        "<div style=\"padding:16px;\">"
+        f"{badge}"
+        f"<div style=\"font-size:18px;line-height:24px;font-weight:700;color:#111827;\">{escape(title)}</div>"
+        f"<div style=\"margin-top:6px;font-size:14px;line-height:20px;color:#4b5563;\">{escape(meta)}</div>"
+        f"<div style=\"margin-top:10px;font-size:18px;line-height:24px;font-weight:700;color:#111827;\">{escape(price_text)}</div>"
+        f"{drop_html}"
+        f"<div style=\"margin-top:14px;\">{cta}</div>"
+        "</div></div></td></tr>"
+    )
+
+
 def _render_email(
     subscription: AlertSubscriptionRecord,
     result: SearchRunResult,
@@ -187,85 +311,158 @@ def _render_email(
 ) -> tuple[str, str, str]:
     result_count = len(result.listings)
     delta = summary.get("delta") if isinstance(summary.get("delta"), dict) else {}
-    total_change_count = int(delta.get("total_change_count") or 0)
-    if total_change_count > 0:
-        subject = f"Motorscrape alert: {subscription.name} ({total_change_count} changes, {result_count} vehicles)"
-    else:
-        subject = f"Motorscrape alert: {subscription.name} ({result_count} vehicles)"
-
-    def html_row(listing: dict[str, Any]) -> str:
-        price = listing.get("price")
-        price_text = f" - ${int(price):,}" if isinstance(price, (int, float)) else ""
-        price_change = listing.get("history_price_change")
-        trend_text = ""
-        if isinstance(price_change, (int, float)) and price_change < 0:
-            trend_text = f" (down ${int(abs(price_change)):,} since the last tracked run)"
-        return (
-            f"<li><a href=\"{listing.get('listing_url') or '#'}\">"
-            f"{listing.get('raw_title') or 'Vehicle'}</a> at "
-            f"{listing.get('dealership') or 'Dealer'}{price_text}{trend_text}</li>"
-        )
-
-    rows_html = "".join(
-        html_row(listing) for listing in result.listings[:10]
-    )
+    subject = _subject_for_alert(subscription, result_count=result_count, delta=delta)
     new_listings = delta.get("new_listings") if isinstance(delta.get("new_listings"), list) else []
     price_drops = delta.get("price_drops") if isinstance(delta.get("price_drops"), list) else []
     removed_count = int(delta.get("removed_count") or 0)
-    delta_lines: list[str] = []
-    delta_html_parts: list[str] = []
-    if delta.get("new_listings_count"):
-        count = int(delta["new_listings_count"])
-        delta_lines.append(f"New listings: {count}")
-        delta_html_parts.append(f"<p><strong>New listings:</strong> {count}</p>")
-    if delta.get("price_drop_count"):
-        count = int(delta["price_drop_count"])
-        delta_lines.append(f"Price drops: {count}")
-        delta_html_parts.append(f"<p><strong>Price drops:</strong> {count}</p>")
-    if removed_count:
-        delta_lines.append(f"Listings removed since last run: {removed_count}")
-        delta_html_parts.append(f"<p><strong>Listings removed since last run:</strong> {removed_count}</p>")
+    criteria_parts = _criteria_summary(subscription.criteria)
+    account_url = f"{settings.public_web_url.rstrip('/')}/account"
+    metric_cards = "".join(
+        [
+            _render_metric_card("Vehicles found", str(result_count), "#e0f2fe"),
+            _render_metric_card("New listings", str(int(delta.get("new_listings_count") or 0)), "#dcfce7"),
+            _render_metric_card("Price drops", str(int(delta.get("price_drop_count") or 0)), "#fee2e2"),
+            _render_metric_card("Removed", str(removed_count), "#f3f4f6"),
+        ]
+    )
+    featured_rows = "".join(_render_listing_card(listing) for listing in result.listings[:6]) or (
+        "<tr><td style=\"padding:0 0 8px 0;color:#6b7280;font-size:14px;line-height:20px;\">"
+        "No vehicles matched this run."
+        "</td></tr>"
+    )
+    new_listing_rows = "".join(
+        _render_listing_card(listing, highlight_label="New listing") for listing in new_listings[:3]
+    )
+    price_drop_rows = "".join(
+        _render_listing_card(listing, highlight_label="Price drop") for listing in price_drops[:3]
+    )
 
     text_lines = [
         f"Alert: {subscription.name}",
         f"Vehicles found: {result_count}",
+        f"Manage alerts: {account_url}",
         "",
     ]
-    if delta_lines:
-        text_lines.extend(["Changes:", *[f"- {line}" for line in delta_lines], ""])
+    if criteria_parts:
+        text_lines.extend([f"Search: {' | '.join(criteria_parts)}", ""])
+    text_lines.extend(
+        [
+            "Changes:",
+            f"- New listings: {int(delta.get('new_listings_count') or 0)}",
+            f"- Price drops: {int(delta.get('price_drop_count') or 0)}",
+            f"- Removed since last run: {removed_count}",
+            "",
+        ]
+    )
     if new_listings:
         text_lines.append("New listings:")
         for listing in new_listings:
-            text_lines.append(f"- {listing.get('title') or 'Vehicle'} | {listing.get('dealer') or 'Dealer'}")
+            text_lines.append(
+                f"- {listing.get('title') or 'Vehicle'} | {listing.get('dealer') or 'Dealer'} | {_format_price(listing.get('price'))}"
+            )
+            if listing.get("url"):
+                text_lines.append(f"  {listing['url']}")
         text_lines.append("")
     if price_drops:
         text_lines.append("Largest price drops:")
         for listing in price_drops:
             change = listing.get("history_price_change")
             change_text = f" | down ${int(abs(change)):,}" if isinstance(change, (int, float)) else ""
-            text_lines.append(f"- {listing.get('title') or 'Vehicle'} | {listing.get('dealer') or 'Dealer'}{change_text}")
+            text_lines.append(
+                f"- {listing.get('title') or 'Vehicle'} | {listing.get('dealer') or 'Dealer'} | {_format_price(listing.get('price'))}{change_text}"
+            )
+            if listing.get("url"):
+                text_lines.append(f"  {listing['url']}")
         text_lines.append("")
     for listing in result.listings[:10]:
-        price = listing.get("price")
-        price_text = f" - ${int(price):,}" if isinstance(price, (int, float)) else ""
         price_change = listing.get("history_price_change")
         trend_text = ""
         if isinstance(price_change, (int, float)) and price_change < 0:
             trend_text = f" | down ${int(abs(price_change)):,} since last tracked run"
         text_lines.append(
-            f"- {(listing.get('raw_title') or 'Vehicle')} | {(listing.get('dealership') or 'Dealer')}{price_text}{trend_text}"
+            f"- {(listing.get('raw_title') or 'Vehicle')} | {(listing.get('dealership') or 'Dealer')} | {_format_price(listing.get('price'))}{trend_text}"
         )
         if listing.get("listing_url"):
             text_lines.append(f"  {listing['listing_url']}")
     if result.errors:
         text_lines.extend(["", "Errors:", *[f"- {err}" for err in result.errors]])
+    if subscription.deliver_csv:
+        text_lines.extend(["", "CSV export: attached when email delivery succeeds."])
 
-    html = (
-        f"<h1>Motorscrape alert</h1><p><strong>{subscription.name}</strong></p>"
-        f"<p>{result_count} vehicles found for your scheduled search.</p>"
-        f"{''.join(delta_html_parts)}"
-        f"<ul>{rows_html or '<li>No vehicles found.</li>'}</ul>"
+    search_context = " | ".join(criteria_parts)
+    error_html = ""
+    if result.errors:
+        error_html = (
+            "<div style=\"margin-top:20px;border-radius:12px;border:1px solid #fecaca;background:#fef2f2;padding:16px;\">"
+            "<div style=\"font-size:14px;line-height:20px;font-weight:700;color:#991b1b;\">Run issues</div>"
+            "<ul style=\"margin:10px 0 0 18px;padding:0;color:#7f1d1d;font-size:14px;line-height:20px;\">"
+            + "".join(f"<li>{escape(err)}</li>" for err in result.errors)
+            + "</ul></div>"
+        )
+    csv_html = (
+        "<div style=\"margin-top:14px;font-size:13px;line-height:18px;color:#6b7280;\">A CSV export is attached to this email.</div>"
+        if subscription.deliver_csv
+        else ""
     )
+    html_sections = [
+        "<!DOCTYPE html><html><body style=\"margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;\">",
+        "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
+        "style=\"background:#f3f4f6;padding:24px 12px;\"><tr><td align=\"center\">",
+        "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
+        "style=\"max-width:680px;background:#ffffff;border-radius:20px;overflow:hidden;\">",
+        "<tr><td style=\"padding:28px 28px 20px 28px;background:#111827;color:#ffffff;\">",
+        "<div style=\"font-size:12px;line-height:16px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#93c5fd;\">Motorscrape alert</div>",
+        f"<div style=\"margin-top:10px;font-size:28px;line-height:34px;font-weight:700;\">{escape(subscription.name)}</div>",
+        f"<div style=\"margin-top:10px;font-size:15px;line-height:22px;color:#d1d5db;\">{escape(subject)}</div>",
+        f"<div style=\"margin-top:16px;\">{_html_button(account_url, 'Manage alerts')}{_html_button(account_url, 'Open account', secondary=True)}</div>",
+        "</td></tr>",
+        "<tr><td style=\"padding:24px 28px 8px 28px;\">",
+        f"<div style=\"font-size:15px;line-height:22px;color:#374151;\">{result_count} vehicles found for your scheduled search.</div>",
+        f"<div style=\"margin-top:10px;font-size:13px;line-height:20px;color:#6b7280;\">{escape(search_context)}</div>",
+        "</td></tr>",
+        f"<tr><td style=\"padding:8px 20px 8px 28px;\"><table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\"><tr>{metric_cards}</tr></table></td></tr>",
+        "<tr><td style=\"padding:12px 28px 0 28px;\">",
+        "<div style=\"font-size:18px;line-height:24px;font-weight:700;color:#111827;\">What changed</div>",
+        "<div style=\"margin-top:8px;font-size:14px;line-height:21px;color:#4b5563;\">",
+        f"New listings: {int(delta.get('new_listings_count') or 0)} | "
+        f"Price drops: {int(delta.get('price_drop_count') or 0)} | "
+        f"Removed since last run: {removed_count}",
+        "</div></td></tr>",
+    ]
+    if new_listing_rows:
+        html_sections.extend(
+            [
+                "<tr><td style=\"padding:16px 28px 0 28px;\">",
+                "<div style=\"font-size:16px;line-height:22px;font-weight:700;color:#111827;\">New listings</div>",
+                f"<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:12px;\">{new_listing_rows}</table>",
+                "</td></tr>",
+            ]
+        )
+    if price_drop_rows:
+        html_sections.extend(
+            [
+                "<tr><td style=\"padding:8px 28px 0 28px;\">",
+                "<div style=\"font-size:16px;line-height:22px;font-weight:700;color:#111827;\">Price drops</div>",
+                f"<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:12px;\">{price_drop_rows}</table>",
+                "</td></tr>",
+            ]
+        )
+    html_sections.extend(
+        [
+            "<tr><td style=\"padding:8px 28px 0 28px;\">",
+            "<div style=\"font-size:18px;line-height:24px;font-weight:700;color:#111827;\">Top vehicles this run</div>",
+            f"<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:12px;\">{featured_rows}</table>",
+            csv_html,
+            error_html,
+            "</td></tr>",
+            "<tr><td style=\"padding:24px 28px 28px 28px;\">",
+            "<div style=\"border-top:1px solid #e5e7eb;padding-top:18px;font-size:12px;line-height:18px;color:#6b7280;\">",
+            "You are receiving this because you saved a Motorscrape alert. Use the account page to pause, update, or delete it.",
+            "</div></td></tr>",
+            "</table></td></tr></table></body></html>",
+        ]
+    )
+    html = "".join(html_sections)
     return subject, html, "\n".join(text_lines)
 
 
