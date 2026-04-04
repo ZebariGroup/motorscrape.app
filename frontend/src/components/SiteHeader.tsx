@@ -65,7 +65,7 @@ export function SiteHeader({ access, marketRegion, onMarketRegionChange }: Props
             We crawl so you can drive.
           </span>
           {(anonHint || usageHint) ? (
-            <div className="flex min-w-0 flex-col gap-0 text-[10px] leading-tight sm:hidden">
+            <div className="flex min-w-0 flex-col gap-0 text-[11px] leading-tight sm:hidden">
               {anonHint ? (
                 <span
                   title={anonHint}

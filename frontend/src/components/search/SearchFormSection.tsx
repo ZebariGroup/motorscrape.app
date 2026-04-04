@@ -459,14 +459,14 @@ export function SearchFormSection({
                       {`${dealerListLength}/${targetDealerCount} found · ${doneDealerCount}/${targetDealerCount} done · ${listingsCount} vehicles`}
                     </span>
                     {!isGameActive && (
-                      <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/80 animate-pulse">
+                      <span className="mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-white/80 animate-pulse">
                         {preferTapPlayHint ? "Tap Play to pass time" : "Double-click to play"}
                       </span>
                     )}
                     {!isGameActive && preferTapPlayHint && running ? (
                       <button
                         type="button"
-                        className="relative z-20 mt-1 rounded-md bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-white backdrop-blur-sm transition hover:bg-white/30"
+                        className="relative z-20 mt-1 rounded-md bg-white/20 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-white backdrop-blur-sm transition hover:bg-white/30"
                         onClick={(e) => {
                           e.stopPropagation();
                           setIsGameActive(true);

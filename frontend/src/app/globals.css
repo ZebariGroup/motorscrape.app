@@ -10,6 +10,9 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* Default text-xs is 0.75rem (12px); +1pt ≈ 1.333px → ~13.33px */
+  --text-xs: 0.8333333333rem;
+  --text-xs--line-height: 1.125rem;
 }
 
 @media (prefers-color-scheme: dark) {

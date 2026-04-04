@@ -21,7 +21,7 @@ function featureChip(text: string, key: string) {
   return (
     <span
       key={key}
-      className="max-w-full truncate rounded-md border border-white/25 bg-black/35 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-white/95 shadow-sm backdrop-blur-sm sm:text-[10px]"
+      className="max-w-full truncate rounded-md border border-white/25 bg-black/35 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/95 shadow-sm backdrop-blur-sm sm:text-[11px]"
       title={text}
     >
       {short}
@@ -278,24 +278,24 @@ export function InventoryResultsSection({
                     <div className="absolute left-1.5 top-1.5 sm:left-2 sm:top-2 flex flex-col items-start gap-1.5 sm:gap-2">
                       {valuation ? (
                         <div
-                          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold shadow-md ring-1 backdrop-blur-sm sm:text-xs ${valuationBadgeClasses(valuation.label)}`}
+                          className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold shadow-md ring-1 backdrop-blur-sm sm:text-xs ${valuationBadgeClasses(valuation.label)}`}
                         >
                           {valuation.label}
                         </div>
                       ) : null}
                       {v.dealer_discount != null && v.dealer_discount > 0 ? (
-                        <div className="rounded-full bg-emerald-500/95 px-2 py-0.5 text-[10px] font-bold tracking-tight text-white shadow-lg ring-1 ring-white/20 sm:text-xs">
+                        <div className="rounded-full bg-emerald-500/95 px-2 py-0.5 text-[11px] font-bold tracking-tight text-white shadow-lg ring-1 ring-white/20 sm:text-xs">
                           Save {formatMoney(v.dealer_discount)}
                         </div>
                       ) : null}
                       {v.history_days_tracked != null && v.history_days_tracked > 0 ? (
-                        <div className="rounded-full bg-sky-600/90 px-2 py-0.5 text-[10px] font-semibold text-white shadow-md ring-1 ring-white/15 backdrop-blur-sm sm:text-xs">
+                        <div className="rounded-full bg-sky-600/90 px-2 py-0.5 text-[11px] font-semibold text-white shadow-md ring-1 ring-white/15 backdrop-blur-sm sm:text-xs">
                           Tracked {v.history_days_tracked}d
                         </div>
                       ) : null}
                     </div>
                     {v.days_on_lot != null ? (
-                      <div className="absolute right-1.5 top-1.5 sm:right-2 sm:top-2 rounded-full bg-zinc-900/80 px-2 py-0.5 text-[10px] font-semibold text-white shadow-md ring-1 ring-white/15 backdrop-blur-sm sm:text-xs">
+                      <div className="absolute right-1.5 top-1.5 sm:right-2 sm:top-2 rounded-full bg-zinc-900/80 px-2 py-0.5 text-[11px] font-semibold text-white shadow-md ring-1 ring-white/15 backdrop-blur-sm sm:text-xs">
                         {v.days_on_lot}d on lot
                       </div>
                     ) : null}
@@ -315,13 +315,13 @@ export function InventoryResultsSection({
                           {v.msrp != null &&
                           v.price != null &&
                           v.msrp > v.price + 1 ? (
-                            <div className="mt-0.5 text-[10px] text-white/80 line-through sm:text-xs">
+                            <div className="mt-0.5 text-[11px] text-white/80 line-through sm:text-xs">
                               {formatMoney(v.msrp)} MSRP
                             </div>
                           ) : null}
                         </div>
                         {leaseLabel(v) ? (
-                          <div className="max-w-[48%] text-right text-[10px] font-semibold text-white/95 drop-shadow sm:text-xs">
+                          <div className="max-w-[48%] text-right text-[11px] font-semibold text-white/95 drop-shadow sm:text-xs">
                             {leaseLabel(v)}
                           </div>
                         ) : null}
@@ -335,7 +335,7 @@ export function InventoryResultsSection({
                   {v.raw_title ??
                     ([v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") || "Vehicle")}
                 </h3>
-                <dl className="mt-2 flex flex-col gap-1 text-[11px] sm:grid sm:grid-cols-2 sm:gap-x-2 sm:text-xs text-zinc-600 dark:text-zinc-400">
+                <dl className="mt-2 flex flex-col gap-1 text-[12px] sm:grid sm:grid-cols-2 sm:gap-x-2 sm:text-xs text-zinc-600 dark:text-zinc-400">
                   {!v.image_url ? (
                     <div className="flex justify-between sm:contents">
                       <dt className="font-medium text-zinc-500">Price</dt>
@@ -614,7 +614,7 @@ export function InventoryResultsSection({
                                 </div>
                                 <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
                                   {comp.dealership && (
-                                    <span className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate max-w-[100px]">
+                                    <span className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate max-w-[100px]">
                                       {comp.dealership}
                                     </span>
                                   )}

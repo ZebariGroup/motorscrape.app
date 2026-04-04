@@ -57,7 +57,7 @@ export function SearchWaitFactsRotator({
       aria-live="polite"
       aria-atomic="true"
     >
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+      <p className="text-[12px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
         While you wait
       </p>
       <p className="mt-1 text-sm leading-snug text-zinc-700 dark:text-zinc-300">{line}</p>

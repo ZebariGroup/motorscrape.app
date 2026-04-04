@@ -227,7 +227,7 @@ export function DealerProgressList({
                           <div className="min-w-0">
                             <p className="truncate font-medium text-zinc-900 dark:text-zinc-50">{d.name}</p>
                             {d.address ? (
-                              <p className="mt-0.5 truncate text-[11px] text-zinc-400 dark:text-zinc-500">{d.address}</p>
+                              <p className="mt-0.5 truncate text-[12px] text-zinc-400 dark:text-zinc-500">{d.address}</p>
                             ) : null}
                           </div>
                           <div className="mt-0.5 shrink-0">
@@ -243,7 +243,7 @@ export function DealerProgressList({
                         />
 
                         {/* ── row 2: status text + page/count + dot ── */}
-                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+                        <div className="mt-2 flex items-center justify-between gap-2 text-[12px]">
                           <div className="flex items-center gap-1.5 min-w-0">
                             <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
                             <span className={`truncate ${isDone && listingCount > 0 ? "font-medium text-zinc-700 dark:text-zinc-200" : "text-zinc-500 dark:text-zinc-400"}`}>
@@ -276,7 +276,7 @@ export function DealerProgressList({
 
                         {/* error message — brief, non-technical */}
                         {isError && d.error ? (
-                          <p className="mt-1.5 text-[11px] text-red-500 dark:text-red-400 line-clamp-2">{d.error}</p>
+                          <p className="mt-1.5 text-[12px] text-red-500 dark:text-red-400 line-clamp-2">{d.error}</p>
                         ) : null}
                       </div>
                     </li>

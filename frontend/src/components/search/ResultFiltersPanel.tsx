@@ -69,7 +69,7 @@ export function ResultFiltersPanel({
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Result filters</h2>
             {activeResultFilterCount > 0 ? (
-              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[12px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                 {activeResultFilterCount} active
               </span>
             ) : null}
@@ -168,7 +168,7 @@ export function ResultFiltersPanel({
                       className="relative z-10 min-w-0 flex-1 appearance-none accent-emerald-600"
                     />
                   </div>
-                  <div className="flex justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+                  <div className="flex justify-between text-[12px] text-zinc-500 dark:text-zinc-400">
                     <span>{formatMoney(priceBounds.min)}</span>
                     <span>{formatMoney(priceBounds.max)}</span>
                   </div>

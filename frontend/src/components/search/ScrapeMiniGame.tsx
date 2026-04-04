@@ -1005,10 +1005,10 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
       <div className="relative z-10 flex flex-col gap-1 border-b border-zinc-200/80 bg-white/90 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/90">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 flex-col">
-            <span className="truncate text-[11px] font-semibold uppercase tracking-widest text-emerald-700 dark:text-emerald-400">
+            <span className="truncate text-[12px] font-semibold uppercase tracking-widest text-emerald-700 dark:text-emerald-400">
               MotorScrape Run
             </span>
-            <span className="truncate text-[10px] text-zinc-500 dark:text-zinc-400">
+            <span className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">
               Dodge paywalls · jump the scrape lane · HI score saves locally
             </span>
           </div>
@@ -1029,7 +1029,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
           </div>
         </div>
         {doneBanner ? (
-          <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+          <p className="text-[12px] font-medium text-emerald-700 dark:text-emerald-300">
             Search finished — inventory is ready below. Keep running for a new HI score.
           </p>
         ) : null}
@@ -1051,7 +1051,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
                     e.stopPropagation();
                     startWithVehicle(c);
                   }}
-                  className={`rounded-md px-2.5 py-1 text-[11px] font-semibold capitalize transition ${
+                  className={`rounded-md px-2.5 py-1 text-[12px] font-semibold capitalize transition ${
                     character === c
                       ? "bg-emerald-600 text-white shadow-sm dark:bg-emerald-500"
                       : "bg-white/90 text-zinc-700 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -1083,7 +1083,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
                     e.stopPropagation();
                     startWithVehicle(c);
                   }}
-                  className={`rounded-md px-2.5 py-1 text-[11px] font-semibold capitalize transition ${
+                  className={`rounded-md px-2.5 py-1 text-[12px] font-semibold capitalize transition ${
                     character === c
                       ? "bg-emerald-600 text-white shadow-sm dark:bg-emerald-500"
                       : "bg-white/90 text-zinc-700 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
