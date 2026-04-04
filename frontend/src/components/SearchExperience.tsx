@@ -229,9 +229,8 @@ export function SearchExperience() {
         marketRegion={form.marketRegion}
         onMarketRegionChange={form.setMarketRegion}
       />
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 pb-24 sm:gap-10 sm:px-6 sm:py-10 sm:pb-10">
-        <header className="space-y-2 sm:space-y-3">
-          <p className="hidden sm:block text-sm font-medium tracking-wide text-emerald-700 uppercase">Motorscrape</p>
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-4 pb-24 sm:gap-6 sm:px-6 sm:py-6 sm:pb-10">
+        <header>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl lg:text-4xl dark:text-zinc-50">
               Local motor vehicle inventory, one place
