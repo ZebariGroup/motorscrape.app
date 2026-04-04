@@ -27,6 +27,8 @@ type Props = {
   description?: string;
   dismissible?: boolean;
   compact?: boolean;
+  /** Omit top margin when nested (e.g. inside SavesAndAlertsPanel). */
+  embedded?: boolean;
   onSaved?: () => void | Promise<void>;
 };
 
@@ -43,6 +45,7 @@ export function EmailAlertPanel({
   description = "Save this search as a recurring alert and send results to your account email, with an optional CSV attachment.",
   dismissible = false,
   compact = false,
+  embedded = false,
   onSaved,
 }: Props) {
   const paid = isPaidTier(tierOverride ?? access?.tier);
@@ -149,7 +152,7 @@ export function EmailAlertPanel({
   if (compact) {
     return (
       <>
-        <div className="mt-3 flex flex-col gap-2">
+        <div className={`flex flex-col gap-2${embedded ? "" : " mt-3"}`}>
           {paid ? (
             <button
               type="button"

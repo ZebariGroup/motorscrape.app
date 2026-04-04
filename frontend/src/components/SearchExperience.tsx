@@ -6,10 +6,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchStream } from "@/hooks/useSearchStream";
 import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { DealerProgressList } from "@/components/search/DealerProgressList";
-import { EmailAlertPanel } from "@/components/search/EmailAlertPanel";
 import { InventoryResultsSection } from "@/components/search/InventoryResultsSection";
 import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
-import { SavedSearchQuickPanel } from "@/components/search/SavedSearchQuickPanel";
+import { SavesAndAlertsPanel } from "@/components/search/SavesAndAlertsPanel";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
 import { resolveApiUrl } from "@/lib/apiBase";
@@ -331,8 +330,7 @@ export function SearchExperience() {
               setPriceFilterMax={filters.setPriceFilterMax}
               onClearFilters={filters.clearFilters}
             />
-            <EmailAlertPanel access={access} criteria={alertCriteria} canSearch={canSearch} compact />
-            <SavedSearchQuickPanel
+            <SavesAndAlertsPanel
               access={access}
               criteria={alertCriteria}
               canSearch={canSearch}

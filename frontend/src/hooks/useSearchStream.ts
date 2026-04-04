@@ -222,7 +222,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const [yearFilter, setYearFilter] = useState("");
   const [bodyStyleFilter, setBodyStyleFilter] = useState("");
   const [colorFilter, setColorFilter] = useState("");
-  const [filtersExpanded, setFiltersExpanded] = useState(true);
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [sortOrder, setSortOrder] = useState<ListingSortOrder>("year_desc");
   const [pinnedDealerWebsite, setPinnedDealerWebsite] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);

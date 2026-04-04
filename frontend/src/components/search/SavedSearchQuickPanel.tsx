@@ -14,6 +14,8 @@ type Props = {
   criteria: SavedSearchCriteria;
   canSearch: boolean;
   onApplySavedSearch: (criteria: SavedSearchCriteria) => Promise<void>;
+  /** Omit top margin when nested (e.g. inside SavesAndAlertsPanel). */
+  embedded?: boolean;
 };
 
 function isPaidTier(tier: string | null | undefined): boolean {
@@ -36,7 +38,7 @@ function summarizeCriteria(criteria: SavedSearchCriteria): string {
   ].join(" · ");
 }
 
-export function SavedSearchQuickPanel({ access, criteria, canSearch, onApplySavedSearch }: Props) {
+export function SavedSearchQuickPanel({ access, criteria, canSearch, onApplySavedSearch, embedded = false }: Props) {
   const paid = isPaidTier(access?.tier);
   const [saveOpen, setSaveOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
@@ -137,7 +139,7 @@ export function SavedSearchQuickPanel({ access, criteria, canSearch, onApplySave
 
   return (
     <>
-      <div className="mt-3 flex flex-col gap-2">
+      <div className={`flex flex-col gap-2${embedded ? "" : " mt-3"}`}>
         {paid ? (
           <div className="grid gap-2 sm:grid-cols-2">
             <button
