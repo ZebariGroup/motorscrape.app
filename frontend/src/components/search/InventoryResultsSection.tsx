@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { downloadCsv, listingsToCsv } from "@/lib/csvExport";
 import {
   formatMoney,
@@ -117,23 +117,39 @@ export function InventoryResultsSection({
   const canViewNext =
     effectiveSelectedListingIndex != null && effectiveSelectedListingIndex < filteredListings.length - 1;
 
+  const goToPreviousListing = useCallback(() => {
+    setSelectedListingIndex((current) => (current != null && current > 0 ? current - 1 : current));
+  }, []);
+
+  const goToNextListing = useCallback(() => {
+    setSelectedListingIndex((current) =>
+      current != null && current < filteredListings.length - 1 ? current + 1 : current,
+    );
+  }, [filteredListings.length]);
+
+  const listingModalTouchRef = useRef<{ x: number; y: number } | null>(null);
+
   useEffect(() => {
     if (effectiveSelectedListingIndex == null) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable='true']")) {
+        return;
+      }
       if (event.key === "ArrowLeft" && canViewPrevious) {
         event.preventDefault();
-        setSelectedListingIndex((current) => (current == null ? current : current - 1));
-      }
-      if (event.key === "ArrowRight" && canViewNext) {
+        goToPreviousListing();
+      } else if (event.key === "ArrowRight" && canViewNext) {
         event.preventDefault();
-        setSelectedListingIndex((current) => (current == null ? current : current + 1));
+        goToNextListing();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canViewNext, canViewPrevious, effectiveSelectedListingIndex]);
+  }, [canViewNext, canViewPrevious, effectiveSelectedListingIndex, goToNextListing, goToPreviousListing]);
 
   return (
     <section className={`lg:col-span-2 ${className}`.trim()}>
@@ -427,29 +443,51 @@ export function InventoryResultsSection({
             className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
             onClick={() => setSelectedListingIndex(null)}
           />
-          <button
-            type="button"
-            onClick={() => setSelectedListingIndex((current) => (current == null ? current : current - 1))}
-            disabled={!canViewPrevious}
-            className="absolute left-[max(0.5rem,env(safe-area-inset-left))] top-1/2 z-[101] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:left-[max(1rem,env(safe-area-inset-left))]"
-            aria-label="View previous listing"
+          <div
+            className="relative z-[101] w-full max-w-2xl touch-pan-y"
+            onTouchStart={(e) => {
+              if (e.touches.length !== 1) return;
+              listingModalTouchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            }}
+            onTouchEnd={(e) => {
+              const start = listingModalTouchRef.current;
+              listingModalTouchRef.current = null;
+              if (!start || e.changedTouches.length !== 1) return;
+              const t = e.changedTouches[0];
+              const dx = t.clientX - start.x;
+              const dy = t.clientY - start.y;
+              const threshold = 56;
+              if (Math.abs(dx) < threshold || Math.abs(dx) <= Math.abs(dy)) return;
+              if (dx > 0) {
+                goToPreviousListing();
+              } else {
+                goToNextListing();
+              }
+            }}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m15 18-6-6 6-6" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedListingIndex((current) => (current == null ? current : current + 1))}
-            disabled={!canViewNext}
-            className="absolute right-[max(0.5rem,env(safe-area-inset-right))] top-1/2 z-[101] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:right-[max(1rem,env(safe-area-inset-right))]"
-            aria-label="View next listing"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m9 18 6-6-6-6" />
-            </svg>
-          </button>
-          <div className="relative flex max-h-[min(100dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-2rem))] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800 sm:max-h-[min(100dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-3rem))]">
+            <button
+              type="button"
+              onClick={goToPreviousListing}
+              disabled={!canViewPrevious}
+              className="absolute left-1 top-1/2 z-[102] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:left-2 md:left-3"
+              aria-label="View previous listing"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={goToNextListing}
+              disabled={!canViewNext}
+              className="absolute right-1 top-1/2 z-[102] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:right-2 md:right-3"
+              aria-label="View next listing"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
+            <div className="relative flex max-h-[min(100dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-2rem))] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800 sm:max-h-[min(100dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-3rem))]">
             <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 truncate pr-4">
                 {selectedListing.raw_title ??
@@ -819,6 +857,7 @@ export function InventoryResultsSection({
                 </a>
               </div>
             )}
+            </div>
           </div>
         </div>
       )}
