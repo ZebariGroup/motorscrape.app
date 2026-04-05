@@ -12,6 +12,7 @@ describe("market valuation", () => {
         dealership: "A",
         dealership_website: "https://a.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2024,
         make: "Toyota",
         model: "Camry",
@@ -22,6 +23,7 @@ describe("market valuation", () => {
         dealership: "B",
         dealership_website: "https://b.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2024,
         make: "Toyota",
         model: "Camry",
@@ -32,6 +34,7 @@ describe("market valuation", () => {
         dealership: "C",
         dealership_website: "https://c.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2024,
         make: "Toyota",
         model: "Camry",
@@ -55,6 +58,7 @@ describe("market valuation", () => {
         dealership: "A",
         dealership_website: "https://a.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2024,
         make: "BMW",
         model: "X5",
@@ -64,6 +68,7 @@ describe("market valuation", () => {
         dealership: "B",
         dealership_website: "https://b.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2024,
         make: "BMW",
         model: "X7",
@@ -80,6 +85,7 @@ describe("market valuation", () => {
         dealership: "A",
         dealership_website: "https://a.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2025,
         make: "BMW",
         model: "X7",
@@ -91,6 +97,7 @@ describe("market valuation", () => {
         dealership: "B",
         dealership_website: "https://b.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2025,
         make: "BMW",
         model: "X7",
@@ -102,6 +109,7 @@ describe("market valuation", () => {
         dealership: "C",
         dealership_website: "https://c.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2025,
         make: "BMW",
         model: "X7",
@@ -113,6 +121,7 @@ describe("market valuation", () => {
         dealership: "D",
         dealership_website: "https://d.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2025,
         make: "BMW",
         model: "X7",
@@ -124,6 +133,7 @@ describe("market valuation", () => {
         dealership: "E",
         dealership_website: "https://e.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2025,
         make: "BMW",
         model: "X7",
@@ -135,6 +145,7 @@ describe("market valuation", () => {
         dealership: "F",
         dealership_website: "https://f.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2025,
         make: "BMW",
         model: "X7",
@@ -158,6 +169,7 @@ describe("market valuation", () => {
         dealership: "A",
         dealership_website: "https://a.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2025,
         make: "BMW",
         model: "X7",
@@ -169,6 +181,7 @@ describe("market valuation", () => {
         dealership: "B",
         dealership_website: "https://b.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2025,
         make: "BMW",
         model: "X7",
@@ -179,6 +192,7 @@ describe("market valuation", () => {
         dealership: "C",
         dealership_website: "https://c.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2025,
         make: "BMW",
         model: "X7",
@@ -202,6 +216,7 @@ describe("market valuation", () => {
         dealership: "A",
         dealership_website: "https://a.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2024,
         make: "Audi",
         model: "Q7",
@@ -217,6 +232,7 @@ describe("market valuation", () => {
         dealership: "B",
         dealership_website: "https://b.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2024,
         make: "Audi",
         model: "Q7",
@@ -227,6 +243,7 @@ describe("market valuation", () => {
         dealership: "C",
         dealership_website: "https://c.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
         year: 2024,
         make: "Audi",
         model: "Q7",
@@ -241,7 +258,7 @@ describe("market valuation", () => {
     expect(subject?.baselinePrice).toBeLessThan(57000);
   });
 
-  it("normalizes comparables by model year", () => {
+  it("skips used listings even when comparable coverage is strong", () => {
     const listings: AggregatedListing[] = [
       {
         dealership: "A",
@@ -291,64 +308,94 @@ describe("market valuation", () => {
 
     const valuations = buildMarketValuationMap(listings);
     const subject = valuations.get(listingIdentityKey(listings[0]));
-    expect(subject).toBeDefined();
-    expect(subject?.baselinePrice).toBeGreaterThan(27000);
+    expect(subject).toBeUndefined();
+    expect(valuations.size).toBe(0);
   });
 
-  it("factors used mileage into comparable normalization", () => {
+  it("only compares new listings against other new inventory", () => {
     const listings: AggregatedListing[] = [
       {
         dealership: "A",
         dealership_website: "https://a.example",
         vehicle_category: "car",
-        vehicle_condition: "used",
-        year: 2021,
+        vehicle_condition: "new",
+        year: 2025,
         make: "Toyota",
         model: "Camry",
         trim: "SE",
-        price: 20500,
-        mileage: 85000,
-        usage_value: 85000,
-        usage_unit: "miles",
+        price: 31900,
       },
       {
         dealership: "B",
         dealership_website: "https://b.example",
         vehicle_category: "car",
-        vehicle_condition: "used",
-        year: 2021,
+        vehicle_condition: "new",
+        year: 2025,
         make: "Toyota",
         model: "Camry",
         trim: "SE",
-        price: 23000,
-        mileage: 42000,
-        usage_value: 42000,
-        usage_unit: "miles",
+        price: 32500,
       },
       {
         dealership: "C",
         dealership_website: "https://c.example",
         vehicle_category: "car",
-        vehicle_condition: "used",
-        year: 2021,
+        vehicle_condition: "new",
+        year: 2025,
         make: "Toyota",
         model: "Camry",
         trim: "SE",
-        price: 22800,
-        mileage: 39000,
-        usage_value: 39000,
-        usage_unit: "miles",
+        price: 32700,
       },
       {
         dealership: "D",
         dealership_website: "https://d.example",
         vehicle_category: "car",
+        vehicle_condition: "new",
+        year: 2025,
+        make: "Toyota",
+        model: "Camry",
+        trim: "SE",
+        price: 32300,
+      },
+      {
+        dealership: "E",
+        dealership_website: "https://e.example",
+        vehicle_category: "car",
         vehicle_condition: "used",
-        year: 2021,
+        year: 2022,
+        make: "Toyota",
+        model: "Camry",
+        trim: "SE",
+        price: 22900,
+        mileage: 42000,
+        usage_value: 42000,
+        usage_unit: "miles",
+      },
+      {
+        dealership: "F",
+        dealership_website: "https://f.example",
+        vehicle_category: "car",
+        vehicle_condition: "used",
+        year: 2022,
         make: "Toyota",
         model: "Camry",
         trim: "SE",
         price: 23100,
+        mileage: 39000,
+        usage_value: 39000,
+        usage_unit: "miles",
+      },
+      {
+        dealership: "G",
+        dealership_website: "https://g.example",
+        vehicle_category: "car",
+        vehicle_condition: "used",
+        year: 2022,
+        make: "Toyota",
+        model: "Camry",
+        trim: "SE",
+        price: 22800,
         mileage: 41000,
         usage_value: 41000,
         usage_unit: "miles",
@@ -358,6 +405,96 @@ describe("market valuation", () => {
     const valuations = buildMarketValuationMap(listings);
     const subject = valuations.get(listingIdentityKey(listings[0]));
     expect(subject).toBeDefined();
-    expect(subject?.baselinePrice).toBeLessThan(22000);
+    expect(subject?.baselinePrice).toBeGreaterThan(32000);
+    expect(subject?.comparables.every((listing) => listing.vehicle_condition === "new")).toBe(true);
+  });
+
+  it("keeps special-edition trims separated from base variants", () => {
+    const listings: AggregatedListing[] = [
+      {
+        dealership: "A",
+        dealership_website: "https://a.example",
+        vehicle_category: "car",
+        vehicle_condition: "new",
+        year: 2024,
+        make: "Cadillac",
+        model: "CT5-V",
+        trim: "Blackwing",
+        raw_title: "2024 Cadillac CT5-V Blackwing",
+        price: 94995,
+      },
+      {
+        dealership: "B",
+        dealership_website: "https://b.example",
+        vehicle_category: "car",
+        vehicle_condition: "new",
+        year: 2024,
+        make: "Cadillac",
+        model: "CT5-V",
+        trim: "Blackwing",
+        raw_title: "2024 Cadillac CT5-V Blackwing",
+        price: 95995,
+      },
+      {
+        dealership: "C",
+        dealership_website: "https://c.example",
+        vehicle_category: "car",
+        vehicle_condition: "new",
+        year: 2024,
+        make: "Cadillac",
+        model: "CT5-V",
+        trim: "Blackwing",
+        raw_title: "2024 Cadillac CT5-V Blackwing",
+        price: 96995,
+      },
+      {
+        dealership: "D",
+        dealership_website: "https://d.example",
+        vehicle_category: "car",
+        vehicle_condition: "new",
+        year: 2024,
+        make: "Cadillac",
+        model: "CT5-V",
+        trim: "V-Series",
+        raw_title: "2024 Cadillac CT5-V",
+        price: 75995,
+      },
+      {
+        dealership: "E",
+        dealership_website: "https://e.example",
+        vehicle_category: "car",
+        vehicle_condition: "new",
+        year: 2024,
+        make: "Cadillac",
+        model: "CT5-V",
+        trim: "V-Series",
+        raw_title: "2024 Cadillac CT5-V",
+        price: 76995,
+      },
+      {
+        dealership: "F",
+        dealership_website: "https://f.example",
+        vehicle_category: "car",
+        vehicle_condition: "new",
+        year: 2024,
+        make: "Cadillac",
+        model: "CT5-V",
+        trim: "V-Series",
+        raw_title: "2024 Cadillac CT5-V",
+        price: 77995,
+      },
+    ];
+
+    const valuations = buildMarketValuationMap(listings);
+    const blackwing = valuations.get(listingIdentityKey(listings[0]));
+    const baseV = valuations.get(listingIdentityKey(listings[3]));
+
+    expect(blackwing).toBeDefined();
+    expect(blackwing?.baselinePrice).toBeGreaterThan(94000);
+    expect(blackwing?.comparables.every((listing) => listing.trim === "Blackwing")).toBe(true);
+
+    expect(baseV).toBeDefined();
+    expect(baseV?.baselinePrice).toBeLessThan(80000);
+    expect(baseV?.comparables.every((listing) => listing.trim === "V-Series")).toBe(true);
   });
 });

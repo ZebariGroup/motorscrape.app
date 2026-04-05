@@ -29,6 +29,47 @@ function normalizedText(value: string | undefined): string {
   return (value ?? "").trim().toLowerCase();
 }
 
+function isNewVehicle(listing: AggregatedListing): boolean {
+  return normalizedText(listing.vehicle_condition) === "new";
+}
+
+const TRIM_SIGNATURE_STOPWORDS = new Set([
+  "package",
+  "packages",
+  "pkg",
+  "edition",
+  "series",
+  "trim",
+  "style",
+  "styles",
+  "door",
+  "doors",
+  "sedan",
+  "coupe",
+  "convertible",
+  "hatchback",
+  "wagon",
+  "suv",
+  "truck",
+  "van",
+  "automatic",
+  "manual",
+  "auto",
+  "speed",
+  "speeds",
+  "awd",
+  "fwd",
+  "rwd",
+  "4wd",
+  "4x4",
+  "2wd",
+  "xdrive",
+  "quattro",
+  "4matic",
+  "cvt",
+  "dct",
+]);
+
 function tokenize(value: string | undefined): string[] {
   const normalized = normalizedText(value);
   if (!normalized) return [];
@@ -62,6 +103,35 @@ function tokenOverlapRatio(base: Set<string>, candidate: Set<string>): number {
     if (candidate.has(token)) overlap += 1;
   }
   return overlap / base.size;
+}
+
+function trimSignatureTokenSet(listing: AggregatedListing): Set<string> {
+  const makeTokens = new Set(tokenize(listing.make));
+  const modelTokens = new Set(tokenize(listing.model));
+  const tokens = new Set<string>();
+  for (const source of [listing.trim, listing.raw_title]) {
+    for (const token of tokenize(source)) {
+      if (makeTokens.has(token) || modelTokens.has(token) || TRIM_SIGNATURE_STOPWORDS.has(token)) continue;
+      if (/^(19|20)\d{2}$/.test(token)) continue;
+      tokens.add(token);
+    }
+  }
+  return tokens;
+}
+
+function hasTrimPackageConflict(base: AggregatedListing, candidate: AggregatedListing): boolean {
+  const baseTrim = normalizedText(base.trim);
+  const candidateTrim = normalizedText(candidate.trim);
+  if (baseTrim && candidateTrim && baseTrim === candidateTrim) return false;
+  const baseSignature = trimSignatureTokenSet(base);
+  const candidateSignature = trimSignatureTokenSet(candidate);
+  if (baseSignature.size === 0 && candidateSignature.size === 0) return false;
+  if (baseSignature.size === 0 || candidateSignature.size === 0) return true;
+  if (baseSignature.size !== candidateSignature.size) return true;
+  for (const token of baseSignature) {
+    if (!candidateSignature.has(token)) return true;
+  }
+  return false;
 }
 
 function listingSimilarity(base: AggregatedListing, candidate: AggregatedListing): number {
@@ -198,6 +268,7 @@ function isComparable(
   if (normalizedText(base.model) !== normalizedText(candidate.model)) return false;
   if (strictYear && base.year != null && candidate.year != null && base.year !== candidate.year) return false;
   if (base.vehicle_condition && candidate.vehicle_condition && base.vehicle_condition !== candidate.vehicle_condition) return false;
+  if (hasTrimPackageConflict(base, candidate)) return false;
 
   if (strictTrim && base.trim) {
     if (normalizedText(base.trim) !== normalizedText(candidate.trim)) return false;
@@ -230,7 +301,9 @@ function isComparable(
 }
 
 function findComparables(base: AggregatedListing, listings: AggregatedListing[]): AggregatedListing[] {
-  const withPrice = listings.filter((candidate) => candidate.price != null && !Number.isNaN(candidate.price));
+  const withPrice = listings.filter(
+    (candidate) => candidate.price != null && !Number.isNaN(candidate.price) && isNewVehicle(candidate),
+  );
 
   const strictYearTrimFeature = withPrice.filter(
     (candidate) =>
@@ -308,6 +381,7 @@ export function buildMarketValuationMap(listings: AggregatedListing[]): Map<stri
   for (const listing of listings) {
     if (listing.price == null || Number.isNaN(listing.price)) continue;
     if (!listing.make || !listing.model) continue;
+    if (!isNewVehicle(listing)) continue;
     const comparables = findComparables(listing, listings);
     const normalizedComparablePrices = comparables
       .map((c) => normalizedComparablePrice(listing, c))
