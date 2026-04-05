@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clampPercent, formatMoney, listingIdentityKey } from "./inventoryFormat";
+import { clampPercent, formatMoney, formatObservedAtForDisplay, listingIdentityKey } from "./inventoryFormat";
 
 describe("inventoryFormat", () => {
   it("formatMoney returns em dash for undefined", () => {
@@ -9,6 +9,28 @@ describe("inventoryFormat", () => {
 
   it("formatMoney supports a custom empty label", () => {
     expect(formatMoney(undefined, "Visit site for price")).toBe("Visit site for price");
+  });
+
+  it("formatObservedAtForDisplay treats Unix seconds like backend price_history (not 1970)", () => {
+    const unixSeconds = 1_700_000_000;
+    expect(formatObservedAtForDisplay(unixSeconds)).toBe(new Date(unixSeconds * 1000).toLocaleDateString());
+  });
+
+  it("formatObservedAtForDisplay treats epoch ms when large enough", () => {
+    const ms = 1_704_067_200_000;
+    expect(formatObservedAtForDisplay(ms)).toBe(new Date(ms).toLocaleDateString());
+  });
+
+  it("formatObservedAtForDisplay parses ISO timestamps", () => {
+    expect(formatObservedAtForDisplay("2026-04-05T12:00:00.000Z")).toBe(
+      new Date("2026-04-05T12:00:00.000Z").toLocaleDateString(),
+    );
+  });
+
+  it("formatObservedAtForDisplay returns em dash for empty or invalid", () => {
+    expect(formatObservedAtForDisplay(undefined)).toBe("—");
+    expect(formatObservedAtForDisplay("")).toBe("—");
+    expect(formatObservedAtForDisplay(Number.NaN)).toBe("—");
   });
 
   it("clampPercent bounds", () => {

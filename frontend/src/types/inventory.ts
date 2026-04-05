@@ -48,7 +48,7 @@ export type VehicleListing = {
   history_highest_price?: number;
   history_price_change?: number;
   history_price_change_since_first?: number;
-  price_history?: Array<{ observed_at?: string; price?: number }>;
+  price_history?: Array<{ observed_at?: string | number; price?: number }>;
   historical_market_prices?: number[];
   historical_market_price_points?: Array<{ price?: number; observed_at?: number }>;
   historical_market_sample_count?: number;

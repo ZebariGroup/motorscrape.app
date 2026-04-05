@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { downloadCsv, listingsToCsv } from "@/lib/csvExport";
 import {
   formatMoney,
+  formatObservedAtForDisplay,
   identifierLabel,
   listingIdentityKey,
   locationBadge,
@@ -36,13 +37,6 @@ function leaseLabel(listing: AggregatedListing) {
     return `${payment}/mo · ${listing.lease_term_months} mo lease`;
   }
   return `${payment}/mo lease`;
-}
-
-function formatTrackedWhen(iso: string | undefined) {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString();
 }
 
 function historyPriceDeltaLabel(value: number | undefined) {
@@ -684,10 +678,12 @@ export function InventoryResultsSection({
                         Seen in <span className="font-semibold">{selectedListing.history_seen_count}</span> completed searches
                       </p>
                       <p className="text-zinc-700 dark:text-zinc-300">
-                        First seen <span className="font-semibold">{formatTrackedWhen(selectedListing.history_first_seen_at)}</span>
+                        First seen{" "}
+                        <span className="font-semibold">{formatObservedAtForDisplay(selectedListing.history_first_seen_at)}</span>
                       </p>
                       <p className="text-zinc-700 dark:text-zinc-300">
-                        Last seen <span className="font-semibold">{formatTrackedWhen(selectedListing.history_last_seen_at)}</span>
+                        Last seen{" "}
+                        <span className="font-semibold">{formatObservedAtForDisplay(selectedListing.history_last_seen_at)}</span>
                       </p>
                       <p className="text-zinc-700 dark:text-zinc-300">
                         Previous price{" "}
@@ -727,7 +723,7 @@ export function InventoryResultsSection({
                               key={`${point.observed_at ?? "point"}-${index}`}
                               className="rounded-lg border border-sky-200/70 bg-white/80 px-3 py-2 text-xs text-zinc-800 dark:border-sky-900 dark:bg-zinc-950/40 dark:text-zinc-100"
                             >
-                              <span className="font-medium">{formatTrackedWhen(point.observed_at)}</span>
+                              <span className="font-medium">{formatObservedAtForDisplay(point.observed_at)}</span>
                               {" · "}
                               <span>{formatMoney(point.price)}</span>
                             </li>

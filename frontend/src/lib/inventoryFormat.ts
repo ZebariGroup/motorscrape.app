@@ -14,6 +14,33 @@ export function formatMoney(n: number | null | undefined, emptyLabel = "—") {
   }).format(n);
 }
 
+/**
+ * Format `observed_at` from the API for display. Backend stores Unix **seconds** (`time.time()`)
+ * in `price_history`, but `new Date(n)` expects milliseconds — raw seconds look like dates in 1970.
+ * Values ≥ 1e12 are treated as epoch milliseconds (e.g. `Date.now()`); smaller positive values as seconds.
+ * ISO date strings pass through `Date` parsing.
+ */
+export function formatObservedAtForDisplay(value: string | number | undefined | null): string {
+  if (value == null) return "—";
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value <= 0) return "—";
+    const ms = value < 1e12 ? value * 1000 : value;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
+  }
+  const s = String(value).trim();
+  if (!s) return "—";
+  if (/^-?\d+(\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    if (!Number.isFinite(n) || n <= 0) return "—";
+    const ms = n < 1e12 ? n * 1000 : n;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
+  }
+  const date = new Date(s);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
+}
+
 export function locationBadge(v: AggregatedListing) {
   if (v.is_in_transit) return "In transit";
   if (v.is_offsite || v.is_shared_inventory) return "Shared / off-site";
