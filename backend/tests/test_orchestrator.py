@@ -356,6 +356,24 @@ def test_team_velocity_model_inventory_urls_filter_to_requested_model() -> None:
     assert all("equinox" not in url for url in urls)
 
 
+def test_team_velocity_model_inventory_urls_acura_integra_style_paths() -> None:
+    """OEM-style /inventory/new/{make}/{model} links (e.g. Jeffrey Acura) must be discoverable."""
+    html = """
+    <html><body>
+      <a href="/inventory/new/acura/integra?paymenttype=lease">Integra</a>
+      <a href="/inventory/new/acura/mdx">MDX</a>
+    </body></html>
+    """
+    urls = _team_velocity_model_inventory_urls(
+        html,
+        "https://www.dealer.example/inventory/new",
+        vehicle_condition="new",
+        model="Integra",
+    )
+    assert any("/acura/integra" in u.lower() for u in urls)
+    assert not any("/acura/mdx" in u.lower() for u in urls)
+
+
 def test_team_velocity_inventory_url_from_model_hub_preserves_model_path() -> None:
     rerouted = _team_velocity_inventory_url_from_model_hub(
         "https://www.example.com/new-vehicles/chevrolet-blazer",

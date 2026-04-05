@@ -3010,7 +3010,7 @@ async def stream_search(
                     model=model,
                 )
                 if route
-                and route.platform_id in {"team_velocity", "nissan_infiniti_inventory"}
+                and route.platform_id in {"team_velocity", "nissan_infiniti_inventory", "dealer_inspire"}
                 and vehicle_condition in {"new", "used"}
                 and current_url
                 and urlsplit(current_url).path.rstrip("/").lower()
@@ -3098,6 +3098,14 @@ async def stream_search(
                             "toyota_lexus_oem_inventory",
                         }
                     )
+                    inv_path = urlsplit(current_url or "").path.rstrip("/").lower()
+                    cond = (vehicle_condition or "all").strip().lower()
+                    is_tv_style_broad_inventory = bool(
+                        route
+                        and route.platform_id in {"team_velocity", "dealer_inspire", "nissan_infiniti_inventory"}
+                        and cond in {"new", "used"}
+                        and inv_path == f"/inventory/{cond}"
+                    )
                     make_signal = bool(
                         make.strip()
                         and (
@@ -3122,6 +3130,7 @@ async def stream_search(
                         model.strip()
                         and not html_mentions_model(current_html, model)
                         and not is_family_inventory_route
+                        and not is_tv_style_broad_inventory
                     ):
                         logger.info(
                             "Skipping extraction for %s: no model mention (%r) in HTML",
@@ -3592,19 +3601,25 @@ async def stream_search(
                         if extra_url not in queued_urls:
                             queued_urls.add(extra_url)
                             pending_urls.append(extra_url)
+                # Broad /inventory/{condition} SRPs often SSR only a slice of vehicles; discovered
+                # model links (e.g. /inventory/new/acura/integra) must be queued even when the user
+                # already filtered by model — otherwise make+model searches can see zero rows while
+                # the generic page never mentions that model in the first HTML chunk.
                 if (
                     route
-                    and route.platform_id in {"team_velocity", "nissan_infiniti_inventory"}
-                    and not model.strip()
+                    and route.platform_id in {"team_velocity", "nissan_infiniti_inventory", "dealer_inspire"}
                     and current_url
                     and urlsplit(current_url).path.rstrip("/").lower()
                     == f"/inventory/{vehicle_condition}"
                 ):
+                    appended_tv_model_fallback = False
                     for extra_url in team_velocity_fallback_urls:
                         if extra_url not in queued_urls:
                             queued_urls.add(extra_url)
                             pending_urls.append(extra_url)
-                    next_url = None
+                            appended_tv_model_fallback = True
+                    if appended_tv_model_fallback:
+                        next_url = None
                 if next_url and next_url not in queued_urls:
                     queued_urls.add(next_url)
                     pending_urls.append(next_url)
