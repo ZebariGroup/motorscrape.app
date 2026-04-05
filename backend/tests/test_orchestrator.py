@@ -17,11 +17,13 @@ from app.services.orchestrator import (
     _effective_dealer_timeout,
     _effective_max_pages_for_route,
     _find_inventory_url,
+    _historical_market_points_for_listing,
     _inventory_url_uses_scoped_filters,
     _inventory_url_recovery_candidates,
     _needs_vdp_usage_enrichment,
     _oneaudi_all_inventory_urls,
     _room58_detail_overlay,
+    _route_supports_team_velocity_style_inventory_reroute,
     _tesla_inventory_urls,
     _team_velocity_inventory_url_from_model_hub,
     _team_velocity_model_inventory_urls,
@@ -118,6 +120,104 @@ def test_needs_vdp_usage_enrichment_flags_used_listings_missing_mileage() -> Non
         ),
     ]
     assert _needs_vdp_usage_enrichment(listings) is True
+
+
+def test_historical_market_points_exclude_special_edition_trim_mismatches() -> None:
+    listing = VehicleListing(
+        vehicle_category="car",
+        vehicle_condition="new",
+        year=2024,
+        make="Cadillac",
+        model="CT5-V",
+        trim="Blackwing",
+        raw_title="2024 Cadillac CT5-V Blackwing",
+        listing_url="https://dealer.example/ct5v-blackwing-1",
+    )
+    historical_pool = [
+        {
+            "vehicle_category": "car",
+            "vehicle_condition": "new",
+            "year": 2024,
+            "make": "Cadillac",
+            "model": "CT5-V",
+            "trim": "Blackwing",
+            "raw_title": "2024 Cadillac CT5-V Blackwing",
+            "price": 94995,
+            "listing_url": "https://dealer.example/ct5v-blackwing-2",
+        },
+        {
+            "vehicle_category": "car",
+            "vehicle_condition": "new",
+            "year": 2024,
+            "make": "Cadillac",
+            "model": "CT5-V",
+            "trim": "Blackwing",
+            "raw_title": "2024 Cadillac CT5-V Blackwing",
+            "price": 96995,
+            "listing_url": "https://dealer.example/ct5v-blackwing-3",
+        },
+        {
+            "vehicle_category": "car",
+            "vehicle_condition": "new",
+            "year": 2024,
+            "make": "Cadillac",
+            "model": "CT5-V",
+            "trim": "V-Series",
+            "raw_title": "2024 Cadillac CT5-V",
+            "price": 75995,
+            "listing_url": "https://dealer.example/ct5v-base-1",
+        },
+    ]
+
+    points = _historical_market_points_for_listing(listing, historical_pool)
+
+    assert [point["price"] for point in points] == [94995.0, 96995.0]
+
+
+def test_historical_market_points_skip_used_listings() -> None:
+    listing = VehicleListing(
+        vehicle_category="car",
+        vehicle_condition="used",
+        year=2024,
+        make="Honda",
+        model="Accord",
+        trim="Sport",
+        listing_url="https://dealer.example/accord-used-1",
+    )
+    historical_pool = [
+        {
+            "vehicle_category": "car",
+            "vehicle_condition": "used",
+            "year": 2024,
+            "make": "Honda",
+            "model": "Accord",
+            "trim": "Sport",
+            "price": 27995,
+            "listing_url": "https://dealer.example/accord-used-2",
+        },
+        {
+            "vehicle_category": "car",
+            "vehicle_condition": "used",
+            "year": 2024,
+            "make": "Honda",
+            "model": "Accord",
+            "trim": "Sport",
+            "price": 28495,
+            "listing_url": "https://dealer.example/accord-used-3",
+        },
+        {
+            "vehicle_category": "car",
+            "vehicle_condition": "used",
+            "year": 2024,
+            "make": "Honda",
+            "model": "Accord",
+            "trim": "Sport",
+            "price": 28995,
+            "listing_url": "https://dealer.example/accord-used-4",
+        },
+    ]
+
+    assert _historical_market_points_for_listing(listing, historical_pool) == []
 
 
 def test_needs_vdp_usage_enrichment_ignores_new_listings_missing_mileage() -> None:
@@ -262,6 +362,42 @@ def test_team_velocity_inventory_url_from_model_hub_preserves_model_path() -> No
         vehicle_condition="new",
     )
     assert rerouted == "https://www.example.com/inventory/new/chevrolet-blazer"
+
+
+def test_route_supports_team_velocity_style_inventory_reroute() -> None:
+    tv = ProviderRoute(
+        platform_id="team_velocity",
+        confidence=0.9,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles",),
+        inventory_url_hint=None,
+    )
+    assert _route_supports_team_velocity_style_inventory_reroute(tv) is True
+    di_hybrid = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=0.85,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles", "inventory/new"),
+        inventory_url_hint="https://www.example.com/new-vehicles/",
+    )
+    assert _route_supports_team_velocity_style_inventory_reroute(di_hybrid) is True
+    di_plain = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=0.85,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles", "new-inventory"),
+        inventory_url_hint="https://www.example.com/new-vehicles/",
+    )
+    assert _route_supports_team_velocity_style_inventory_reroute(di_plain) is False
 
 
 def test_dealer_on_multi_model_inventory_urls_builds_model_and_trim_filters() -> None:
@@ -1336,6 +1472,114 @@ async def test_stream_search_reroutes_team_velocity_model_hub_to_inventory_srp()
     assert mock_extract.call_args.kwargs["page_url"] == "https://www.jeffreyacura.com/inventory/new"
     assert mock_llm.await_count == 0
     assert '"listings_found": 1' in tail
+
+
+@pytest.mark.asyncio
+async def test_stream_search_reroutes_dealer_inspire_model_hub_when_hints_include_inventory_new() -> None:
+    """Stale dealer_inspire cache + /inventory/new hints must still reach the Vue SRP without a TV re-detect."""
+    from app.schemas import ExtractionResult, VehicleListing
+
+    dealers = [
+        DealershipFound(
+            name="Hybrid Inspire Dealer",
+            place_id="p1",
+            address="1 Main St",
+            website="https://www.hybrid-dealer.example/",
+        )
+    ]
+    model_hub_html = "<html><body><div>Results: 10 Vehicles</div></body></html>"
+    inventory_html = "<html><body><li class='v7list-results__item'>Inventory</li></body></html>"
+    fetch_calls: list[tuple[str, str]] = []
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        fetch_calls.append((url, page_kind))
+        if url == "https://www.hybrid-dealer.example/" and page_kind == "homepage":
+            return "<html><body><a href='/new-vehicles/'>New</a></body></html>", "direct"
+        if url == "https://www.hybrid-dealer.example/new-vehicles/" and page_kind == "inventory":
+            return model_hub_html, "direct"
+        if url == "https://www.hybrid-dealer.example/inventory/new" and page_kind == "inventory":
+            return inventory_html, "direct"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    detected_route = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=0.85,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles", "inventory/new"),
+        inventory_url_hint="https://www.hybrid-dealer.example/new-vehicles/",
+    )
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.platform_store.get",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.set_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch(
+            "app.services.orchestrator.detect_or_lookup_provider",
+            return_value=detected_route,
+        ),
+        patch(
+            "app.services.orchestrator.resolve_inventory_url_for_provider",
+            return_value="https://www.hybrid-dealer.example/new-vehicles/",
+        ),
+        patch(
+            "app.services.orchestrator.detect_platform_profile",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            return_value=ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2026,
+                        make="Acura",
+                        model="MDX",
+                        price=59995,
+                        listing_url="https://www.hybrid-dealer.example/viewdetails/new/VIN",
+                    )
+                ],
+                next_page_url=None,
+            ),
+        ) as mock_extract,
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+        ),
+    ):
+        async for _ in stream_search(
+            "Detroit, MI",
+            "Acura",
+            "",
+            vehicle_condition="new",
+            max_dealerships=1,
+            max_pages_per_dealer=1,
+        ):
+            pass
+
+    assert ("https://www.hybrid-dealer.example/inventory/new", "inventory") in fetch_calls
+    assert mock_extract.call_args is not None
+    assert mock_extract.call_args.kwargs["page_url"] == "https://www.hybrid-dealer.example/inventory/new"
 
 
 @pytest.mark.asyncio

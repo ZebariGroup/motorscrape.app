@@ -79,6 +79,21 @@ _INVENTORY_FAMILY_PLATFORM_IDS = frozenset(
 )
 
 
+def _route_supports_team_velocity_style_inventory_reroute(route: ProviderRoute | None) -> bool:
+    """True when /new-vehicles → /inventory/new style reroute is appropriate for this route."""
+    if route is None:
+        return False
+    if route.platform_id == "team_velocity":
+        return True
+    if route.platform_id != "dealer_inspire":
+        return False
+    for h in route.inventory_path_hints or ():
+        hl = (h or "").lower()
+        if "inventory/new" in hl or "inventory/used" in hl:
+            return True
+    return False
+
+
 def _team_velocity_inventory_url_from_model_hub(
     url: str | None,
     *,
@@ -234,6 +249,46 @@ def _mv_norm(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+_MV_TRIM_SIGNATURE_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "package",
+        "packages",
+        "pkg",
+        "edition",
+        "series",
+        "trim",
+        "style",
+        "styles",
+        "door",
+        "doors",
+        "sedan",
+        "coupe",
+        "convertible",
+        "hatchback",
+        "wagon",
+        "suv",
+        "truck",
+        "van",
+        "automatic",
+        "manual",
+        "auto",
+        "speed",
+        "speeds",
+        "awd",
+        "fwd",
+        "rwd",
+        "4wd",
+        "4x4",
+        "2wd",
+        "xdrive",
+        "quattro",
+        "4matic",
+        "cvt",
+        "dct",
+    }
+)
+
+
 def _mv_tokens(*values: Any) -> set[str]:
     tokens: set[str] = set()
     for value in values:
@@ -252,6 +307,43 @@ def _mv_overlap_ratio(base: set[str], candidate: set[str]) -> float:
         return 0.0
     overlap = sum(1 for token in base if token in candidate)
     return overlap / float(len(base))
+
+
+def _mv_trim_signature_tokens(*, make: Any, model: Any, trim: Any, raw_title: Any) -> set[str]:
+    make_tokens = _mv_tokens(make)
+    model_tokens = _mv_tokens(model)
+    tokens: set[str] = set()
+    for token in _mv_tokens(trim, raw_title):
+        if token in make_tokens or token in model_tokens or token in _MV_TRIM_SIGNATURE_STOPWORDS:
+            continue
+        if re.fullmatch(r"(?:19|20)\d{2}", token):
+            continue
+        tokens.add(token)
+    return tokens
+
+
+def _mv_has_trim_package_conflict(base: VehicleListing, candidate: dict[str, Any]) -> bool:
+    base_trim = _mv_norm(base.trim)
+    candidate_trim = _mv_norm(candidate.get("trim"))
+    if base_trim and candidate_trim and base_trim == candidate_trim:
+        return False
+    base_signature = _mv_trim_signature_tokens(
+        make=base.make,
+        model=base.model,
+        trim=base.trim,
+        raw_title=base.raw_title,
+    )
+    candidate_signature = _mv_trim_signature_tokens(
+        make=candidate.get("make"),
+        model=candidate.get("model"),
+        trim=candidate.get("trim"),
+        raw_title=candidate.get("raw_title"),
+    )
+    if not base_signature and not candidate_signature:
+        return False
+    if not base_signature or not candidate_signature:
+        return True
+    return base_signature != candidate_signature
 
 
 def _mv_similarity(base: VehicleListing, candidate: dict[str, Any]) -> float:
@@ -303,12 +395,18 @@ def _listing_market_identity_tokens(listing: VehicleListing) -> tuple[str, str, 
     return vin, vehicle_identifier, listing_url
 
 
+def _market_valuation_enabled_for_listing(listing: VehicleListing) -> bool:
+    return _mv_norm(listing.vehicle_condition) == "new"
+
+
 def _historical_market_points_for_listing(
     listing: VehicleListing,
     historical_pool: list[dict[str, Any]],
     *,
     max_prices: int = 40,
 ) -> list[dict[str, float]]:
+    if not _market_valuation_enabled_for_listing(listing):
+        return []
     base_make = _mv_norm(listing.make)
     base_model = _mv_norm(listing.model)
     base_category = _mv_norm(listing.vehicle_category)
@@ -349,6 +447,8 @@ def _historical_market_points_for_listing(
         ):
             continue
         if base_url and candidate_url and base_url == candidate_url:
+            continue
+        if _mv_has_trim_package_conflict(listing, candidate):
             continue
 
         score = _mv_similarity(listing, candidate)
@@ -2796,7 +2896,7 @@ async def stream_search(
                     inventory_path_hints=inventory_profile.inventory_path_hints,
                     inventory_url_hint=inv_url or base_url,
                 )
-            if route and route.platform_id == "team_velocity":
+            if route and _route_supports_team_velocity_style_inventory_reroute(route):
                 rerouted_inv_url = _team_velocity_inventory_url_from_model_hub(
                     inv_url,
                     vehicle_condition=vehicle_condition,
@@ -3291,6 +3391,9 @@ async def stream_search(
                     if historical_pool:
                         enriched_for_market_history: list[VehicleListing] = []
                         for listing in deduped_filtered:
+                            if not _market_valuation_enabled_for_listing(listing):
+                                enriched_for_market_history.append(listing)
+                                continue
                             historical_points = _historical_market_points_for_listing(listing, historical_pool)
                             if len(historical_points) < 3:
                                 enriched_for_market_history.append(listing)

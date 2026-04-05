@@ -5,7 +5,13 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from app.services.scraper import _zenrows_fetch, fetch_page_html
+from app.services.scraper import (
+    _direct_html_sufficient,
+    _has_rendered_sonic_vehicle_cards,
+    _looks_like_sonic_teamvelocity_spa,
+    _zenrows_fetch,
+    fetch_page_html,
+)
 from httpx import Response
 
 
@@ -394,6 +400,26 @@ async def test_fetch_page_html_oneaudi_shell_requires_render(
 
     assert method == "zenrows_rendered"
     assert "vehicle-card" in html
+
+
+def test_team_velocity_vue_srp_counts_inline_viewdetails_as_rendered() -> None:
+    """VDP links only in Vue/JSON (not <a href>) must not force the SPA shell path."""
+    html = """
+    <html><body>
+      <script src="https://cdn.secureoffersites.com/app.js"></script>
+      <script>var inventory_listing = {}; var resultCount = 51;</script>
+      <div class="inventory_listing dealer-id-1 design-2">
+        <div class="srp-vehicles-container">
+          <div @click='open(`https://dealer.example/viewdetails/new/VIN1`)'>1</div>
+          <div @click='open(`https://dealer.example/viewdetails/new/VIN2`)'>2</div>
+          <div @click='open(`https://dealer.example/viewdetails/new/VIN3`)'>3</div>
+        </div>
+      </div>
+    </body></html>
+    """
+    assert _has_rendered_sonic_vehicle_cards(html) is True
+    assert _looks_like_sonic_teamvelocity_spa(html) is False
+    assert _direct_html_sufficient(html, page_kind="inventory", platform_id="team_velocity") is True
 
 
 @respx.mock

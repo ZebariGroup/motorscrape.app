@@ -789,6 +789,19 @@ def _should_retry_zenrows_with_premium_proxy(html: str, *, page_kind: PageKind) 
 
 def _has_rendered_sonic_vehicle_cards(html: str) -> bool:
     """True when Sonic/TeamVelocity inventory cards are present in DOM, not just script blobs."""
+    lower = html.lower()
+    # Team Velocity "design-2" / Vue SRPs often put VDP URLs only in @click handlers or JSON
+    # blobs — no <a href="/viewdetails/..."> until hydration. Treat multiple /viewdetails/
+    # references plus listing chrome as populated HTML so we do not misclassify as a thin SPA.
+    if (
+        lower.count("/viewdetails/") >= 3
+        and (
+            "inventory_listing" in lower
+            or "vehiclebox" in lower
+            or "srp-vehicles-container" in lower
+        )
+    ):
+        return True
     try:
         soup = BeautifulSoup(html, "lxml")
     except Exception:
