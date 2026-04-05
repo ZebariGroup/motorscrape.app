@@ -1848,22 +1848,35 @@ def resolve_inventory_url_for_provider(
                 model=model,
             )
         elif route.platform_id == "team_velocity" and generic_base:
-            condition_path = "/inventory/used" if condition == "used" else "/inventory/new"
-            scoped_link = _find_model_scoped_inventory_link(
-                soup,
-                base_url,
-                model_norm=model_norm,
-                path_prefixes=(condition_path, "/--inventory"),
-            )
-            if scoped_link:
-                best_url = scoped_link
-            else:
+            # "All" searches should prefer Team Velocity's filtered inventory query URL over
+            # homepage model links. Those links are frequently new-only and can include
+            # body-style suffixes like /inventory/new/acura/integra-sedan, which have been
+            # observed to 0-result on Jeffrey Acura even though the canonical filtered query
+            # (or clean model path) returns stock.
+            if condition == "all":
                 best_url = _canonical_team_velocity_filtered_inventory_url(
                     generic_base,
                     condition=condition,
                     make=make,
                     model=model,
                 )
+            else:
+                condition_path = "/inventory/used" if condition == "used" else "/inventory/new"
+                scoped_link = _find_model_scoped_inventory_link(
+                    soup,
+                    base_url,
+                    model_norm=model_norm,
+                    path_prefixes=(condition_path, "/--inventory"),
+                )
+                if scoped_link:
+                    best_url = scoped_link
+                else:
+                    best_url = _canonical_team_velocity_filtered_inventory_url(
+                        generic_base,
+                        condition=condition,
+                        make=make,
+                        model=model,
+                    )
 
     if route and route.platform_id == "dealer_spike":
         best_url = _dealer_spike_prefer_legacy_asp_inventory_url(

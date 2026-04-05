@@ -1105,6 +1105,40 @@ def test_resolve_inventory_url_for_provider_builds_filtered_team_velocity_model_
     assert query.get("model") == ["Blazer"]
 
 
+def test_resolve_inventory_url_for_provider_prefers_team_velocity_filtered_query_for_all_model_search() -> None:
+    route = ProviderRoute(
+        platform_id="team_velocity",
+        confidence=1.0,
+        extraction_mode="hybrid",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory/new", "inventory/used", "inventory"),
+        inventory_url_hint="https://www.jeffreyacura.com/inventory/new",
+    )
+    html = """
+    <html><body>
+      <footer>Website by Team Velocity - https://www.teamvelocitymarketing.com/</footer>
+      <a href="/inventory/new/acura/integra-sedan">Integra</a>
+      <a href="/inventory/new/acura/mdx-suv">MDX</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.jeffreyacura.com/",
+        route,
+        fallback_url=route.inventory_url_hint,
+        make="Acura",
+        model="Integra",
+        vehicle_condition="all",
+    )
+    parsed = urlsplit(url)
+    assert parsed.path == "/--inventory"
+    query = parse_qs(parsed.query)
+    assert query.get("make") == ["Acura"]
+    assert query.get("model") == ["Integra"]
+
+
 def test_resolve_inventory_url_for_provider_handles_multi_model_filter_as_make_only_for_ddc() -> None:
     route = ProviderRoute(
         platform_id="dealer_dot_com",
