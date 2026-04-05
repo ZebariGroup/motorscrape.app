@@ -360,7 +360,8 @@ def test_team_velocity_model_inventory_urls_acura_integra_style_paths() -> None:
     """OEM-style /inventory/new/{make}/{model} links (e.g. Jeffrey Acura) must be discoverable."""
     html = """
     <html><body>
-      <a href="/inventory/new/acura/integra?paymenttype=lease">Integra</a>
+      <a href="/inventory/new/acura/integra?paymenttype=lease&amp;years=2026&amp;instock=true&amp;intransit=true&amp;inproduction=true">Integra</a>
+      <a href="/inventory/new/acura/integra">Integra</a>
       <a href="/inventory/new/acura/mdx">MDX</a>
     </body></html>
     """
@@ -370,7 +371,7 @@ def test_team_velocity_model_inventory_urls_acura_integra_style_paths() -> None:
         vehicle_condition="new",
         model="Integra",
     )
-    assert any("/acura/integra" in u.lower() for u in urls)
+    assert urls == ["https://www.dealer.example/inventory/new/acura/integra"]
     assert not any("/acura/mdx" in u.lower() for u in urls)
 
 

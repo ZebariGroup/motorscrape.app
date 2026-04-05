@@ -60,7 +60,7 @@ from app.services.provider_router import (
 )
 from app.services.providers import extract_with_provider
 from app.services.scrape_logging import ScrapeRunRecorder
-from app.services.scraper import PageKind, _looks_like_block_page, fetch_page_html
+from app.services.scraper import PageKind, _looks_like_block_page, _sanitize_inventory_query_url, fetch_page_html
 from app.services.vin_decoder import enrich_vehicle_listings_with_vin_data
 from app.sse import sse_pack
 
@@ -897,13 +897,14 @@ def _team_velocity_model_inventory_urls(
     out: list[str] = []
     seen: set[str] = set()
     for a in soup.find_all("a", href=True):
-        abs_url = urljoin(base_url, str(a["href"]))
-        path = urlsplit(abs_url).path.rstrip("/").lower()
-        query = {k.lower(): v.lower() for k, v in parse_qsl(urlsplit(abs_url).query, keep_blank_values=True)}
+        abs_url = _sanitize_inventory_query_url(urljoin(base_url, str(a["href"])))
+        parsed = urlsplit(abs_url)
+        path = parsed.path.rstrip("/").lower()
+        query = {k.lower(): v.lower() for k, v in parse_qsl(parsed.query, keep_blank_values=True)}
         if not (path.startswith(target_root + "/") or (path == "/--inventory" and model_tokens)):
             continue
         if model_tokens:
-            combined = re.sub(r"[^a-z0-9]", "", f"{path} {a.get_text(strip=True).lower()} {urlsplit(abs_url).query.lower()}")
+            combined = re.sub(r"[^a-z0-9]", "", f"{path} {a.get_text(strip=True).lower()} {parsed.query.lower()}")
             query_match = any(key in query for key in ("make", "model"))
             if not query_match and not any(token in combined for token in model_tokens):
                 continue

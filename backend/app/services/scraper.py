@@ -1210,6 +1210,13 @@ def _sanitize_inventory_query_url(url: str) -> str:
         parts = urlsplit(url)
         if not parts.query:
             return url
+        path_lower = parts.path.rstrip("/").lower()
+        path_segments = [segment for segment in path_lower.split("/") if segment]
+        scoped_inventory_model_path = (
+            len(path_segments) >= 4
+            and path_segments[0] == "inventory"
+            and path_segments[1] in {"new", "used"}
+        )
         keep_explicit = {
             "make",
             "model",
@@ -1248,6 +1255,14 @@ def _sanitize_inventory_query_url(url: str) -> str:
             lower = key.lower()
             if lower in keep_explicit:
                 out_pairs.append((key, value))
+                continue
+            if scoped_inventory_model_path:
+                # Jeffrey Acura / Team Velocity-style model pages often publish marketing
+                # facets like paymenttype/years/instock in addition to the real
+                # /inventory/new/{make}/{model} path. Those noisy query variants can
+                # return thinner HTML than the canonical model landing, so keep only
+                # structural paging/sort keys on these scoped URLs.
+                dropped = True
                 continue
             if lower.startswith("paymenttype") or lower == "payment":
                 dropped = True
