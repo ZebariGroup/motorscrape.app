@@ -40,6 +40,7 @@ from app.services.orchestrator_utils import (
     domain_fetch_limiter,
     effective_search_concurrency,
     guess_franchise_inventory_srp_url,
+    guess_franchise_inventory_srp_urls,
     html_mentions_make,
     html_mentions_model,
     prefer_https_website_url,
@@ -2448,8 +2449,12 @@ async def stream_search(
                 except asyncio.TimeoutError:
                     logger.warning(f"{cid_log}Scrape timed out for %s", website)
                     homepage_timed_out_msg = f"Timed out while fetching pages after ~{int(fetch_timeout)}s."
-                    guess_inv = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
-                    if guess_inv and guess_inv.rstrip("/") != prefer_https_website_url(base_url).rstrip("/"):
+                    guess_candidates = guess_franchise_inventory_srp_urls(base_url, vehicle_condition)
+                    homepage_norm = prefer_https_website_url(base_url).rstrip("/")
+                    rescued_from_homepage_timeout = False
+                    for guess_inv in guess_candidates:
+                        if guess_inv.rstrip("/") == homepage_norm:
+                            continue
                         await _emit(
                             sse_pack(
                                 "dealership",
@@ -2472,24 +2477,21 @@ async def stream_search(
                                 timeout=rescue_timeout,
                             )
                             seed_inventory_url = guess_inv
+                            rescued_from_homepage_timeout = True
                             logger.info(
                                 "Recovered dealership %s after homepage timeout using guessed SRP %s",
                                 d.name,
                                 guess_inv,
                             )
+                            break
                         except Exception as rescue_error:
                             logger.warning(
                                 "%sHomepage timeout rescue via guessed SRP failed for %s: %s",
                                 cid_log,
-                                website,
+                                guess_inv,
                                 rescue_error,
                             )
-                            if domain:
-                                record_provider_failure(domain)
-                            await append_dealer_error(homepage_timed_out_msg)
-                            await _record_dealer_score()
-                            return
-                    else:
+                    if not rescued_from_homepage_timeout:
                         if domain:
                             record_provider_failure(domain)
                         await append_dealer_error(homepage_timed_out_msg)
@@ -2497,8 +2499,12 @@ async def stream_search(
                         return
                 except Exception as e:
                     logger.warning(f"{cid_log}Scrape failed for %s: %s", website, e)
-                    guess_inv = guess_franchise_inventory_srp_url(base_url, vehicle_condition)
-                    if guess_inv and guess_inv.rstrip("/") != prefer_https_website_url(base_url).rstrip("/"):
+                    guess_candidates = guess_franchise_inventory_srp_urls(base_url, vehicle_condition)
+                    homepage_norm = prefer_https_website_url(base_url).rstrip("/")
+                    rescued_from_homepage_failure = False
+                    for guess_inv in guess_candidates:
+                        if guess_inv.rstrip("/") == homepage_norm:
+                            continue
                         await _emit(
                             sse_pack(
                                 "dealership",
@@ -2521,11 +2527,13 @@ async def stream_search(
                                 timeout=rescue_timeout,
                             )
                             seed_inventory_url = guess_inv
+                            rescued_from_homepage_failure = True
                             logger.info(
                                 "Recovered dealership %s after homepage fetch failure using guessed SRP %s",
                                 d.name,
                                 guess_inv,
                             )
+                            break
                         except Exception as rescue_error:
                             logger.warning(
                                 "%sHomepage rescue via guessed SRP failed for %s: %s",
@@ -2533,12 +2541,7 @@ async def stream_search(
                                 guess_inv,
                                 rescue_error,
                             )
-                            if domain:
-                                record_provider_failure(domain)
-                            await append_dealer_error(str(e))
-                            await _record_dealer_score()
-                            return
-                    else:
+                    if not rescued_from_homepage_failure:
                         if domain:
                             record_provider_failure(domain)
                         await append_dealer_error(str(e))

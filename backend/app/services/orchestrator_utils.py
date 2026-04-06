@@ -98,22 +98,28 @@ def guess_franchise_inventory_srp_url(website: str, vehicle_condition: str) -> s
     When homepage HTML is a bot shell (no usable <a> inventory links), many OEM-style
     dealers still serve SRPs at /inventory/new or /inventory/used on https://www.
     """
+    candidates = guess_franchise_inventory_srp_urls(website, vehicle_condition)
+    return candidates[0] if candidates else None
+
+
+def guess_franchise_inventory_srp_urls(website: str, vehicle_condition: str) -> list[str]:
+    """Return multiple guessed inventory SRP candidates, ordered by likelihood."""
     try:
         parts = urlsplit((website or "").strip())
         if not parts.scheme or not parts.netloc:
-            return None
+            return []
         host = parts.netloc.lower().split("@")[-1].split(":")[0]
         if not host:
-            return None
+            return []
         www_host = host if host.startswith("www.") else f"www.{host}"
         cond = (vehicle_condition or "all").strip().lower()
         if cond == "used":
-            path = "/inventory/used"
+            paths = ["/inventory/used", "/used-vehicles/"]
         else:
-            path = "/inventory/new"
-        return urlunsplit(("https", www_host, path, "", ""))
+            paths = ["/inventory/new", "/new-vehicles/"]
+        return [urlunsplit(("https", www_host, p, "", "")) for p in paths]
     except Exception:
-        return None
+        return []
 
 
 def effective_max_pages_for_route(requested_pages: int, route: ProviderRoute | None) -> int:

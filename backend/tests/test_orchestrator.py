@@ -33,6 +33,7 @@ from app.services.orchestrator_utils import (
     effective_max_pages_for_route,
     effective_search_concurrency,
     guess_franchise_inventory_srp_url,
+    guess_franchise_inventory_srp_urls,
     html_mentions_make,
     prefer_https_website_url,
 )
@@ -59,6 +60,18 @@ def test_guess_franchise_inventory_srp_url() -> None:
     assert guess_franchise_inventory_srp_url("https://www.dealer.example", "all") == (
         "https://www.dealer.example/inventory/new"
     )
+
+
+def test_guess_franchise_inventory_srp_urls_returns_multiple_candidates() -> None:
+    candidates = guess_franchise_inventory_srp_urls("https://www.mhchevy.com/", "new")
+    assert len(candidates) == 2
+    assert candidates[0] == "https://www.mhchevy.com/inventory/new"
+    assert candidates[1] == "https://www.mhchevy.com/new-vehicles/"
+
+    used = guess_franchise_inventory_srp_urls("https://www.mhchevy.com/", "used")
+    assert len(used) == 2
+    assert used[0] == "https://www.mhchevy.com/inventory/used"
+    assert used[1] == "https://www.mhchevy.com/used-vehicles/"
 
 
 def test_effective_max_pages_for_route_respects_requested_pages() -> None:
