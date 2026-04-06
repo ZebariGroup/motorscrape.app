@@ -28,6 +28,7 @@ from app.services.inventory_filters import (
     listing_matches_filters,
     listing_matches_inventory_scope,
     listing_matches_vehicle_condition,
+    normalize_vehicle_condition,
 )
 from app.services.inventory_result_cache import (
     get_cached_inventory_listings,
@@ -45,6 +46,7 @@ from app.services.orchestrator_utils import (
     html_mentions_model,
     prefer_https_website_url,
 )
+from app.services.parser import monolith as parser_monolith
 from app.services.parser import enrich_team_velocity_srp_pricing, extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.places import (
     PlacesSearchMetrics,
@@ -1208,6 +1210,89 @@ def _room58_detail_overlay(v: VehicleListing, html: str) -> VehicleListing | Non
     )
 
 
+def _generic_vehicle_detail_overlay(v: VehicleListing, html: str) -> VehicleListing | None:
+    if not v.listing_url or not parser_monolith._page_looks_like_vehicle_detail(v.listing_url, html):
+        return None
+
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return None
+
+    page_text = soup.get_text(" ", strip=True)
+    if not page_text:
+        return None
+
+    overlay_data: dict[str, Any] = {}
+    raw_title: str | None = None
+
+    title_node = soup.find("h1")
+    if title_node is not None:
+        raw_title = title_node.get_text(" ", strip=True)
+    if not raw_title:
+        meta = soup.find("meta", attrs={"property": "og:title"})
+        if meta is not None and meta.get("content"):
+            raw_title = str(meta.get("content")).strip()
+    if not raw_title and soup.title is not None:
+        raw_title = soup.title.get_text(" ", strip=True)
+    if raw_title:
+        raw_title = re.sub(r"\s+", " ", raw_title).strip()
+        raw_title = re.split(r"\s+[|:-]\s+", raw_title, maxsplit=1)[0].strip()
+        overlay_data["raw_title"] = raw_title
+        normalized_title = re.sub(
+            r"^(?:certified\s+pre[-\s]?owned|certified|cpo|used|new)\s+",
+            "",
+            raw_title,
+            flags=re.I,
+        )
+        title_fields = parser_monolith._parse_title_fields(normalized_title)
+        year = parser_monolith._coerce_int(title_fields.get("year"))
+        if year is not None:
+            overlay_data["year"] = year
+        if title_fields.get("make"):
+            overlay_data["make"] = str(title_fields["make"]).strip()
+        if title_fields.get("model"):
+            overlay_data["model"] = str(title_fields["model"]).strip()
+        if title_fields.get("trim"):
+            overlay_data["trim"] = str(title_fields["trim"]).strip()
+
+    usage_value, usage_unit = parser_monolith._pick_usage_from_dict(
+        {},
+        vehicle_category=v.vehicle_category or "car",
+        fallback_text=page_text,
+    )
+    if usage_value is not None and usage_unit is not None:
+        overlay_data["usage_value"] = usage_value
+        overlay_data["usage_unit"] = usage_unit
+        if usage_unit == "miles":
+            overlay_data["mileage"] = usage_value
+
+    vin = parser_monolith._extract_vin_from_text(page_text)
+    if vin:
+        overlay_data["vin"] = vin
+        overlay_data["vehicle_identifier"] = vin
+    else:
+        stock_number = parser_monolith._extract_stock_number_from_text(page_text)
+        if stock_number:
+            overlay_data["vehicle_identifier"] = stock_number
+
+    condition = (
+        normalize_vehicle_condition(raw_title)
+        or normalize_vehicle_condition(page_text)
+        or normalize_vehicle_condition(v.listing_url)
+    )
+    if condition:
+        overlay_data["vehicle_condition"] = condition
+
+    if not overlay_data:
+        return None
+    return VehicleListing(
+        vehicle_category=v.vehicle_category or "car",
+        listing_url=v.listing_url,
+        **overlay_data,
+    )
+
+
 def _effective_dealer_timeout(requested_pages: int) -> float:
     base_timeout = max(30.0, settings.dealership_timeout)
     if requested_pages >= 8:
@@ -1541,6 +1626,11 @@ def _extract_vdp_overlay_and_listings(
     prefer_detail_overlay: bool,
 ) -> tuple[VehicleListing | None, ExtractionResult | None]:
     detail_overlay = _room58_detail_overlay(vehicle, html) if prefer_detail_overlay else None
+    generic_overlay = _generic_vehicle_detail_overlay(vehicle, html)
+    if detail_overlay is not None and generic_overlay is not None:
+        detail_overlay = _merge_vehicle_detail(detail_overlay, generic_overlay)
+    elif generic_overlay is not None:
+        detail_overlay = generic_overlay
     ext = try_extract_vehicles_without_llm(
         page_url=vehicle.listing_url or "",
         html=html,

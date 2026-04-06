@@ -17,6 +17,7 @@ from app.services.orchestrator import (
     _effective_dealer_timeout,
     _effective_max_pages_for_route,
     _find_inventory_url,
+    _generic_vehicle_detail_overlay,
     _historical_market_points_for_listing,
     _inventory_url_uses_scoped_filters,
     _inventory_url_recovery_candidates,
@@ -331,6 +332,51 @@ def test_room58_detail_overlay_extracts_price_and_tracking_fields() -> None:
     assert overlay.exterior_color == "Vivid Black"
     assert overlay.vehicle_condition == "new"
     assert overlay.inventory_location == "Motown Harley-Davidson (Taylor, MI)"
+
+
+def test_generic_vehicle_detail_overlay_extracts_real_vdp_usage_fields() -> None:
+    html = """
+    <html><body>
+      <h1>Certified Pre-Owned 2022 Toyota Tacoma 4x4</h1>
+      <section>
+        <h2>The overview</h2>
+        <p>
+          Exterior Color Lunar Rock
+          Interior Color Cement
+          Odometer 50,099 miles
+          Body/Seating Truck Double Cab/5 seats
+          Fuel Economy 18/22 MPG City/Hwy
+          Details
+          Transmission 6-Speed
+          Drivetrain 4x4
+          Engine V-6 cyl
+          VIN 3TMCZ5ANXNM509639
+          Stock Number NM509639P
+        </p>
+      </section>
+    </body></html>
+    """
+    overlay = _generic_vehicle_detail_overlay(
+        VehicleListing(
+            vehicle_category="car",
+            listing_url=(
+                "https://www.suburbantoyotaoffarmingtonhills.com/certified/Toyota/"
+                "2022-Toyota-Tacoma-049bf024ac1823e7d7937e3e246d2117.htm"
+            ),
+        ),
+        html,
+    )
+    assert overlay is not None
+    assert overlay.raw_title == "Certified Pre-Owned 2022 Toyota Tacoma 4x4"
+    assert overlay.year == 2022
+    assert overlay.make == "Toyota"
+    assert overlay.model == "Tacoma"
+    assert overlay.mileage == 50099
+    assert overlay.usage_value == 50099
+    assert overlay.usage_unit == "miles"
+    assert overlay.vin == "3TMCZ5ANXNM509639"
+    assert overlay.vehicle_identifier == "3TMCZ5ANXNM509639"
+    assert overlay.vehicle_condition == "used"
 
 
 def test_dealer_inspire_model_inventory_urls_filters_to_requested_model() -> None:
