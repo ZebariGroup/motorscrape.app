@@ -15,6 +15,20 @@ def _geocode_response(lat: float, lng: float) -> dict[str, object]:
     return {"results": [{"geometry": {"location": {"lat": lat, "lng": lng}}}]}
 
 
+def _reverse_geocode_response(locality: str, region: str, *, country_code: str = "US") -> dict[str, object]:
+    return {
+        "results": [
+            {
+                "address_components": [
+                    {"long_name": locality, "short_name": locality, "types": ["locality", "political"]},
+                    {"long_name": region, "short_name": region, "types": ["administrative_area_level_1", "political"]},
+                    {"long_name": country_code, "short_name": country_code, "types": ["country", "political"]},
+                ]
+            }
+        ]
+    }
+
+
 @pytest.fixture
 def places_api_key(monkeypatch: pytest.MonkeyPatch) -> str:
     key = "test-google-key"
@@ -253,6 +267,30 @@ async def test_find_car_dealerships_happy_path(places_api_key: str, monkeypatch:
     assert len(out) >= 1
     assert isinstance(out[0], DealershipFound)
     assert out[0].website.startswith("https://ford-test.example")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_expand_large_radius_search_locations_adds_nearby_city_aliases(places_api_key: str) -> None:
+    geocode_route = respx.get(places.GEOCODE_URL).mock(
+        side_effect=[
+            Response(200, json=_geocode_response(42.4225, -83.1917)),
+            Response(200, json=_reverse_geocode_response("Detroit", "MI")),
+            Response(200, json=_reverse_geocode_response("Ann Arbor", "MI")),
+            Response(200, json=_reverse_geocode_response("Toledo", "OH")),
+            Response(200, json=_reverse_geocode_response("Lansing", "MI")),
+        ]
+    )
+
+    locations = await places.expand_large_radius_search_locations(
+        "48235",
+        radius_miles=250,
+        market_region="us",
+        max_locations=5,
+    )
+
+    assert locations == ["48235", "Detroit, MI", "Ann Arbor, MI", "Toledo, OH", "Lansing, MI"]
+    assert geocode_route.call_count == 5
 
 
 @respx.mock

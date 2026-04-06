@@ -129,6 +129,12 @@ class PlacesSearchMetrics:
         }
 
 
+@dataclass(slots=True)
+class _GeocodeLocationLabel:
+    search_label: str
+    country_code: str | None = None
+
+
 def _search_field_mask() -> str:
     if settings.places_discovery_include_website_uri:
         return DISCOVERY_FIELD_MASK_WITH_WEBSITE
@@ -489,6 +495,185 @@ async def _resolve_location_center(
     return center
 
 
+def _address_component_value(
+    components: list[dict[str, Any]],
+    *types: str,
+    short: bool = False,
+) -> str | None:
+    type_set = set(types)
+    for component in components:
+        raw_types = component.get("types")
+        if not isinstance(raw_types, list) or not any(t in type_set for t in raw_types):
+            continue
+        value = component.get("short_name" if short else "long_name")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+async def _reverse_geocode_search_label(
+    client: httpx.AsyncClient,
+    key: str,
+    *,
+    lat: float,
+    lng: float,
+    metrics: PlacesSearchMetrics | None = None,
+) -> _GeocodeLocationLabel | None:
+    params = {
+        "latlng": f"{lat:.6f},{lng:.6f}",
+        "key": key,
+        "result_type": "locality|postal_town|administrative_area_level_3|administrative_area_level_2",
+    }
+    if metrics is not None:
+        metrics.location_resolve_calls += 1
+    try:
+        r = await client.get(GEOCODE_URL, params=params)
+    except Exception as e:
+        logger.debug("Reverse geocode lookup failed for (%s, %s): %s", lat, lng, e)
+        return None
+    if metrics is not None:
+        metrics.bump_status(metrics.geocode_status_code_counts, r.status_code)
+    if r.status_code != 200:
+        logger.debug("Reverse geocode HTTP %s for (%s, %s): %s", r.status_code, lat, lng, r.text[:300])
+        return None
+    payload = r.json() if r.content else {}
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if not results or not isinstance(results, list):
+        return None
+
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        components = result.get("address_components")
+        if not isinstance(components, list):
+            continue
+        locality = _address_component_value(
+            components,
+            "locality",
+            "postal_town",
+            "administrative_area_level_3",
+            "administrative_area_level_2",
+        )
+        if not locality:
+            continue
+        region = _address_component_value(components, "administrative_area_level_1", short=True)
+        country_code = _address_component_value(components, "country", short=True)
+        label = locality if not region else f"{locality}, {region}"
+        return _GeocodeLocationLabel(search_label=label, country_code=country_code)
+    return None
+
+
+def _destination_point(*, lat: float, lng: float, bearing_degrees: float, distance_miles: float) -> tuple[float, float]:
+    angular_distance = distance_miles / EARTH_RADIUS_MILES
+    bearing = math.radians(bearing_degrees)
+    lat1 = math.radians(lat)
+    lng1 = math.radians(lng)
+    lat2 = math.asin(
+        math.sin(lat1) * math.cos(angular_distance)
+        + math.cos(lat1) * math.sin(angular_distance) * math.cos(bearing)
+    )
+    lng2 = lng1 + math.atan2(
+        math.sin(bearing) * math.sin(angular_distance) * math.cos(lat1),
+        math.cos(angular_distance) - math.sin(lat1) * math.sin(lat2),
+    )
+    return (math.degrees(lat2), ((math.degrees(lng2) + 540.0) % 360.0) - 180.0)
+
+
+def _should_expand_large_radius_locations(
+    *,
+    location: str,
+    radius_miles: int,
+    market_region: str,
+) -> bool:
+    if "|" in (location or ""):
+        return False
+    if radius_miles < 150:
+        return False
+    return (market_region or "").strip().lower() in {"", "us", "ca"}
+
+
+async def expand_large_radius_search_locations(
+    location: str,
+    *,
+    radius_miles: int,
+    market_region: str = "us",
+    max_locations: int = 5,
+    metrics: PlacesSearchMetrics | None = None,
+) -> list[str]:
+    """Add nearby city-style aliases for sparse large-radius ZIP/city searches."""
+    base_location = (location or "").strip()
+    if not base_location:
+        return []
+    max_locations = max(1, int(max_locations or 1))
+    locations: list[str] = [base_location]
+    if max_locations <= 1 or not _should_expand_large_radius_locations(location=base_location, radius_miles=radius_miles, market_region=market_region):
+        return locations
+    key = settings.google_places_api_key.strip()
+    if not key:
+        return locations
+
+    sample_distance = min(float(radius_miles) * 0.55, max(60.0, float(radius_miles) - 20.0))
+    bearings = (270.0, 180.0, 0.0, 90.0, 315.0, 225.0, 45.0, 135.0)
+    try:
+        async with httpx.AsyncClient() as client:
+            center = await _resolve_location_center(client, key, location=base_location, metrics=metrics)
+            if center is None:
+                return locations
+            origin_label = await _reverse_geocode_search_label(
+                client,
+                key,
+                lat=center[0],
+                lng=center[1],
+                metrics=metrics,
+            )
+            seen = {base_location.lower()}
+            same_country_code = origin_label.country_code if origin_label else None
+            if origin_label is not None and origin_label.search_label.lower() not in seen:
+                seen.add(origin_label.search_label.lower())
+                locations.append(origin_label.search_label)
+            for bearing in bearings:
+                if len(locations) >= max_locations:
+                    break
+                sample_lat, sample_lng = _destination_point(
+                    lat=center[0],
+                    lng=center[1],
+                    bearing_degrees=bearing,
+                    distance_miles=sample_distance,
+                )
+                alias = await _reverse_geocode_search_label(
+                    client,
+                    key,
+                    lat=sample_lat,
+                    lng=sample_lng,
+                    metrics=metrics,
+                )
+                if alias is None:
+                    continue
+                if same_country_code and alias.country_code and alias.country_code != same_country_code:
+                    continue
+                alias_key = alias.search_label.lower()
+                if alias_key in seen:
+                    continue
+                seen.add(alias_key)
+                locations.append(alias.search_label)
+    except Exception as e:
+        logger.debug("Large-radius location expansion failed for %r: %s", base_location, e)
+        return [base_location]
+    return locations[:max_locations]
+
+
+async def resolve_search_location_center(
+    location: str,
+    *,
+    metrics: PlacesSearchMetrics | None = None,
+) -> tuple[float, float] | None:
+    key = settings.google_places_api_key.strip()
+    if not key:
+        return None
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        return await _resolve_location_center(client, key, location=location, metrics=metrics)
+
+
 def _bounding_box_for_radius(*, center_lat: float, center_lng: float, radius_miles: int) -> dict[str, Any]:
     lat_delta_deg = math.degrees(radius_miles / EARTH_RADIUS_MILES)
     # Avoid division by zero at the poles.
@@ -784,6 +969,7 @@ async def find_dealerships(
     market_region: str = "us",
     metrics: PlacesSearchMetrics | None = None,
     query_variant_limit: int | None = None,
+    location_center_override: tuple[float, float] | None = None,
 ) -> list[DealershipFound]:
     """
     Find car dealerships near the given location using Places API (New) Text Search,
@@ -809,11 +995,11 @@ async def find_dealerships(
         radius_miles=requested_radius,
         market_region=market_region,
     )
-    use_search_cache = query_variant_limit is None
+    use_search_cache = query_variant_limit is None and location_center_override is None
     
     async with httpx.AsyncClient(timeout=30.0) as client:
-        location_center = None
-        if requested_radius >= max(1, int(settings.places_geocode_min_radius_miles or 0)):
+        location_center = location_center_override
+        if location_center is None and requested_radius >= max(1, int(settings.places_geocode_min_radius_miles or 0)):
             location_center = await _resolve_location_center(
                 client,
                 key,
@@ -1109,6 +1295,7 @@ async def find_car_dealerships(
     market_region: str = "us",
     metrics: PlacesSearchMetrics | None = None,
     query_variant_limit: int | None = None,
+    location_center_override: tuple[float, float] | None = None,
 ) -> list[DealershipFound]:
     return await find_dealerships(
         location,
@@ -1120,6 +1307,7 @@ async def find_car_dealerships(
         market_region=market_region,
         metrics=metrics,
         query_variant_limit=query_variant_limit,
+        location_center_override=location_center_override,
     )
 
 

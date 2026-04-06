@@ -46,7 +46,13 @@ from app.services.orchestrator_utils import (
     prefer_https_website_url,
 )
 from app.services.parser import enrich_team_velocity_srp_pricing, extract_vehicles_from_html, try_extract_vehicles_without_llm
-from app.services.places import PlacesSearchMetrics, find_car_dealerships, find_dealerships
+from app.services.places import (
+    PlacesSearchMetrics,
+    expand_large_radius_search_locations,
+    find_car_dealerships,
+    find_dealerships,
+    resolve_search_location_center,
+)
 from app.services.platform_store import normalize_dealer_domain, platform_store
 from app.services.provider_router import (
     ProviderRoute,
@@ -1261,7 +1267,7 @@ def _expand_page_budget(
     target_pages = _pagination_target_pages(pagination)
     if target_pages is not None:
         budget = max(budget, min(target_pages, absolute_cap))
-    elif has_pending_urls and budget < absolute_cap:
+    if has_pending_urls and budget < absolute_cap:
         budget += 1
     return budget
 
@@ -1796,8 +1802,12 @@ async def stream_search(
             locations = [location]
         if len(locations) > 5:
             locations = locations[:5]
-        
-        async def _fetch_for_loc(loc: str) -> list[DealershipFound]:
+
+        async def _fetch_for_loc(
+            loc: str,
+            *,
+            location_center_override: tuple[float, float] | None = None,
+        ) -> list[DealershipFound]:
             if (vehicle_category or "car").strip().lower() == "car":
                 return await find_car_dealerships(
                     loc,
@@ -1808,6 +1818,7 @@ async def stream_search(
                     market_region=market_region,
                     metrics=places_metrics,
                     query_variant_limit=query_variant_limit,
+                    location_center_override=location_center_override,
                 )
             return await find_dealerships(
                 loc,
@@ -1819,16 +1830,57 @@ async def stream_search(
                 market_region=market_region,
                 metrics=places_metrics,
                 query_variant_limit=query_variant_limit,
+                location_center_override=location_center_override,
             )
 
-        results = await asyncio.gather(*[_fetch_for_loc(loc) for loc in locations])
-        all_dealers: list[DealershipFound] = []
-        seen_place_ids: set[str] = set()
-        for dealers in results:
-            for d in dealers:
-                if d.place_id not in seen_place_ids:
-                    seen_place_ids.add(d.place_id)
-                    all_dealers.append(d)
+        async def _fetch_for_locations(
+            loc_list: list[str],
+            *,
+            location_center_override: tuple[float, float] | None = None,
+        ) -> list[DealershipFound]:
+            results = await asyncio.gather(
+                *[
+                    _fetch_for_loc(
+                        loc,
+                        location_center_override=location_center_override,
+                    )
+                    for loc in loc_list
+                ]
+            )
+            all_dealers: list[DealershipFound] = []
+            seen_place_ids: set[str] = set()
+            for dealers in results:
+                for d in dealers:
+                    if d.place_id not in seen_place_ids:
+                        seen_place_ids.add(d.place_id)
+                        all_dealers.append(d)
+            return all_dealers
+
+        all_dealers = await _fetch_for_locations(locations)
+        should_expand_locations = (
+            len(locations) == 1
+            and radius_miles >= 150
+            and bool((make or "").strip() or (model or "").strip())
+            and len(all_dealers) < min(6, candidate_limit)
+        )
+        if should_expand_locations:
+            base_location_center = await resolve_search_location_center(
+                locations[0],
+                metrics=places_metrics,
+            )
+            expanded_locations = await expand_large_radius_search_locations(
+                locations[0],
+                radius_miles=radius_miles,
+                market_region=market_region,
+                max_locations=5,
+                metrics=places_metrics,
+            )
+            extra_locations = [loc for loc in expanded_locations if loc not in locations]
+            if extra_locations:
+                all_dealers = await _fetch_for_locations(
+                    locations + extra_locations,
+                    location_center_override=base_location_center,
+                )
         return all_dealers
 
     async def _warm_dealer_metadata(candidate_dealers: list[DealershipFound]) -> None:
@@ -3511,12 +3563,24 @@ async def stream_search(
                             },
                         )
                     )
+                suspicious_dealer_dot_com_pagination = bool(
+                    route
+                    and route.platform_id == "dealer_dot_com"
+                    and current_url
+                    and current_url_scoped
+                    and pages_scraped == 0
+                    and normalized_vehicles
+                    and latest_pagination is not None
+                    and latest_pagination.source == "inventory_api"
+                    and latest_pagination.total_results is not None
+                    and latest_pagination.total_results < len(normalized_vehicles)
+                )
                 if (
                     route
                     and route.platform_id == "dealer_dot_com"
                     and make.strip()
                     and not model.strip()
-                    and not normalized_vehicles
+                    and (not normalized_vehicles or suspicious_dealer_dot_com_pagination)
                     and not dealer_dot_com_make_retry_attempted
                     and current_url
                 ):
@@ -3531,28 +3595,40 @@ async def stream_search(
                         queued_urls.add(retry_url)
                         pending_urls.insert(0, retry_url)
                         logger.info(
-                            "Retrying Dealer.com make search without query filter for %s: %s -> %s",
+                            "Retrying Dealer.com scoped search without query filter for %s: %s -> %s",
                             d.name,
                             current_url,
                             retry_url,
                         )
                     else:
                         # Current URL has no removable query filter (e.g. path-based /new-buick/…).
-                        # Fall back to the canonical SRP with ?make=X so the POST body injection kicks in.
+                        # For suspicious under-counted scoped pages, fan back out to the broad SRP and
+                        # rely on downstream make filtering. For true zero-result scoped pages, keep the
+                        # make query param so the Dealer.com POST-body injection can recover inventory.
                         try:
-                            parts = urlsplit(current_url)
-                            canonical = urlunsplit((
-                                parts.scheme,
-                                parts.netloc,
-                                "/new-inventory/index.htm" if vehicle_condition != "used" else "/used-inventory/index.htm",
-                                urlencode({"make": make}),
-                                "",
-                            ))
+                            if suspicious_dealer_dot_com_pagination:
+                                canonical = resolve_inventory_url_for_provider(
+                                    route,
+                                    website,
+                                    vehicle_condition=vehicle_condition,
+                                    make="",
+                                    model="",
+                                    fallback_url=base_url,
+                                )
+                            else:
+                                parts = urlsplit(current_url)
+                                canonical = urlunsplit((
+                                    parts.scheme,
+                                    parts.netloc,
+                                    "/new-inventory/index.htm" if vehicle_condition != "used" else "/used-inventory/index.htm",
+                                    urlencode({"make": make}),
+                                    "",
+                                ))
                             if canonical not in queued_urls:
                                 queued_urls.add(canonical)
                                 pending_urls.insert(0, canonical)
                                 logger.info(
-                                    "DDC path-based make page returned zero; falling back to canonical SRP for %s: %s",
+                                    "DDC scoped page looked unreliable for %s; falling back to canonical SRP: %s",
                                     d.name,
                                     canonical,
                                 )
