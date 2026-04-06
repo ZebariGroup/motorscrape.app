@@ -3566,6 +3566,13 @@ async def stream_search(
                     and not vdicts
                     and _looks_like_zero_inventory_results_page(current_html, current_url)
                 )
+                dealer_on_scoped_empty_results = bool(
+                    route
+                    and route.platform_id == "dealer_on"
+                    and current_url
+                    and not vdicts
+                    and current_url_scoped
+                )
                 tesla_zero_results = bool(
                     route
                     and route.platform_id == "tesla_inventory"
@@ -3580,7 +3587,12 @@ async def stream_search(
                     and not vdicts
                     and not current_url_scoped
                 )
-                if ford_scoped_zero_results or tesla_zero_results or tesla_unscoped_retry:
+                if (
+                    ford_scoped_zero_results
+                    or dealer_on_scoped_empty_results
+                    or tesla_zero_results
+                    or tesla_unscoped_retry
+                ):
                     recovery_candidates = _inventory_url_recovery_candidates(
                         inv_url=current_url,
                         base_url=base_url,

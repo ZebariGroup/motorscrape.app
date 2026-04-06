@@ -290,26 +290,26 @@ _MARINEMAX_BOATS_SRP_ZENROWS_JS = _compact_instruction_payload(
 
 _DEALER_ON_INVENTORY_ZENROWS_JS = _compact_instruction_payload(
     [
-        {"wait": 2000},
+        {"wait": 900},
         {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 5000));"},
-        {"wait": 1500},
+        {"wait": 800},
         {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 9000));"},
-        {"wait": 1500},
+        {"wait": 800},
         {"evaluate": "window.scrollTo(0, document.body.scrollHeight);"},
-        {"wait": 1500},
+        {"wait": 900},
     ]
 )
 
 
 _DEALER_INSPIRE_INVENTORY_ZENROWS_JS = _compact_instruction_payload(
     [
-        {"wait": 2000},
+        {"wait": 900},
         {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 5000));"},
-        {"wait": 1200},
+        {"wait": 700},
         {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 9000));"},
-        {"wait": 1200},
+        {"wait": 700},
         {"evaluate": "window.scrollTo(0, document.body.scrollHeight);"},
-        {"wait": 1500},
+        {"wait": 900},
     ]
 )
 

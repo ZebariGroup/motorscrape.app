@@ -1124,6 +1124,80 @@ async def test_stream_search_recovers_from_ford_family_zero_result_hyphen_url() 
 
 
 @pytest.mark.asyncio
+async def test_stream_search_recovers_from_dealer_on_scoped_empty_results() -> None:
+    from app.schemas import ExtractionResult, VehicleListing
+
+    dealers = [
+        DealershipFound(
+            name="George Matick Chevrolet",
+            place_id="p1",
+            address="14001 Telegraph Rd",
+            website="https://www.matickchevy.com/",
+        )
+    ]
+    scoped_url = "https://www.matickchevy.com/searchnew.aspx?Make=Chevrolet&Model=Blazer&ModelAndTrim=Blazer"
+    make_url = "https://www.matickchevy.com/searchnew.aspx?Make=Chevrolet"
+    route = ProviderRoute(
+        platform_id="dealer_on",
+        confidence=1.0,
+        extraction_mode="rendered_dom",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("searchnew.aspx", "searchused.aspx"),
+        inventory_url_hint=scoped_url,
+    )
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        if url == "https://www.matickchevy.com/" and page_kind == "homepage":
+            return "<html><body>DealerOn homepage</body></html>", "direct"
+        if url == scoped_url and page_kind == "inventory":
+            return "<html><body><div>Results: 0 Vehicles</div></body></html>", "direct"
+        if url == make_url and page_kind == "inventory":
+            return "<html><body><div class='vehicle-card'>Inventory</div></body></html>", "zenrows_rendered"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    def fake_extract(platform_id, **kwargs):
+        page_url = kwargs["page_url"]
+        if platform_id == "dealer_on" and page_url == scoped_url:
+            return ExtractionResult(vehicles=[], next_page_url=None, pagination=None)
+        if platform_id == "dealer_on" and page_url == make_url:
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2025,
+                        make="Chevrolet",
+                        model="Blazer",
+                        price=42995,
+                        listing_url="https://www.matickchevy.com/VehicleDetails/new-2025-Chevrolet-Blazer-1",
+                    )
+                ],
+                next_page_url=None,
+                pagination=None,
+            )
+        return None
+
+    with (
+        patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
+        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
+        patch("app.services.orchestrator.detect_or_lookup_provider", return_value=route),
+        patch("app.services.orchestrator.resolve_inventory_url_for_provider", return_value=scoped_url),
+        patch("app.services.orchestrator.extract_with_provider", side_effect=fake_extract),
+        patch("app.services.orchestrator.remember_provider_success", return_value=None),
+        patch("app.services.orchestrator.record_provider_failure", return_value=None),
+    ):
+        chunks: list[str] = []
+        async for c in stream_search("48235", "Chevrolet", "Blazer", max_dealerships=1, max_pages_per_dealer=1):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert make_url in tail
+    assert '"listings_found": 1' in tail
+
+
+@pytest.mark.asyncio
 async def test_stream_search_recovers_from_homepage_failure_with_guessed_inventory_srp() -> None:
     from app.schemas import ExtractionResult, VehicleListing
 
