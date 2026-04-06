@@ -3608,8 +3608,9 @@ async def stream_search(
                         try:
                             if suspicious_dealer_dot_com_pagination:
                                 canonical = resolve_inventory_url_for_provider(
-                                    route,
+                                    "",
                                     website,
+                                    route,
                                     vehicle_condition=vehicle_condition,
                                     make="",
                                     model="",

@@ -2497,6 +2497,161 @@ async def test_stream_search_retries_suspicious_dealer_dot_com_scoped_pagination
 
 
 @pytest.mark.asyncio
+async def test_stream_search_retries_path_scoped_dealer_dot_com_pagination_with_canonical_srp() -> None:
+    dealers = [
+        DealershipFound(
+            name="Suburban Volvo Cars",
+            place_id="p1",
+            address="1795 Maplelawn Rd",
+            website="https://www.suburbanvolvocars.com",
+        )
+    ]
+    route = ProviderRoute(
+        platform_id="dealer_dot_com",
+        confidence=1.0,
+        extraction_mode="structured_api",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-inventory",),
+        inventory_url_hint="https://www.suburbanvolvocars.com/new-inventory/index.htm",
+    )
+
+    async def fake_fetch(*_args, **_kwargs):
+        return "<html><body>Inventory</body></html>", "direct"
+
+    provider_results = [
+        ExtractionResult(
+            vehicles=[
+                VehicleListing(
+                    year=2025,
+                    make="Volvo",
+                    model="XC90",
+                    price=62000,
+                    listing_url="https://www.suburbanvolvocars.com/vdp/xc90-1",
+                ),
+                VehicleListing(
+                    year=2025,
+                    make="Volvo",
+                    model="XC60",
+                    price=57000,
+                    listing_url="https://www.suburbanvolvocars.com/vdp/xc60-2",
+                ),
+            ],
+            next_page_url=None,
+            pagination=PaginationInfo(
+                current_page=1,
+                page_size=9,
+                total_pages=1,
+                total_results=1,
+                source="inventory_api",
+            ),
+        ),
+        ExtractionResult(
+            vehicles=[
+                VehicleListing(
+                    year=2025,
+                    make="Volvo",
+                    model="XC90",
+                    price=62000,
+                    listing_url="https://www.suburbanvolvocars.com/vdp/xc90-1",
+                ),
+                VehicleListing(
+                    year=2025,
+                    make="Volvo",
+                    model="XC60",
+                    price=57000,
+                    listing_url="https://www.suburbanvolvocars.com/vdp/xc60-2",
+                ),
+                VehicleListing(
+                    year=2025,
+                    make="Volvo",
+                    model="S90",
+                    price=59000,
+                    listing_url="https://www.suburbanvolvocars.com/vdp/s90-3",
+                ),
+            ],
+            next_page_url=None,
+            pagination=PaginationInfo(
+                current_page=1,
+                page_size=18,
+                total_pages=1,
+                total_results=3,
+                source="inventory_api",
+            ),
+        ),
+    ]
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch(
+            "app.services.orchestrator.expand_large_radius_search_locations",
+            new_callable=AsyncMock,
+            return_value=["48235"],
+        ),
+        patch(
+            "app.services.orchestrator.get_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.set_cached_inventory_listings",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch(
+            "app.services.orchestrator.detect_or_lookup_provider",
+            return_value=route,
+        ),
+        patch(
+            "app.services.orchestrator.detect_platform_profile",
+            return_value=None,
+        ),
+        patch(
+            "app.services.orchestrator.resolve_inventory_url_for_provider",
+            side_effect=[
+                "https://www.suburbanvolvocars.com/new/volvo/",
+                "https://www.suburbanvolvocars.com/new-inventory/index.htm",
+            ],
+        ) as mock_resolve_inventory_url,
+        patch(
+            "app.services.orchestrator.extract_with_provider",
+            side_effect=provider_results,
+        ) as mock_provider_extract,
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+        ) as mock_llm,
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "48235",
+            "Volvo",
+            "",
+            vehicle_condition="new",
+            radius_miles=250,
+            max_dealerships=1,
+            max_pages_per_dealer=1,
+        ):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert mock_provider_extract.call_count == 2
+    assert mock_resolve_inventory_url.call_count == 2
+    assert mock_llm.await_count == 0
+    assert "https://www.suburbanvolvocars.com/new-inventory/index.htm" in tail
+    assert "https://www.suburbanvolvocars.com/vdp/s90-3" in tail
+    assert '"listings_found": 3' in tail
+
+
+@pytest.mark.asyncio
 async def test_stream_search_oneaudi_bypasses_raw_html_make_model_gate() -> None:
     from app.schemas import ExtractionResult, VehicleListing
 
