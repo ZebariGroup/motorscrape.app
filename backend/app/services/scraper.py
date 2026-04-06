@@ -723,6 +723,27 @@ def _looks_like_empty_inventory_shell(html: str) -> bool:
     return True
 
 
+def _dealer_on_has_only_skeleton_cards(html: str) -> bool:
+    """DealerOn SRPs ship empty skeleton vehicle-card divs that JS populates later.
+
+    When every vehicle-card element carries the ``skeleton`` class and there are
+    no populated data-vin attributes beyond JSON-LD, direct HTML is insufficient
+    and the page must be JS-rendered to get real inventory.
+    """
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        return False
+    cards = soup.select(".vehicle-card")
+    if not cards:
+        return False
+    non_skeleton = [c for c in cards if "skeleton" not in (c.get("class") or [])]
+    if non_skeleton:
+        return False
+    populated = soup.select("[data-vehicle-title], [data-make], [data-model]")
+    return len(populated) == 0
+
+
 def _has_dom_inventory_result_tiles(html: str) -> bool:
     try:
         soup = BeautifulSoup(html, "lxml")
@@ -901,6 +922,8 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str 
             return True
     elif page_kind == "inventory" and platform_id == "dealer_on":
         if _looks_like_empty_inventory_shell(html):
+            return False
+        if _dealer_on_has_only_skeleton_cards(html):
             return False
         if _html_looks_inventory_ready(html, platform_id=platform_id):
             return True

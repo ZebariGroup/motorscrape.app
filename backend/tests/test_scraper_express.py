@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.services.scraper import (
+    _dealer_on_has_only_skeleton_cards,
     _extract_inventory_api_urls,
     _extract_inventory_get_requests,
     _host_is_express_retail,
@@ -42,6 +43,34 @@ def test_should_retry_zenrows_with_premium_proxy_for_block_pages() -> None:
 def test_should_retry_zenrows_with_premium_proxy_for_inventory_placeholders() -> None:
     html = '<html><body><div class="vehicle-card vehicle-card--mod skeleton"></div></body></html>'
     assert _should_retry_zenrows_with_premium_proxy(html, page_kind="inventory")
+
+
+def test_dealer_on_skeleton_cards_detected_as_unpopulated() -> None:
+    html = """
+    <html><body>
+      <div class="vehicle-card vehicle-card--mod skeleton"></div>
+      <div class="vehicle-card vehicle-card--mod skeleton"></div>
+      <div class="vehicle-card vehicle-card--mod skeleton"></div>
+      <script src="/api/vhcliaa/pages/searchResultsPage/searchResultsPageWasabiBundle.min.js"></script>
+    </body></html>
+    """
+    assert _dealer_on_has_only_skeleton_cards(html) is True
+
+
+def test_dealer_on_populated_cards_not_flagged_as_skeleton() -> None:
+    html = """
+    <html><body>
+      <div class="vehicle-card vehicle-card--mod" data-vehicle-title="2025 Chevrolet Blazer">
+        <span>2025 Chevrolet Blazer</span>
+      </div>
+    </body></html>
+    """
+    assert _dealer_on_has_only_skeleton_cards(html) is False
+
+
+def test_dealer_on_no_cards_not_flagged_as_skeleton() -> None:
+    html = "<html><body><div>No inventory</div></body></html>"
+    assert _dealer_on_has_only_skeleton_cards(html) is False
 
 
 def test_rewrite_inventory_post_body_for_page_uses_start_offset() -> None:
