@@ -166,10 +166,10 @@ def _inventory_ready_playwright_instructions(scroll_rounds: int = 2) -> str:
     return _compact_instruction_payload(steps)
 
 
-def _dealer_on_playwright_instructions(scroll_rounds: int = 2) -> str:
+def _dealer_on_playwright_instructions(scroll_rounds: int = 3) -> str:
     steps: list[dict[str, Any]] = [
-        {"wait_for_response_url": "/api/vhcliaa/", "timeout_ms": 2500},
-        {"wait_for_selector": ".vehicle-card--mod,.vehicle-card", "timeout_ms": 5000},
+        {"wait_for_response_url": "/api/vhcliaa/", "timeout_ms": 5000},
+        {"wait_for_selector": ".vehicle-card--mod,.vehicle-card", "timeout_ms": 8000},
     ]
     for _ in range(max(1, scroll_rounds)):
         steps.extend(
@@ -288,6 +288,32 @@ _MARINEMAX_BOATS_SRP_ZENROWS_JS = _compact_instruction_payload(
 )
 
 
+_DEALER_ON_INVENTORY_ZENROWS_JS = _compact_instruction_payload(
+    [
+        {"wait": 2000},
+        {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 5000));"},
+        {"wait": 1500},
+        {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 9000));"},
+        {"wait": 1500},
+        {"evaluate": "window.scrollTo(0, document.body.scrollHeight);"},
+        {"wait": 1500},
+    ]
+)
+
+
+_DEALER_INSPIRE_INVENTORY_ZENROWS_JS = _compact_instruction_payload(
+    [
+        {"wait": 2000},
+        {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 5000));"},
+        {"wait": 1200},
+        {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 9000));"},
+        {"wait": 1200},
+        {"evaluate": "window.scrollTo(0, document.body.scrollHeight);"},
+        {"wait": 1500},
+    ]
+)
+
+
 _FORD_FAMILY_INVENTORY_ZENROWS_JS = _compact_instruction_payload(
     [
         {"wait": 1800},
@@ -309,6 +335,10 @@ def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None 
         return None
     if _looks_like_oneaudi_falcon_inventory_url(url):
         return _ONEAUDI_FALCON_INVENTORY_JS_INSTRUCTIONS.strip()
+    if platform_id == "dealer_on":
+        return _DEALER_ON_INVENTORY_ZENROWS_JS.strip()
+    if platform_id == "dealer_inspire":
+        return _DEALER_INSPIRE_INVENTORY_ZENROWS_JS.strip()
     if platform_id == "marinemax" and "boats-for-sale" in url.lower():
         return _MARINEMAX_BOATS_SRP_ZENROWS_JS.strip()
     if platform_id in {

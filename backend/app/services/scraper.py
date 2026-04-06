@@ -457,6 +457,7 @@ async def fetch_page_html(
     playwright_instructions = inventory_render_plan.playwright_instructions if inventory_render_plan else None
     zenrows_js_instructions = inventory_render_plan.zenrows_js_instructions if inventory_render_plan else None
     attempted_playwright_early = False
+    direct_was_insufficient = False
 
     if (
         prefer_render
@@ -498,6 +499,7 @@ async def fetch_page_html(
                 return html, "direct"
             if _should_prefer_zenrows_render(html, page_kind=page_kind):
                 prefer_render = True
+            direct_was_insufficient = True
             logger.info(
                 "Direct fetch insufficient for %s (%s), escalating to managed scrapers",
                 direct_url,
@@ -535,7 +537,14 @@ async def fetch_page_html(
 
     # 2) ZenRows: static then rendered
     if settings.zenrows_api_key:
-        if not prefer_render:
+        skip_zenrows_static = (
+            prefer_render
+            or (
+                direct_was_insufficient
+                and platform_id in _DIRECT_FIRST_RENDER_PREFERRED_PLATFORMS
+            )
+        )
+        if not skip_zenrows_static:
             failure_count_before_static = len(failures)
             html = await zenrows_try_once(
                 url=effective_url,

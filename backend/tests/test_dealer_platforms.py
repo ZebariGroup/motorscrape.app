@@ -83,6 +83,67 @@ def test_playwright_inventory_instructions_include_dealer_on_network_wait() -> N
     assert any(step.get("wait_for_selector") == ".vehicle-card--mod,.vehicle-card" for step in steps)
 
 
+def test_dealer_on_playwright_recipe_has_sufficient_timeouts_for_large_inventories() -> None:
+    instructions = playwright_inventory_instructions_for_url(
+        "https://www.autonationchevroletgulffreeway.com/searchnew.aspx",
+        platform_id="dealer_on",
+    )
+    assert instructions is not None
+    steps = json.loads(instructions)
+    api_wait = next(s for s in steps if s.get("wait_for_response_url") == "/api/vhcliaa/")
+    assert api_wait["timeout_ms"] >= 5000
+    card_wait = next(s for s in steps if s.get("wait_for_selector") == ".vehicle-card--mod,.vehicle-card" and s.get("timeout_ms", 0) >= 5000)
+    assert card_wait["timeout_ms"] >= 8000
+    scroll_count = sum(1 for s in steps if s.get("scroll") == "bottom")
+    assert scroll_count >= 3
+
+
+def test_zenrows_js_instructions_exist_for_dealer_on() -> None:
+    instructions = zenrows_inventory_js_instructions_for_url(
+        "https://www.autonationchevroletgulffreeway.com/searchnew.aspx",
+        platform_id="dealer_on",
+    )
+    assert instructions is not None
+    steps = json.loads(instructions)
+    total_wait_ms = sum(step.get("wait", 0) for step in steps if isinstance(step.get("wait"), int))
+    assert total_wait_ms < _ZENROWS_JS_INSTRUCTIONS_WAIT_LIMIT_MS
+    assert any(step.get("evaluate", "").startswith("window.scrollTo") for step in steps)
+    assert len(steps) >= 4
+
+
+def test_zenrows_js_instructions_exist_for_dealer_inspire() -> None:
+    instructions = zenrows_inventory_js_instructions_for_url(
+        "https://www.classicchevysugarland.com/new-vehicles/",
+        platform_id="dealer_inspire",
+    )
+    assert instructions is not None
+    steps = json.loads(instructions)
+    total_wait_ms = sum(step.get("wait", 0) for step in steps if isinstance(step.get("wait"), int))
+    assert total_wait_ms < _ZENROWS_JS_INSTRUCTIONS_WAIT_LIMIT_MS
+    assert any(step.get("evaluate", "").startswith("window.scrollTo") for step in steps)
+    assert len(steps) >= 4
+
+
+def test_inventory_render_plan_includes_zenrows_js_for_dealer_on() -> None:
+    plan = inventory_render_plan_for_url(
+        "https://dealer.example/searchnew.aspx",
+        platform_id="dealer_on",
+    )
+    assert plan.zenrows_js_instructions is not None
+    assert plan.playwright_instructions is not None
+    assert plan.zenrows_wait_ms == 1500
+
+
+def test_inventory_render_plan_includes_zenrows_js_for_dealer_inspire() -> None:
+    plan = inventory_render_plan_for_url(
+        "https://dealer.example/new-vehicles/",
+        platform_id="dealer_inspire",
+    )
+    assert plan.zenrows_js_instructions is not None
+    assert plan.playwright_instructions is not None
+    assert plan.zenrows_wait_ms == 2000
+
+
 def test_detect_platform_profile_matches_dealer_on_without_requiring_render() -> None:
     html = """
     <html><body>

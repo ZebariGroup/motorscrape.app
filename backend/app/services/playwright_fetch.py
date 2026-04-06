@@ -248,9 +248,11 @@ async def fetch_html_via_playwright(url: str, js_instructions: str | None = None
             post = max(0, settings.playwright_post_load_wait_ms)
             if post:
                 await page.wait_for_timeout(post)
-            # Wait for network idle to ensure JS renders if it's a SPA
+            # Wait for network idle to ensure JS renders if it's a SPA.
+            # Recipe pages already have targeted selector waits so 4s is enough;
+            # generic pages use 6s — longer waits are wasted on ad/analytics pixels.
             try:
-                await page.wait_for_load_state("networkidle", timeout=4000 if targeted_waits else 10000)
+                await page.wait_for_load_state("networkidle", timeout=4000 if targeted_waits else 6000)
             except Exception:
                 pass
             await _apply_js_instructions(page, js_instructions)
