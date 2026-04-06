@@ -2091,6 +2091,60 @@ def _pick_dom_vehicle_image(card: Any, page_url: str) -> str | None:
     return None
 
 
+def _extract_dom_vehicle_vin(card: Any) -> str | None:
+    """Recover VINs from DOM-only inventory cards that do not expose a VDP link."""
+
+    def _vin_from_candidate(raw: Any) -> str | None:
+        if raw in (None, "", [], {}):
+            return None
+        if isinstance(raw, (list, tuple, set)):
+            text = " ".join(str(part) for part in raw if part not in (None, ""))
+        else:
+            text = str(raw)
+        if not text.strip():
+            return None
+        try:
+            parts = urlsplit(text)
+        except Exception:
+            parts = None
+        if parts is not None and parts.query:
+            for key, value in parse_qsl(parts.query, keep_blank_values=True):
+                if key.lower() != "vin":
+                    continue
+                normalized = _normalize_vehicle_identifier(value, vehicle_category="car")
+                if normalized and len(normalized) == 17:
+                    return normalized
+        return _extract_vin_from_text(text)
+
+    direct_candidates = (
+        card.get("href"),
+        card.get("data-href"),
+        card.get("data-url"),
+        card.get("data-image"),
+        card.get("id"),
+        card.get("class"),
+    )
+    for candidate in direct_candidates:
+        vin = _vin_from_candidate(candidate)
+        if vin:
+            return vin
+
+    for node in card.select("img, [class*='evox-media'], [id*='evox-media'], [href], [src], [data-src], [data-lazy-src]"):
+        for candidate in (
+            node.get("src"),
+            node.get("data-src"),
+            node.get("data-lazy-src"),
+            node.get("srcset"),
+            node.get("href"),
+            node.get("id"),
+            node.get("class"),
+        ):
+            vin = _vin_from_candidate(candidate)
+            if vin:
+                return vin
+    return None
+
+
 def _parse_dom_vehicle_payload(card: Any) -> dict[str, Any]:
     raw = card.get("data-vehicle")
     if not raw:
@@ -2479,6 +2533,7 @@ def extract_dom_vehicle_cards(
             or tv_vin
             or _tv_itemid_vin
             or _tv_inner_vin
+            or _extract_dom_vehicle_vin(card)
             or _extract_vin_from_text(card_text)
         )
         make = (

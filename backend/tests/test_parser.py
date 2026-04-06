@@ -356,6 +356,60 @@ def test_incentive_deduction_label_not_mistaken_for_vehicle_price() -> None:
     assert v.price != pytest.approx(1000)
 
 
+def test_try_extract_honda_acura_dom_vin_from_image_url_merges_images_into_ga4_rows() -> None:
+    html = """
+    <html><body>
+      <script>
+        var ga4ASCDataLayerVehicle = '[{"item_make":"Acura","item_model":"MDX","item_year":2026,
+          "item_id":"5J8YE1H33TL011152","item_price":55950,"item_condition":"new","item_number":"J011152"},
+          {"item_make":"Acura","item_model":"MDX","item_year":2026,
+          "item_id":"5J8YE1H39TL005887","item_price":56950,"item_condition":"new","item_number":"J005887"}]';
+      </script>
+      <section id="srp">
+        <a class="inventory-car-parent-box vehicle-box"
+           href="https://www.jeffreyacura.com/inventory/new/acura/mdx?paymenttype=lease&amp;years=2026&amp;instock=true">
+          <div class="step1-vehiclebox-image vehiclebox-image">
+            <div v-show="currentHoveredBlock !== 'dp-srp-evox-media-5J8YE1H33TL011152'">
+              <img alt="2026 Acura MDX" class="img-fluid"
+                   src="https://service.secureoffersites.com/images/GetEvoxImage?styleid=475869&amp;vin=5J8YE1H33TL011152&amp;vehicletype=SUV&amp;angle=032"/>
+            </div>
+          </div>
+          <div class="vehicle-content">
+            <div class="vehiclebox-title"><h2>2026 Acura <span>MDX</span></h2></div>
+            <div>Lease starting at $469/Month</div>
+          </div>
+        </a>
+        <a class="inventory-car-parent-box vehicle-box"
+           href="https://www.jeffreyacura.com/inventory/new/acura/mdx?paymenttype=lease&amp;years=2026&amp;instock=true">
+          <div class="step1-vehiclebox-image vehiclebox-image">
+            <div v-show="currentHoveredBlock !== 'dp-srp-evox-media-5J8YE1H39TL005887'">
+              <img alt="2026 Acura MDX" class="img-fluid"
+                   src="https://service.secureoffersites.com/images/GetEvoxImage?styleid=475870&amp;vin=5J8YE1H39TL005887&amp;vehicletype=SUV&amp;angle=032"/>
+            </div>
+          </div>
+          <div class="vehicle-content">
+            <div class="vehiclebox-title"><h2>2026 Acura <span>MDX</span></h2></div>
+            <div>Lease starting at $489/Month</div>
+          </div>
+        </a>
+      </section>
+    </body></html>
+    """
+    result = try_extract_vehicles_without_llm(
+        page_url="https://www.jeffreyacura.com/inventory/new",
+        html=html,
+        make_filter="Acura",
+        model_filter="MDX",
+        platform_id="honda_acura_inventory",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 2
+    vehicles = sorted(result.vehicles, key=lambda vehicle: vehicle.vin or "")
+    assert [vehicle.vin for vehicle in vehicles] == ["5J8YE1H33TL011152", "5J8YE1H39TL005887"]
+    assert vehicles[0].image_url is not None and "vin=5J8YE1H33TL011152" in vehicles[0].image_url
+    assert vehicles[1].image_url is not None and "vin=5J8YE1H39TL005887" in vehicles[1].image_url
+
+
 def test_fetch_team_velocity_payment_quote_does_not_label_loan_as_lease() -> None:
     """
     When the Team Velocity API only returns Loan (finance) rows and no Closed End (lease)
