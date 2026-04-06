@@ -1077,6 +1077,41 @@ def test_resolve_inventory_url_for_provider_prefers_filtered_dealer_inspire_url_
     assert query.get("_dFR[model][0]") == ["Blazer"]
 
 
+def test_resolve_inventory_url_for_provider_prefers_first_filtered_dealer_inspire_url_for_multi_model() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=1.0,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles", "used-vehicles"),
+        inventory_url_hint="https://www.serrachevrolet.com/new-vehicles/",
+    )
+    html = """
+    <html><body>
+      <a href="/new-vehicles/">All New Vehicles</a>
+      <a href="/new-vehicles/chevrolet-blazer/">Chevrolet Blazer</a>
+      <a href="/new-vehicles/chevrolet-blazer-ev/">Chevrolet Blazer EV</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.serrachevrolet.com/",
+        route,
+        fallback_url=route.inventory_url_hint,
+        make="Chevrolet",
+        model="Blazer,Blazer EV",
+        vehicle_condition="new",
+    )
+    parsed = urlsplit(url)
+    assert parsed.path == "/new-vehicles/"
+    query = parse_qs(parsed.query)
+    assert query.get("_dFR[type][0]") == ["New"]
+    assert query.get("_dFR[make][0]") == ["Chevrolet"]
+    assert query.get("_dFR[model][0]") == ["Blazer"]
+
+
 def test_resolve_inventory_url_for_provider_builds_filtered_team_velocity_model_query() -> None:
     route = ProviderRoute(
         platform_id="team_velocity",

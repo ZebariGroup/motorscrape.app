@@ -1334,10 +1334,14 @@ def resolve_inventory_url_for_provider(
     hints = tuple(h.lower() for h in (route.inventory_path_hints if route else ()))
     make_norm = normalize_model_text(make)
     make_norms = make_filter_normalized_variants(make)
-    model = (model or "").strip()
-    multi_model_filter = "," in model
+    requested_models = [part.strip() for part in (model or "").split(",") if part.strip()]
+    multi_model_filter = len(requested_models) > 1
     if multi_model_filter:
-        model = ""
+        # Dealer Inspire can accept one model per filtered SRP URL, so keep the first
+        # model scoped here and let the orchestrator fan out across the remainder.
+        model = requested_models[0] if route and route.platform_id == "dealer_inspire" else ""
+    else:
+        model = requested_models[0] if requested_models else ""
     model_norm = _norm(model)
     current_url = _normalize_inventory_candidate_url(base_url)
 

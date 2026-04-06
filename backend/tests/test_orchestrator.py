@@ -1602,6 +1602,130 @@ async def test_stream_search_reroutes_dealer_inspire_model_hub_when_hints_includ
 
 
 @pytest.mark.asyncio
+async def test_stream_search_prefilters_dealer_inspire_multi_model_queries() -> None:
+    dealers = [
+        DealershipFound(
+            name="Classic Chevrolet Sugar Land",
+            place_id="p1",
+            address="13115 Southwest Fwy, Sugar Land, TX 77478, USA",
+            website="https://www.classicchevysugarland.com/",
+        )
+    ]
+    blazer_url = (
+        "https://www.classicchevysugarland.com/new-vehicles/"
+        "?_dFR%5Btype%5D%5B0%5D=New&_dFR%5Bmake%5D%5B0%5D=Chevrolet&_dFR%5Bmodel%5D%5B0%5D=Blazer"
+    )
+    blazer_ev_url = (
+        "https://www.classicchevysugarland.com/new-vehicles/"
+        "?_dFR%5Btype%5D%5B0%5D=New&_dFR%5Bmake%5D%5B0%5D=Chevrolet&_dFR%5Bmodel%5D%5B0%5D=Blazer+EV"
+    )
+    fetch_calls: list[tuple[str, str]] = []
+    structured_calls: list[str] = []
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        fetch_calls.append((url, page_kind))
+        if url == "https://www.classicchevysugarland.com/" and page_kind == "homepage":
+            return "<html><body><a href='/new-vehicles/'>New Vehicles</a></body></html>", "direct"
+        if url == blazer_url and page_kind == "inventory":
+            return "<html><body><div>filtered-blazer</div></body></html>", "direct"
+        if url == blazer_ev_url and page_kind == "inventory":
+            return "<html><body><div>filtered-blazer-ev</div></body></html>", "direct"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    def structured_result_for_url(*, page_url: str, html: str, **_kwargs):
+        structured_calls.append(page_url)
+        if page_url == blazer_url:
+            assert "filtered-blazer" in html
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2025,
+                        make="Chevrolet",
+                        model="Blazer",
+                        price=44995,
+                        listing_url="https://www.classicchevysugarland.com/viewdetails/new/BLAZER1",
+                    )
+                ],
+                next_page_url=None,
+            )
+        if page_url == blazer_ev_url:
+            assert "filtered-blazer-ev" in html
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2025,
+                        make="Chevrolet",
+                        model="Blazer EV",
+                        price=52995,
+                        listing_url="https://www.classicchevysugarland.com/viewdetails/new/BLAZEREV1",
+                    )
+                ],
+                next_page_url=None,
+            )
+        raise AssertionError(f"unexpected extraction {page_url}")
+
+    detected_route = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=0.95,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles", "used-vehicles"),
+        inventory_url_hint="https://www.classicchevysugarland.com/new-vehicles/",
+    )
+
+    with (
+        patch(
+            "app.services.orchestrator.find_car_dealerships",
+            new_callable=AsyncMock,
+            return_value=dealers,
+        ),
+        patch("app.services.orchestrator.platform_store.get", return_value=None),
+        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
+        patch(
+            "app.services.orchestrator.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=fake_fetch,
+        ),
+        patch("app.services.orchestrator.detect_or_lookup_provider", return_value=detected_route),
+        patch("app.services.orchestrator.detect_platform_profile", return_value=None),
+        patch(
+            "app.services.orchestrator.try_extract_vehicles_without_llm",
+            side_effect=structured_result_for_url,
+        ) as mock_extract,
+        patch(
+            "app.services.orchestrator.enrich_vehicle_listings_with_vin_data",
+            new_callable=AsyncMock,
+            side_effect=lambda rows: rows,
+        ),
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+        ) as mock_llm,
+    ):
+        chunks: list[str] = []
+        async for c in stream_search(
+            "Sugar Land, TX",
+            "Chevrolet",
+            "Blazer,Blazer EV",
+            vehicle_condition="new",
+            max_dealerships=1,
+            max_pages_per_dealer=2,
+        ):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert [url for url, page_kind in fetch_calls if page_kind == "inventory"] == [blazer_url, blazer_ev_url]
+    assert structured_calls == [blazer_url, blazer_ev_url]
+    assert mock_extract.call_count == 2
+    assert mock_llm.await_count == 0
+    assert '"listings_found": 2' in tail
+    assert '"pages_scraped": 2' in tail
+
+
+@pytest.mark.asyncio
 async def test_stream_search_done_includes_fetch_metrics() -> None:
     dealers = [
         DealershipFound(

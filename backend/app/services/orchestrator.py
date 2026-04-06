@@ -558,6 +558,44 @@ def _dealer_on_multi_model_inventory_urls(
         seen.add(scoped)
         urls.append(scoped)
     return urls
+
+
+def _dealer_inspire_multi_model_inventory_urls(
+    base_url: str,
+    *,
+    vehicle_condition: str,
+    make: str,
+    model: str,
+) -> list[str]:
+    models = _requested_model_values(model)
+    if len(models) < 2:
+        return []
+    condition = (vehicle_condition or "").strip().lower()
+    if condition not in {"new", "used"}:
+        return []
+    parts = urlsplit(base_url)
+    if not parts.scheme or not parts.netloc:
+        return []
+
+    root = "/used-vehicles/" if condition == "used" else "/new-vehicles/"
+    canonical = urlunsplit((parts.scheme, parts.netloc, root, "", ""))
+    base_updates: dict[str, str] = {"_dFR[type][0]": "Used" if condition == "used" else "New"}
+    if make.strip():
+        base_updates["_dFR[make][0]"] = make.strip()
+
+    urls: list[str] = []
+    seen: set[str] = set()
+    for model_value in models:
+        updates = dict(base_updates)
+        updates["_dFR[model][0]"] = model_value
+        scoped = _with_query_params(canonical, updates)
+        if scoped in seen:
+            continue
+        seen.add(scoped)
+        urls.append(scoped)
+    return urls
+
+
 def _looks_like_inventory_detail_href(href: str) -> bool:
     path = urlsplit(href).path.lower()
     if re.search(r"/inventory/\d+(?:/|$)", path):
@@ -2962,6 +3000,22 @@ async def stream_search(
                     current_url = dealer_on_model_urls[0]
                     queued_urls = {current_url}
                     pending_urls = [u for u in dealer_on_model_urls[1:] if u not in queued_urls]
+                    if inv_url and inv_url not in queued_urls and inv_url not in pending_urls:
+                        pending_urls.append(inv_url)
+                    scoped_inventory_url = True
+                    async with metrics_lock:
+                        fetch_metrics["inventory_url_scoped"] += 1
+            elif route and route.platform_id == "dealer_inspire" and current_url:
+                dealer_inspire_model_urls = _dealer_inspire_multi_model_inventory_urls(
+                    current_url,
+                    vehicle_condition=vehicle_condition,
+                    make=make,
+                    model=model,
+                )
+                if dealer_inspire_model_urls:
+                    current_url = dealer_inspire_model_urls[0]
+                    queued_urls = {current_url}
+                    pending_urls = [u for u in dealer_inspire_model_urls[1:] if u not in queued_urls]
                     if inv_url and inv_url not in queued_urls and inv_url not in pending_urls:
                         pending_urls.append(inv_url)
                     scoped_inventory_url = True
