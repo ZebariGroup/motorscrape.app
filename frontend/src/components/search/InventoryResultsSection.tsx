@@ -463,7 +463,7 @@ export function InventoryResultsSection({
               type="button"
               onClick={goToPreviousListing}
               disabled={!canViewPrevious}
-              className="absolute left-1 top-1/2 z-[102] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:left-2 md:left-3"
+              className="absolute left-1 top-[42%] z-[102] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:left-2 sm:top-1/2 md:left-3"
               aria-label="View previous listing"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -474,7 +474,7 @@ export function InventoryResultsSection({
               type="button"
               onClick={goToNextListing}
               disabled={!canViewNext}
-              className="absolute right-1 top-1/2 z-[102] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:right-2 md:right-3"
+              className="absolute right-1 top-[42%] z-[102] -translate-y-1/2 rounded-full bg-white/95 p-3 text-zinc-900 shadow-lg transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-950/95 dark:text-zinc-50 dark:hover:bg-zinc-950 sm:right-2 sm:top-1/2 md:right-3"
               aria-label="View next listing"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
