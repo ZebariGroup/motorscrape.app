@@ -1,6 +1,6 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { useSearchStream } from "@/hooks/useSearchStream";
@@ -12,7 +12,7 @@ import { SavesAndAlertsPanel } from "@/components/search/SavesAndAlertsPanel";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
 import { resolveApiUrl } from "@/lib/apiBase";
-import { parseSearchCriteriaQuery } from "@/lib/searchCriteriaUrl";
+import { buildSearchCriteriaQuery, parseSearchCriteriaQuery } from "@/lib/searchCriteriaUrl";
 import { vehicleCategoryLabel } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import {
@@ -72,12 +72,14 @@ const CATEGORY_BUTTONS: {
 ];
 
 export function SearchExperience() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { access, refresh } = useAccessSummary();
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
-  const [dismissedQuotaMessage, setDismissedQuotaMessage] = useState<string | null>(null);
+  const [dismissedQuotaCode, setDismissedQuotaCode] = useState<string | null>(null);
   const [appliedCriteriaQuery, setAppliedCriteriaQuery] = useState<string | null>(null);
 
   useEffect(() => {
@@ -90,14 +92,19 @@ export function SearchExperience() {
   const applySavedSearchCriteria = search.applySavedSearchCriteria;
 
   useEffect(() => {
-    const hits = search.errors.find(
-      (e) => e.includes("Monthly free search limit reached") || e.includes("Monthly included searches are used up"),
+    const hits = search.errorEvents.find(
+      (error) =>
+        Boolean(error.upgrade_required) ||
+        error.code === "quota.monthly_limit_free" ||
+        error.code === "quota.monthly_limit_standard" ||
+        error.code === "quota.monthly_limit_premium" ||
+        error.code === "quota.monthly_limit_max_pro",
     );
-    if (hits && !upgradeModalOpen && dismissedQuotaMessage !== hits) {
+    if (hits && !upgradeModalOpen && dismissedQuotaCode !== (hits.code ?? null)) {
       setUpgradeModalOpen(true);
       setUpgradeError(null);
     }
-  }, [search.errors, upgradeModalOpen, dismissedQuotaMessage]);
+  }, [dismissedQuotaCode, search.errorEvents, upgradeModalOpen]);
 
   useEffect(() => {
     const qs = searchParams.toString();
@@ -138,32 +145,70 @@ export function SearchExperience() {
   const maxRadiusCap = lim?.max_radius_miles ?? 250;
   const scopePremium = lim?.inventory_scope_premium ?? true;
   const csvOk = lim?.csv_export ?? true;
+  const allowAnyModel =
+    access?.tier === "premium" ||
+    access?.tier === "max_pro" ||
+    access?.tier === "enterprise" ||
+    access?.tier === "custom";
   const canSearch =
-    form.location.trim().length >= 2 &&
-    (access?.tier === "premium" ||
-      access?.tier === "max_pro" ||
-      access?.tier === "enterprise" ||
-      access?.tier === "custom" ||
-      form.model.trim().length > 0);
-  const alertCriteria = {
-    location: form.location.trim(),
-    make: form.make.trim(),
-    model: form.model.trim(),
-    vehicle_category: form.vehicleCategory,
-    vehicle_condition: form.vehicleCondition as "all" | "new" | "used",
-    radius_miles: Number.parseInt(form.radiusMiles, 10) || 25,
-    inventory_scope: form.inventoryScope as "all" | "on_lot_only" | "exclude_shared" | "include_transit",
-    max_dealerships: Number.parseInt(form.maxDealerships, 10) || null,
-    max_pages_per_dealer: null,
-    market_region: form.marketRegion,
-  };
+    form.location.trim().length >= 2 && (allowAnyModel || form.model.trim().length > 0);
+  const alertCriteria = useMemo(
+    () => ({
+      location: form.location.trim(),
+      make: form.make.trim(),
+      model: form.model.trim(),
+      vehicle_category: form.vehicleCategory,
+      vehicle_condition: form.vehicleCondition as "all" | "new" | "used",
+      radius_miles: Number.parseInt(form.radiusMiles, 10) || 25,
+      inventory_scope: form.inventoryScope as "all" | "on_lot_only" | "exclude_shared" | "include_transit",
+      max_dealerships: Number.parseInt(form.maxDealerships, 10) || null,
+      max_pages_per_dealer: null,
+      market_region: form.marketRegion,
+    }),
+    [
+      form.inventoryScope,
+      form.location,
+      form.make,
+      form.marketRegion,
+      form.maxDealerships,
+      form.model,
+      form.radiusMiles,
+      form.vehicleCategory,
+      form.vehicleCondition,
+    ],
+  );
+  const currentCriteriaQuery = useMemo(() => buildSearchCriteriaQuery(alertCriteria), [alertCriteria]);
+  const searchReadinessHint = useMemo(() => {
+    if (form.location.trim().length < 2) return "Enter a city, ZIP, or coordinates to start a search.";
+    if (!allowAnyModel && form.model.trim().length === 0) {
+      return access?.authenticated
+        ? "Choose at least one model on your current plan before scraping inventory."
+        : "Choose at least one model on the free plan before scraping inventory.";
+    }
+    return null;
+  }, [access?.authenticated, allowAnyModel, form.location, form.model]);
 
   // Avoid duplicating the same "quota reached" message: we show it via the modal instead.
-  const visibleErrors = search.errors.filter(
-    (e) =>
-      !e.includes("Monthly free search limit reached") &&
-      !e.includes("Monthly included searches are used up"),
+  const hiddenUpgradeMessages = new Set(
+    search.errorEvents.filter((error) => error.upgrade_required).map((error) => error.message),
   );
+  const visibleErrors = search.errors.filter(
+    (e) => !hiddenUpgradeMessages.has(e),
+  );
+
+  useEffect(() => {
+    const qs = searchParams.toString();
+    if (qs && appliedCriteriaQuery === null) return;
+    const nextQuery = form.location.trim().length >= 2 ? currentCriteriaQuery : "";
+    if (qs === nextQuery) {
+      if (appliedCriteriaQuery !== nextQuery) {
+        setAppliedCriteriaQuery(nextQuery);
+      }
+      return;
+    }
+    setAppliedCriteriaQuery(nextQuery);
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+  }, [appliedCriteriaQuery, currentCriteriaQuery, form.location, pathname, router, searchParams]);
 
   useEffect(
     () => {
@@ -282,6 +327,7 @@ export function SearchExperience() {
           onSearch={search.startSearch}
           onStop={search.stopStream}
           canSearch={canSearch}
+          searchReadinessHint={searchReadinessHint}
           status={search.status}
           errors={visibleErrors}
           discoveredDealerPercent={dealers.discoveredDealerPercent}
@@ -294,12 +340,7 @@ export function SearchExperience() {
           maxDealersCap={maxDealersCap}
           maxRadiusMilesCap={maxRadiusCap}
           inventoryScopePremium={scopePremium}
-          allowAnyModel={
-            access?.tier === "premium" ||
-            access?.tier === "max_pro" ||
-            access?.tier === "enterprise" ||
-            access?.tier === "custom"
-          }
+          allowAnyModel={allowAnyModel}
           applySavedSearchFromHistory={search.applySavedSearchFromHistory}
           applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
           marketRegion={form.marketRegion}
@@ -412,11 +453,8 @@ export function SearchExperience() {
                 <button
                   type="button"
                   onClick={() => {
-                    const hits = search.errors.find(
-                      (e) =>
-                        e.includes("Monthly free search limit reached") || e.includes("Monthly included searches are used up"),
-                    );
-                    if (hits) setDismissedQuotaMessage(hits);
+                    const hits = search.errorEvents.find((error) => error.upgrade_required);
+                    if (hits?.code) setDismissedQuotaCode(hits.code);
                     setUpgradeModalOpen(false);
                   }}
                   className="rounded-lg p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"

@@ -10,9 +10,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
-import httpx
-
 from app.config import settings
+from app.services.kv_rest import kv_rest_store
 
 logger = logging.getLogger(__name__)
 
@@ -55,42 +54,13 @@ class PlatformStore:
         self.db_path = db_path or settings.platform_cache_path
 
     def _use_kv(self) -> bool:
-        return bool(
-            self.enabled
-            and (settings.kv_rest_api_url or "").strip()
-            and (settings.kv_rest_api_token or "").strip()
-        )
+        return bool(self.enabled and kv_rest_store.enabled())
 
     def _kv_key(self, domain: str) -> str:
         return f"{KV_KEY_PREFIX}{domain}"
 
     def _kv_ttl_seconds(self) -> int:
         return int(max(1, settings.platform_cache_ttl_hours) * 3600)
-
-    def _kv_exec(self, command: list) -> object | None:
-        base = (settings.kv_rest_api_url or "").strip().rstrip("/")
-        token = (settings.kv_rest_api_token or "").strip()
-        if not base or not token:
-            return None
-        try:
-            with httpx.Client(timeout=httpx.Timeout(12.0)) as client:
-                r = client.post(
-                    base,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json",
-                    },
-                    json=command,
-                )
-                r.raise_for_status()
-                payload = r.json()
-                if isinstance(payload, dict) and "result" in payload:
-                    return payload["result"]
-                logger.debug("Unexpected KV response shape for %s: %s", command[:1], payload)
-                return None
-        except Exception as e:
-            logger.warning("KV REST request failed (%s): %s", command[:1] if command else "?", e)
-            return None
 
     @staticmethod
     def _entry_to_dict(entry: PlatformCacheEntry) -> dict:
@@ -130,25 +100,15 @@ class PlatformStore:
             return None
 
     def _kv_get(self, domain: str) -> PlatformCacheEntry | None:
-        raw = self._kv_exec(["GET", self._kv_key(domain)])
-        if not raw or not isinstance(raw, str):
-            return None
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.debug("KV platform cache value is not JSON for %s", domain)
-            return None
+        data = kv_rest_store.get_json(self._kv_key(domain))
         if not isinstance(data, dict):
             return None
         return self._dict_to_entry(data)
 
     def _kv_set(self, entry: PlatformCacheEntry) -> None:
         key = self._kv_key(entry.domain)
-        body = json.dumps(self._entry_to_dict(entry), sort_keys=True)
         ttl = self._kv_ttl_seconds()
-        res = self._kv_exec(["SET", key, body, "EX", ttl])
-        if res not in ("OK", True, None) and res is not None:
-            logger.debug("KV SET unexpected result for %s: %s", entry.domain, res)
+        kv_rest_store.set_json(key, self._entry_to_dict(entry), ttl_seconds=ttl)
 
     def _connect(self) -> sqlite3.Connection | None:
         if not self.enabled or not self.db_path or self._use_kv():

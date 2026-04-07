@@ -12,6 +12,9 @@ export type SearchHistoryRunRow = {
   requested_max_pages_per_dealer: number | null;
   result_count: number;
   status: string;
+  error_message?: string | null;
+  error_code?: string | null;
+  error_phase?: string | null;
   started_at: string | null;
   completed_at: string | null;
   has_saved_results?: boolean;

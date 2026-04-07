@@ -128,6 +128,38 @@ describe("useSearchStream", () => {
     expect(result.current.search.status).toBe("Search finished · 1 dealerships searched");
   });
 
+  it("should retain structured search errors for quota and upgrade flows", () => {
+    const { result } = renderHook(() => useSearchStream());
+
+    act(() => {
+      result.current.form.setLocation("Seattle");
+      result.current.search.startSearch();
+    });
+
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.emit("search_error", {
+        message: "Monthly free search limit reached.",
+        code: "quota.monthly_limit_free",
+        phase: "quota",
+        status: "quota_blocked",
+        upgrade_required: true,
+        upgrade_tier: "standard",
+      });
+    });
+
+    expect(result.current.search.errors).toContain("Monthly free search limit reached.");
+    expect(result.current.search.errorEvents).toContainEqual(
+      expect.objectContaining({
+        code: "quota.monthly_limit_free",
+        phase: "quota",
+        upgrade_required: true,
+        upgrade_tier: "standard",
+      }),
+    );
+  });
+
   it("should surface stream error when the connection drops before done", async () => {
     vi.useFakeTimers();
     const { result } = renderHook(() => useSearchStream());

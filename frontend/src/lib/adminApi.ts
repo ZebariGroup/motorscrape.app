@@ -35,6 +35,9 @@ export type AdminRun = {
   error_count: number;
   warning_count: number;
   error_message: string | null;
+  error_code?: string | null;
+  error_phase?: string | null;
+  error?: Record<string, unknown> | null;
   summary: Record<string, unknown>;
   economics: Record<string, unknown>;
   started_at: string | null;
@@ -69,12 +72,16 @@ export type DealerOutcome = {
   zero_results_warning: string | null;
   error_phase: string | null;
   error_message: string | null;
+  error_code?: string | null;
 };
 
 export type DealerOutcomeSummary = {
   total_dealers: number;
   status_counts: Record<string, number>;
   classification_counts: Record<string, number>;
+  error_code_counts?: Record<string, number>;
+  failed_platform_counts?: Record<string, number>;
+  failed_fetch_method_counts?: Record<string, number>;
   zero_results_warnings: number;
   ford_family_dealers: number;
 };

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.api.deps import AccessContext, get_access_context
 from app.config import settings
 from app.db.account_store import ScrapeEventRecord, ScrapeRunRecord, get_account_store
+from app.services.search_errors import extract_search_error
 from app.services.search_log_summary import build_dealer_outcomes, summarize_dealer_outcomes
 
 router = APIRouter(prefix="/search/logs", tags=["search-logs"])
@@ -25,6 +26,7 @@ def _serialize_run(record: ScrapeRunRecord) -> dict[str, Any]:
     places_metrics = {}
     if isinstance(record.summary, dict) and isinstance(record.summary.get("places_metrics"), dict):
         places_metrics = dict(record.summary["places_metrics"])
+    error = extract_search_error(record.summary)
     return {
         "id": record.id,
         "correlation_id": record.correlation_id,
@@ -48,6 +50,9 @@ def _serialize_run(record: ScrapeRunRecord) -> dict[str, Any]:
         "error_count": record.error_count,
         "warning_count": record.warning_count,
         "error_message": record.error_message,
+        "error_code": error.get("code") if error else None,
+        "error_phase": error.get("phase") if error else None,
+        "error": error,
         "places_metrics": places_metrics,
         "summary": record.summary,
         "economics": record.economics,

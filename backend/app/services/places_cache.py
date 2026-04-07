@@ -12,12 +12,14 @@ from typing import Any
 
 from app.config import settings
 from app.schemas import DealershipFound
+from app.services.kv_rest import kv_rest_store
 
 logger = logging.getLogger(__name__)
 
 _cache_lock = threading.Lock()
 _cache_conn: sqlite3.Connection | None = None
 _cache_db_path: str | None = None
+KV_KEY_PREFIX = "motorscrape:places:v1:"
 
 
 def _ensure_connection() -> sqlite3.Connection | None:
@@ -57,7 +59,21 @@ def _make_key(payload: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
+def _use_kv() -> bool:
+    return bool(settings.places_cache_enabled and kv_rest_store.enabled())
+
+
+def _kv_key(namespace: str, cache_key: str) -> str:
+    return f"{KV_KEY_PREFIX}{namespace}:{cache_key}"
+
+
 def _get(namespace: str, cache_key: str) -> Any | None:
+    if _use_kv():
+        try:
+            return kv_rest_store.get_json(_kv_key(namespace, cache_key))
+        except Exception as exc:
+            logger.debug("Places KV cache read failed for %s: %s", namespace, exc)
+            return None
     with _cache_lock:
         conn = _ensure_connection()
         if not conn:
@@ -83,6 +99,12 @@ def _get(namespace: str, cache_key: str) -> Any | None:
 
 
 def _set(namespace: str, cache_key: str, payload: Any, ttl_seconds: int) -> None:
+    if _use_kv():
+        try:
+            kv_rest_store.set_json(_kv_key(namespace, cache_key), payload, ttl_seconds=max(60, int(ttl_seconds or 0)))
+        except Exception as exc:
+            logger.debug("Places KV cache write failed for %s: %s", namespace, exc)
+        return
     with _cache_lock:
         conn = _ensure_connection()
         if not conn:

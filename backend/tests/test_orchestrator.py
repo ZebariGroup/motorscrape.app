@@ -9,6 +9,7 @@ import pytest
 from app.config import settings
 from app.db.account_store import get_account_store
 from app.schemas import DealershipFound, ExtractionResult, PaginationInfo, VehicleListing
+from app.services.orchestrator_market import historical_market_points_for_listing
 from app.services.orchestrator import (
     _bounded_phase_timeout,
     _dealer_inspire_model_inventory_urls,
@@ -18,7 +19,6 @@ from app.services.orchestrator import (
     _effective_max_pages_for_route,
     _find_inventory_url,
     _generic_vehicle_detail_overlay,
-    _historical_market_points_for_listing,
     _inventory_url_uses_scoped_filters,
     _inventory_url_recovery_candidates,
     _needs_vdp_usage_enrichment,
@@ -183,7 +183,7 @@ def test_historical_market_points_exclude_special_edition_trim_mismatches() -> N
         },
     ]
 
-    points = _historical_market_points_for_listing(listing, historical_pool)
+    points = historical_market_points_for_listing(listing, historical_pool)
 
     assert [point["price"] for point in points] == [94995.0, 96995.0]
 
@@ -231,7 +231,7 @@ def test_historical_market_points_skip_used_listings() -> None:
         },
     ]
 
-    assert _historical_market_points_for_listing(listing, historical_pool) == []
+    assert historical_market_points_for_listing(listing, historical_pool) == []
 
 
 def test_needs_vdp_usage_enrichment_ignores_new_listings_missing_mileage() -> None:

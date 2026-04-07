@@ -11,12 +11,14 @@ import time
 from typing import Any
 
 from app.config import settings
+from app.services.kv_rest import kv_rest_store
 
 logger = logging.getLogger(__name__)
 
 _cache_lock = threading.Lock()
 _cache_conn: sqlite3.Connection | None = None
 _cache_db_path: str | None = None
+KV_KEY_PREFIX = "motorscrape:inventory:v1:"
 
 _FAMILY_INVENTORY_PLATFORMS = {
     "ford_family_inventory",
@@ -86,6 +88,14 @@ def _ensure_connection() -> sqlite3.Connection | None:
     return _cache_conn
 
 
+def _use_kv() -> bool:
+    return bool(settings.inventory_cache_enabled and kv_rest_store.enabled())
+
+
+def _kv_key(key: str) -> str:
+    return f"{KV_KEY_PREFIX}{key}"
+
+
 def _cache_payload_listing_count(payload: dict[str, Any]) -> int:
     listings = payload.get("listings")
     if not isinstance(listings, list):
@@ -101,6 +111,15 @@ def _cache_payload_is_plausible(payload: dict[str, Any]) -> bool:
 
 
 def get_cached_inventory_listings(key: str) -> dict[str, Any] | None:
+    if _use_kv():
+        try:
+            payload = kv_rest_store.get_json(_kv_key(key))
+            if not isinstance(payload, dict) or not _cache_payload_is_plausible(payload):
+                return None
+            return payload
+        except Exception as e:
+            logger.debug("Inventory KV cache read failed: %s", e)
+            return None
     with _cache_lock:
         conn = _ensure_connection()
         if not conn:
@@ -123,6 +142,23 @@ def get_cached_inventory_listings(key: str) -> dict[str, Any] | None:
 
 
 def set_cached_inventory_listings(key: str, payload: dict[str, Any]) -> None:
+    if _use_kv():
+        if not _cache_payload_is_plausible(payload):
+            logger.debug(
+                "Skipping inventory KV cache write for partial family-stack payload: platform=%s listings=%s",
+                payload.get("platform_id"),
+                _cache_payload_listing_count(payload),
+            )
+            return
+        try:
+            kv_rest_store.set_json(
+                _kv_key(key),
+                payload,
+                ttl_seconds=max(60, int(settings.inventory_cache_ttl_seconds or 0)),
+            )
+        except Exception as e:
+            logger.debug("Inventory KV cache write failed: %s", e)
+        return
     with _cache_lock:
         conn = _ensure_connection()
         if not conn:

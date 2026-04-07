@@ -13,6 +13,7 @@ from app.services.alert_schedule import next_run_at_utc
 from app.services.csv_export import listings_to_csv
 from app.services.email_delivery import EmailAttachment, send_email
 from app.services.inventory_tracking import inventory_history_key
+from app.services.search_errors import SearchErrorInfo, with_search_error
 from app.services.scrape_logging import build_correlation_id, create_scrape_run_recorder
 from app.services.search_runner import SearchRunResult, run_search_once
 from app.tiers import limits_for_tier
@@ -503,26 +504,29 @@ async def execute_alert_subscription(
     next_run_at = next_subscription_run(subscription, now_ts=started_at)
 
     if not quota.allowed:
+        quota_error = quota.error or SearchErrorInfo(code="quota.unknown", message=quota.message, phase="quota", status="quota_blocked")
         recorder.event(
             event_type="quota_blocked",
             phase="quota",
             level="warning",
-            message=quota.message,
-            payload={"trigger_source": trigger_source, "subscription_id": subscription.id},
+            message=quota_error.message,
+            payload={"trigger_source": trigger_source, "subscription_id": subscription.id, "error": quota_error.to_summary()},
         )
         recorder.finalize(
             ok=False,
             status="quota_blocked",
-            summary={
-                "ok": False,
-                "status": "quota_blocked",
-                "correlation_id": correlation_id,
-                "subscription_id": subscription.id,
-                "trigger_source": trigger_source,
-                "error_message": quota.message,
-            },
+            summary=with_search_error(
+                {
+                    "ok": False,
+                    "status": "quota_blocked",
+                    "correlation_id": correlation_id,
+                    "subscription_id": subscription.id,
+                    "trigger_source": trigger_source,
+                },
+                quota_error,
+            ),
             economics={},
-            error_message=quota.message,
+            error_message=quota_error.message,
         )
         store.update_alert_subscription(
             user.id,
@@ -530,7 +534,7 @@ async def execute_alert_subscription(
             next_run_at=next_run_at,
             last_run_at=started_at,
             last_run_status="quota_blocked",
-            last_error=quota.message,
+            last_error=quota_error.message,
             last_result_count=0,
         )
         run = store.create_alert_run(
@@ -541,8 +545,8 @@ async def execute_alert_subscription(
             result_count=0,
             emailed=False,
             csv_attached=False,
-            error_message=quota.message,
-            summary={"result_count": 0, "errors": [quota.message], "top_results": []},
+            error_message=quota_error.message,
+            summary={"result_count": 0, "errors": [quota_error.message], "error": quota_error.to_summary(), "top_results": []},
             started_at=started_at,
             completed_at=started_at,
         )

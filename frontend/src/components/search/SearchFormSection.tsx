@@ -46,6 +46,7 @@ type Props = {
   onSearch: () => void;
   onStop: () => void;
   canSearch: boolean;
+  searchReadinessHint?: string | null;
   status: string | null;
   errors: string[];
   discoveredDealerPercent: number;
@@ -88,6 +89,7 @@ export function SearchFormSection({
   onSearch,
   onStop,
   canSearch,
+  searchReadinessHint,
   status,
   errors,
   discoveredDealerPercent,
@@ -111,6 +113,7 @@ export function SearchFormSection({
   const [isGameActive, setIsGameActive] = useState(false);
   const [searchCompletedTick, setSearchCompletedTick] = useState(0);
   const [preferTapPlayHint, setPreferTapPlayHint] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const prevRunningRef = useRef(running);
 
   useEffect(() => {
@@ -217,7 +220,10 @@ export function SearchFormSection({
                   className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 pr-10 text-zinc-900 outline-none ring-emerald-500/40 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
                   placeholder="City, ZIP, or multiple separated by |"
                   value={location}
-                  onChange={(e) => setLocation(e.target.value)}
+                  onChange={(e) => {
+                    setLocationError(null);
+                    setLocation(e.target.value);
+                  }}
                   disabled={running}
                 />
                 <button
@@ -232,6 +238,7 @@ export function SearchFormSection({
                           async (pos) => {
                             const lat = pos.coords.latitude;
                             const lng = pos.coords.longitude;
+                            setLocationError(null);
                             try {
                               // Reverse geocode using a free public API (Nominatim) to get a readable city/zip
                               const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
@@ -257,11 +264,13 @@ export function SearchFormSection({
                               setLocation(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
                             }
                           },
-                          () => alert("Unable to retrieve your location. Please check your browser permissions.")
+                          () => setLocationError("Unable to retrieve your location. Check browser permissions and try again."),
                         );
                       } catch {
-                        alert("Geolocation is not supported by your browser.");
+                        setLocationError("Geolocation is not supported by your browser.");
                       }
+                    } else {
+                      setLocationError("Geolocation is not supported by your browser.");
                     }
                   }}
                 >
@@ -271,6 +280,9 @@ export function SearchFormSection({
                   </svg>
                 </button>
               </div>
+              {locationError ? (
+                <span className="mt-1 text-xs text-red-600 dark:text-red-400">{locationError}</span>
+              ) : null}
             </label>
             <div className="col-span-full sm:col-span-1 lg:col-span-2 grid grid-cols-2 gap-3 sm:gap-4">
               <label className="flex flex-col gap-1 text-sm">
@@ -515,6 +527,9 @@ export function SearchFormSection({
               </button>
             </div>
           </div>
+          {!running && searchReadinessHint ? (
+            <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{searchReadinessHint}</p>
+          ) : null}
         </>
       )}
       {status || running ? (

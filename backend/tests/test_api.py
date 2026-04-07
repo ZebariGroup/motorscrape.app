@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 from app.config import settings
 from app.main import app
+from app.services.search_errors import SearchErrorInfo
+from app.api.search_quota import SearchQuotaDecision
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
@@ -90,6 +92,38 @@ def test_search_stream_blocks_when_too_many_running_searches() -> None:
     mocked_recorder.assert_not_called()
     mocked_quota.assert_not_called()
     assert "concurrency_blocked" in response.text
+    assert "quota.concurrent_searches" in response.text
+
+
+def test_search_stream_quota_blocked_sse_includes_structured_error() -> None:
+    mocked_store = SimpleNamespace(
+        get_scrape_run=lambda correlation_id, *, user_id=None, anon_key=None: None,
+        count_running_scrape_runs=lambda *, user_id=None, anon_key=None, since_ts=None: 0,
+        add_scrape_event=lambda **kwargs: None,
+        create_scrape_run=lambda **kwargs: "run-1",
+        finalize_scrape_run=lambda *args, **kwargs: None,
+    )
+    with patch("app.main.get_account_store", return_value=mocked_store):
+        with patch(
+            "app.main.evaluate_search_start",
+            return_value=SearchQuotaDecision(
+                False,
+                False,
+                SearchErrorInfo(
+                    code="quota.monthly_limit_free",
+                    message="Monthly free search limit reached.",
+                    phase="quota",
+                    status="quota_blocked",
+                    upgrade_required=True,
+                    upgrade_tier="standard",
+                ),
+            ),
+        ):
+            with client.stream("GET", "/search/stream", params={"location": "Detroit, MI"}) as response:
+                assert response.status_code == 200
+                body = b"".join(response.iter_bytes())
+    assert b"quota.monthly_limit_free" in body
+    assert b"upgrade_required" in body
 
 
 def test_search_logs_endpoint_returns_run_and_events() -> None:

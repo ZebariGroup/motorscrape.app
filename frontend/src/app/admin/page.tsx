@@ -720,6 +720,14 @@ export default function AdminPage() {
                     dealers {selectedRun.dealer_summary.total_dealers} · ford family {selectedRun.dealer_summary.ford_family_dealers} · zero-result warnings{" "}
                     {selectedRun.dealer_summary.zero_results_warnings}
                   </p>
+                  {selectedRun.dealer_summary.error_code_counts && Object.keys(selectedRun.dealer_summary.error_code_counts).length > 0 ? (
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                      failure codes{" "}
+                      {Object.entries(selectedRun.dealer_summary.error_code_counts)
+                        .map(([code, count]) => `${code} (${count})`)
+                        .join(" · ")}
+                    </p>
+                  ) : null}
                   <div className="mt-3 space-y-3">
                     {selectedRun.dealer_outcomes.map((outcome) => (
                       <div key={`${outcome.dealership_website ?? outcome.dealership_name ?? "dealer"}-${outcome.final_url ?? outcome.classification}`} className="rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
@@ -752,7 +760,7 @@ export default function AdminPage() {
                         ) : null}
                         {outcome.error_message ? (
                           <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-                            {outcome.error_phase ?? "scrape"}: {outcome.error_message}
+                            {outcome.error_phase ?? "scrape"}{outcome.error_code ? ` · ${outcome.error_code}` : ""}: {outcome.error_message}
                           </p>
                         ) : null}
                       </div>

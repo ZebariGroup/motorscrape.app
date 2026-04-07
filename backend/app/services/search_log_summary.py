@@ -35,6 +35,26 @@ def _classify_error(record: ScrapeEventRecord) -> str:
     return "scrape_failure"
 
 
+def _error_code_from_payload(payload: dict[str, Any]) -> str | None:
+    nested = payload.get("error")
+    if isinstance(nested, dict):
+        code = _norm_text(nested.get("code"))
+        if code:
+            return code
+    return _norm_text(payload.get("error_code")) or None
+
+
+def _counted_fetch_methods(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        normalized = _norm_text(item)
+        if normalized:
+            out.append(normalized)
+    return out
+
+
 def build_dealer_outcomes(events: list[ScrapeEventRecord]) -> list[dict[str, Any]]:
     outcomes: dict[str, dict[str, Any]] = {}
     for record in events:
@@ -59,6 +79,7 @@ def build_dealer_outcomes(events: list[ScrapeEventRecord]) -> list[dict[str, Any
                 "zero_results_warning": None,
                 "error_phase": None,
                 "error_message": None,
+                "error_code": None,
             },
         )
         if record.dealership_name and not outcome["dealership_name"]:
@@ -71,11 +92,13 @@ def build_dealer_outcomes(events: list[ScrapeEventRecord]) -> list[dict[str, Any
             outcome["platform_source"] = payload.get("platform_source")
         if payload.get("strategy_used"):
             outcome["strategy_used"] = payload.get("strategy_used")
+        if payload.get("fetch_method") and not outcome["fetch_methods"]:
+            outcome["fetch_methods"] = [_norm_text(payload.get("fetch_method"))]
         if payload.get("current_url"):
             outcome["final_url"] = payload.get("current_url")
-        fetch_methods = payload.get("fetch_methods")
-        if isinstance(fetch_methods, list) and fetch_methods:
-            outcome["fetch_methods"] = [str(method) for method in fetch_methods]
+        fetch_methods = _counted_fetch_methods(payload.get("fetch_methods"))
+        if fetch_methods:
+            outcome["fetch_methods"] = fetch_methods
         recovery_urls = payload.get("ford_recovery_urls")
         if isinstance(recovery_urls, list) and recovery_urls:
             deduped: list[str] = []
@@ -95,14 +118,17 @@ def build_dealer_outcomes(events: list[ScrapeEventRecord]) -> list[dict[str, Any
             if payload.get("zero_results_warning"):
                 outcome["status"] = "warning"
                 outcome["classification"] = "scoped_url_empty"
+                outcome["error_code"] = _norm_text(payload.get("zero_results_warning")) or "warning.scoped_url_empty"
             elif listings_found <= 0:
                 outcome["status"] = "warning"
                 outcome["classification"] = "zero_results"
+                outcome["error_code"] = "warning.zero_results"
             else:
                 outcome["status"] = "success"
                 outcome["classification"] = "success"
                 outcome["error_phase"] = None
                 outcome["error_message"] = None
+                outcome["error_code"] = None
             continue
 
         if record.event_type in {"dealer_error", "dealer_timeout"}:
@@ -110,6 +136,7 @@ def build_dealer_outcomes(events: list[ScrapeEventRecord]) -> list[dict[str, Any
             outcome["classification"] = _classify_error(record)
             outcome["error_phase"] = record.phase
             outcome["error_message"] = record.message
+            outcome["error_code"] = _error_code_from_payload(payload) or outcome["classification"]
 
     ordered = sorted(
         outcomes.values(),
@@ -124,10 +151,28 @@ def build_dealer_outcomes(events: list[ScrapeEventRecord]) -> list[dict[str, Any
 def summarize_dealer_outcomes(outcomes: list[dict[str, Any]]) -> dict[str, Any]:
     status_counts = Counter(str(item.get("status") or "unknown") for item in outcomes)
     classification_counts = Counter(str(item.get("classification") or "unknown") for item in outcomes)
+    error_code_counts = Counter(str(item.get("error_code") or "unknown") for item in outcomes if item.get("error_code"))
+    failed_platform_counts = Counter(
+        str(item.get("platform_id") or "unknown") for item in outcomes if str(item.get("status") or "") == "failed"
+    )
+    failed_fetch_method_counts: Counter[str] = Counter()
+    for item in outcomes:
+        if str(item.get("status") or "") != "failed":
+            continue
+        methods = item.get("fetch_methods")
+        if not isinstance(methods, list):
+            continue
+        for method in methods:
+            normalized = _norm_text(method)
+            if normalized:
+                failed_fetch_method_counts[normalized] += 1
     return {
         "total_dealers": len(outcomes),
         "status_counts": dict(status_counts),
         "classification_counts": dict(classification_counts),
+        "error_code_counts": dict(error_code_counts),
+        "failed_platform_counts": dict(failed_platform_counts),
+        "failed_fetch_method_counts": dict(failed_fetch_method_counts),
         "zero_results_warnings": sum(1 for item in outcomes if item.get("zero_results_warning")),
         "ford_family_dealers": sum(1 for item in outcomes if item.get("platform_id") == "ford_family_inventory"),
     }

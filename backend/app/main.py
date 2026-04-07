@@ -22,6 +22,7 @@ from app.config import settings, vehicle_category_enabled
 from app.db.account_store import get_account_store
 from app.services.active_searches import cancel_active_search, register_active_search, unregister_active_search
 from app.services.orchestrator import stream_search
+from app.services.search_errors import SearchErrorInfo, with_search_error
 from app.services.scrape_logging import build_correlation_id, create_scrape_run_recorder
 from app.sse import sse_pack, stream_with_keepalive
 
@@ -88,20 +89,26 @@ async def search_stream(
         since_ts=time.time() - max(60, int(settings.search_running_window_seconds or 0)),
     )
     if running_count >= max(1, int(lim.max_concurrent_searches)):
-        message = "Too many searches are already running for this account. Wait for one to finish and try again."
+        error = SearchErrorInfo(
+            code="quota.concurrent_searches",
+            message="Too many searches are already running for this account. Wait for one to finish and try again.",
+            phase="quota",
+            status="concurrency_blocked",
+            retryable=True,
+        ).with_correlation_id(correlation_id)
 
         async def concurrency_denied() -> AsyncIterator[bytes]:
-            yield sse_pack(
-                "search_error",
-                {
-                    "message": message,
-                    "phase": "quota",
-                    "correlation_id": correlation_id,
-                },
-            ).encode("utf-8")
+            yield sse_pack("search_error", error.to_payload()).encode("utf-8")
             yield sse_pack(
                 "done",
-                {"ok": False, "status": "concurrency_blocked", "correlation_id": correlation_id},
+                {
+                    "ok": False,
+                    "status": "concurrency_blocked",
+                    "correlation_id": correlation_id,
+                    "error": error.to_summary(),
+                    "error_message": error.message,
+                    "error_code": error.code,
+                },
             ).encode("utf-8")
 
         return StreamingResponse(
@@ -128,31 +135,44 @@ async def search_stream(
     )
     quota = evaluate_search_start(ctx, store)
     if not quota.allowed:
+        quota_error = (quota.error or SearchErrorInfo(code="quota.unknown", message=quota.message, phase="quota")).with_correlation_id(
+            correlation_id
+        )
         recorder.event(
             event_type="quota_blocked",
             phase="quota",
             level="warning",
-            message=quota.message,
-            payload={},
+            message=quota_error.message,
+            payload={"error": quota_error.to_summary()},
         )
         recorder.finalize(
             ok=False,
             status="quota_blocked",
-            summary={
-                "ok": False,
-                "status": "quota_blocked",
-                "correlation_id": correlation_id,
-                "error_message": quota.message,
-            },
+            summary=with_search_error(
+                {
+                    "ok": False,
+                    "status": "quota_blocked",
+                    "correlation_id": correlation_id,
+                },
+                quota_error,
+            ),
             economics={},
-            error_message=quota.message,
+            error_message=quota_error.message,
         )
 
         async def denied() -> AsyncIterator[bytes]:
-            yield sse_pack("search_error", {"message": quota.message, "phase": "quota", "correlation_id": correlation_id}).encode("utf-8")
-            yield sse_pack("done", {"ok": False, "status": "quota_blocked", "correlation_id": correlation_id}).encode(
-                "utf-8"
-            )
+            yield sse_pack("search_error", quota_error.to_payload()).encode("utf-8")
+            yield sse_pack(
+                "done",
+                with_search_error(
+                    {
+                        "ok": False,
+                        "status": "quota_blocked",
+                        "correlation_id": correlation_id,
+                    },
+                    quota_error,
+                ),
+            ).encode("utf-8")
 
         return StreamingResponse(
             denied(),
@@ -186,48 +206,63 @@ async def search_stream(
                 yield chunk.encode("utf-8")
         except asyncio.CancelledError:
             if not recorder.finalized:
+                canceled_error = SearchErrorInfo(
+                    code="search.canceled",
+                    message="Search canceled by user.",
+                    phase="http",
+                    status="canceled",
+                )
                 recorder.event(
                     event_type="search_canceled",
                     phase="http",
                     level="warning",
-                    message="Search canceled by user.",
-                    payload={"correlation_id": correlation_id},
+                    message=canceled_error.message,
+                    payload={"correlation_id": correlation_id, "error": canceled_error.to_summary()},
                 )
                 recorder.finalize(
                     ok=False,
                     status="canceled",
-                    summary={
-                        "ok": False,
-                        "status": "canceled",
-                        "correlation_id": correlation_id,
-                        "error_message": "Search canceled by user.",
-                    },
+                    summary=with_search_error(
+                        {
+                            "ok": False,
+                            "status": "canceled",
+                            "correlation_id": correlation_id,
+                        },
+                        canceled_error,
+                    ),
                     economics={},
-                    error_message="Search canceled by user.",
+                    error_message=canceled_error.message,
                 )
             raise
         finally:
             if current_task is not None:
                 unregister_active_search(correlation_id, current_task)
             if not recorder.finalized:
+                stream_closed_error = SearchErrorInfo(
+                    code="stream.closed_before_completion",
+                    message="Search stream closed before completion.",
+                    phase="http",
+                )
                 recorder.event(
                     event_type="stream_closed",
                     phase="http",
                     level="warning",
                     message="Search stream closed before scraper finalized.",
-                    payload={},
+                    payload={"error": stream_closed_error.to_summary()},
                 )
                 recorder.finalize(
                     ok=False,
                     status="failed",
-                    summary={
-                        "ok": False,
-                        "status": "failed",
-                        "correlation_id": correlation_id,
-                        "error_message": "Search stream closed before completion.",
-                    },
+                    summary=with_search_error(
+                        {
+                            "ok": False,
+                            "status": "failed",
+                            "correlation_id": correlation_id,
+                        },
+                        stream_closed_error,
+                    ),
                     economics={},
-                    error_message="Search stream closed before completion.",
+                    error_message=stream_closed_error.message,
                 )
             record_search_completed(
                 ctx,
@@ -263,6 +298,13 @@ async def stop_search(
 async def lifespan(_app: FastAPI):
     if os.environ.get("VERCEL_ENV") == "production" and not settings.session_secret:
         logger.warning("SESSION_SECRET is not set in production! Sessions and anon keys will use a weak default.")
+    if os.environ.get("VERCEL_ENV") and settings.accounts_db_path.startswith("/tmp/") and not (
+        settings.supabase_url and settings.supabase_service_key
+    ):
+        logger.warning(
+            "accounts_db_path is using ephemeral /tmp storage without Supabase configured. "
+            "Search logs, quotas, and saved state will be instance-local on Vercel."
+        )
     yield
     try:
         from app.services.scraper import close_scraper_http_clients

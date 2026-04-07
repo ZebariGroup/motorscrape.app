@@ -9,6 +9,7 @@ from typing import Any
 from app.api.deps import AccessContext
 from app.config import settings
 from app.db.account_store import get_account_store
+from app.services.search_errors import SearchErrorInfo
 from app.tiers import TierId
 
 
@@ -19,8 +20,16 @@ def _period_utc() -> str:
 @dataclass(slots=True)
 class SearchQuotaDecision:
     allowed: bool
-    message: str
     counts_as_overage: bool
+    error: SearchErrorInfo | None = None
+
+    @property
+    def message(self) -> str:
+        return self.error.message if self.error is not None else ""
+
+    @property
+    def code(self) -> str | None:
+        return self.error.code if self.error is not None else None
 
 
 def evaluate_search_start(ctx: AccessContext, store: Any | None = None) -> SearchQuotaDecision:
@@ -29,19 +38,46 @@ def evaluate_search_start(ctx: AccessContext, store: Any | None = None) -> Searc
 
     bucket = f"srch:{ctx.user_id or ctx.anon_key or 'x'}"
     if not store.rate_tick(bucket, limit=max(1, lim.minute_rate_limit)):
-        return SearchQuotaDecision(False, "Too many searches. Please wait a minute and try again.", False)
+        return SearchQuotaDecision(
+            False,
+            False,
+            SearchErrorInfo(
+                code="quota.rate_limit",
+                message="Too many searches. Please wait a minute and try again.",
+                phase="quota",
+                status="quota_blocked",
+                retryable=True,
+            ),
+        )
 
     if ctx.user_id is None:
         if not ctx.anon_key:
-            return SearchQuotaDecision(False, "Unable to identify this browser session.", False)
+            return SearchQuotaDecision(
+                False,
+                False,
+                SearchErrorInfo(
+                    code="quota.browser_session_unidentified",
+                    message="Unable to identify this browser session.",
+                    phase="quota",
+                    status="quota_blocked",
+                    retryable=True,
+                ),
+            )
         used = store.anon_get(ctx.anon_key)
         if used >= lim.anonymous_lifetime_searches:
             return SearchQuotaDecision(
                 False,
-                "You've used all free searches without an account. Create a free account to continue.",
                 False,
+                SearchErrorInfo(
+                    code="quota.anonymous_limit_reached",
+                    message="You've used all free searches without an account. Create a free account to continue.",
+                    phase="quota",
+                    status="quota_blocked",
+                    upgrade_required=True,
+                    upgrade_tier="free",
+                ),
             )
-        return SearchQuotaDecision(True, "", False)
+        return SearchQuotaDecision(True, False)
 
     # Authenticated
     period = _period_utc()
@@ -49,41 +85,78 @@ def evaluate_search_start(ctx: AccessContext, store: Any | None = None) -> Searc
     tier = (ctx.tier or TierId.FREE.value).lower()
 
     if tier in (TierId.ENTERPRISE.value, TierId.CUSTOM.value):
-        return SearchQuotaDecision(True, "", False)
+        return SearchQuotaDecision(True, False)
 
     included = lim.included_searches_per_month
     if used < included:
-        return SearchQuotaDecision(True, "", False)
+        return SearchQuotaDecision(True, False)
 
     # Over included allotment
     user = store.get_user_by_id(ctx.user_id)
     if user is None:
-        return SearchQuotaDecision(False, "Account not found.", False)
+        return SearchQuotaDecision(
+            False,
+            False,
+            SearchErrorInfo(
+                code="quota.account_not_found",
+                message="Account not found.",
+                phase="quota",
+                status="quota_blocked",
+                retryable=True,
+            ),
+        )
 
     if tier in (TierId.STANDARD.value, TierId.PREMIUM.value, TierId.MAX_PRO.value):
         if tier == TierId.STANDARD.value:
             return SearchQuotaDecision(
                 False,
-                "Monthly included searches are used up. Upgrade to Pro or Max Pro for a larger monthly pool.",
                 False,
+                SearchErrorInfo(
+                    code="quota.monthly_limit_standard",
+                    message="Monthly included searches are used up. Upgrade to Pro or Max Pro for a larger monthly pool.",
+                    phase="quota",
+                    status="quota_blocked",
+                    upgrade_required=True,
+                    upgrade_tier="premium",
+                ),
             )
         if tier == TierId.PREMIUM.value:
             return SearchQuotaDecision(
                 False,
-                "Monthly included searches are used up. Upgrade to Max Pro for a larger monthly pool, or contact us for Enterprise.",
                 False,
+                SearchErrorInfo(
+                    code="quota.monthly_limit_premium",
+                    message="Monthly included searches are used up. Upgrade to Max Pro for a larger monthly pool, or contact us for Enterprise.",
+                    phase="quota",
+                    status="quota_blocked",
+                    upgrade_required=True,
+                    upgrade_tier="max_pro",
+                ),
             )
         return SearchQuotaDecision(
             False,
-            "Monthly included searches are used up. Contact support for Enterprise or custom volume.",
             False,
+            SearchErrorInfo(
+                code="quota.monthly_limit_max_pro",
+                message="Monthly included searches are used up. Contact support for Enterprise or custom volume.",
+                phase="quota",
+                status="quota_blocked",
+                upgrade_required=True,
+            ),
         )
 
     # free tier
     return SearchQuotaDecision(
         False,
-        "Monthly free search limit reached. Subscribe to Standard, Pro, or Max Pro for higher monthly limits.",
         False,
+        SearchErrorInfo(
+            code="quota.monthly_limit_free",
+            message="Monthly free search limit reached. Subscribe to Standard, Pro, or Max Pro for higher monthly limits.",
+            phase="quota",
+            status="quota_blocked",
+            upgrade_required=True,
+            upgrade_tier="standard",
+        ),
     )
 
 

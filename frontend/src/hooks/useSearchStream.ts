@@ -23,10 +23,23 @@ export type SearchHistoryView = {
   correlationId: string;
 };
 
+export type SearchStreamError = {
+  message: string;
+  code?: string | null;
+  phase?: string | null;
+  status?: string | null;
+  retryable?: boolean;
+  upgrade_required?: boolean;
+  upgrade_tier?: string | null;
+};
+
 type SearchLogRun = SearchHistoryRunRow & {
   dealer_discovery_count?: number | null;
   dealer_deduped_count?: number | null;
   error_message?: string | null;
+  error_code?: string | null;
+  error_phase?: string | null;
+  error?: SearchStreamError | null;
 };
 
 const TERMINAL_SEARCH_LOG_STATUSES = new Set([
@@ -46,6 +59,27 @@ const STREAM_RECOVERY_POLL_SCHEDULE_MS = [0, 300, 300, 500, 500, 750, 1000, 1250
 
 function appendUniqueError(list: string[], message: string): string[] {
   return list.includes(message) ? list : [...list, message];
+}
+
+function appendUniqueErrorEvent(list: SearchStreamError[], next: SearchStreamError): SearchStreamError[] {
+  const key = `${next.code ?? ""}|${next.phase ?? ""}|${next.message}`;
+  return list.some((item) => `${item.code ?? ""}|${item.phase ?? ""}|${item.message}` === key) ? list : [...list, next];
+}
+
+function normalizeSearchError(value: unknown): SearchStreamError | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const message = typeof raw.message === "string" ? raw.message.trim() : "";
+  if (!message) return null;
+  return {
+    message,
+    code: typeof raw.code === "string" ? raw.code : null,
+    phase: typeof raw.phase === "string" ? raw.phase : null,
+    status: typeof raw.status === "string" ? raw.status : null,
+    retryable: Boolean(raw.retryable),
+    upgrade_required: Boolean(raw.upgrade_required),
+    upgrade_tier: typeof raw.upgrade_tier === "string" ? raw.upgrade_tier : null,
+  };
 }
 
 function isTerminalDealerStatus(status: DealershipProgress["status"] | undefined): boolean {
@@ -226,6 +260,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const [sortOrder, setSortOrder] = useState<ListingSortOrder>("year_desc");
   const [pinnedDealerWebsite, setPinnedDealerWebsite] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
+  const [errorEvents, setErrorEvents] = useState<SearchStreamError[]>([]);
   const [running, setRunning] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [historyView, setHistoryView] = useState<SearchHistoryView | null>(null);
@@ -579,6 +614,17 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
             setStatus(buildRecoveredSearchStatus(run));
             if (run.error_message?.trim()) {
               setErrors((e) => appendUniqueError(e, run.error_message!.trim()));
+              setErrorEvents((current) =>
+                appendUniqueErrorEvent(current, {
+                  message: run.error_message!.trim(),
+                  code: run.error_code ?? run.error?.code ?? null,
+                  phase: run.error_phase ?? run.error?.phase ?? null,
+                  status: run.status,
+                  retryable: Boolean(run.error?.retryable),
+                  upgrade_required: Boolean(run.error?.upgrade_required),
+                  upgrade_tier: run.error?.upgrade_tier ?? null,
+                }),
+              );
             }
             closeStream();
             onFinishedRef.current?.();
@@ -642,6 +688,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       listingFlushHandleRef.current = null;
       sawFirstVehicleBatchRef.current = false;
       setErrors([]);
+      setErrorEvents([]);
       setDealers({});
       setPinnedDealerWebsite(null);
       setStatus(null);
@@ -690,6 +737,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       listingFlushHandleRef.current = null;
       sawFirstVehicleBatchRef.current = false;
       setErrors([]);
+      setErrorEvents([]);
       setDealers({});
       setPinnedDealerWebsite(null);
       setStatus(null);
@@ -718,6 +766,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       listingFlushHandleRef.current = null;
       sawFirstVehicleBatchRef.current = false;
       setErrors([]);
+      setErrorEvents([]);
       setDealers({});
       setPinnedDealerWebsite(null);
       setStatus(null);
@@ -750,6 +799,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     listingFlushHandleRef.current = null;
     sawFirstVehicleBatchRef.current = false;
     setErrors([]);
+    setErrorEvents([]);
     setListings([]);
     setDealers({});
     setPinnedDealerWebsite(null);
@@ -847,8 +897,11 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     const onError = (ev: MessageEvent) => {
       if (isStaleSession()) return;
       try {
-        const data = JSON.parse(ev.data) as { message?: string };
-        if (data.message) setErrors((e) => [...e, data.message!]);
+        const data = JSON.parse(ev.data) as SearchStreamError;
+        const error = normalizeSearchError(data);
+        if (!error) return;
+        setErrorEvents((current) => appendUniqueErrorEvent(current, error));
+        setErrors((e) => appendUniqueError(e, error.message));
       } catch {
         /* ignore */
       }
@@ -952,6 +1005,15 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
                 return;
               }
               setReconnecting(false);
+              setErrorEvents((current) =>
+                appendUniqueErrorEvent(current, {
+                  message: "Connection to search stream lost or failed.",
+                  code: "stream.connection_lost",
+                  phase: "http",
+                  status: "failed",
+                  retryable: true,
+                }),
+              );
               setErrors((e) => appendUniqueError(e, "Connection to search stream lost or failed."));
               closeStream();
             } finally {
@@ -1012,6 +1074,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       stopStream,
       status,
       errors,
+      errorEvents,
       historyView,
       applySavedSearchCriteria,
       applySavedSearchFromHistory,
