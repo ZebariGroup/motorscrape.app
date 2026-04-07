@@ -282,7 +282,7 @@ export function SearchExperience() {
         marketRegion={form.marketRegion}
         onMarketRegionChange={form.setMarketRegion}
       />
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-4 pb-24 sm:gap-6 sm:px-6 sm:py-6 sm:pb-10">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-4 pb-20 sm:gap-6 sm:px-6 sm:py-6 sm:pb-10">
         <header>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl lg:text-4xl dark:text-zinc-50">
@@ -415,8 +415,8 @@ export function SearchExperience() {
         </div>
 
         {search.running && (
-          <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/90 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur-md sm:hidden dark:border-zinc-800 dark:bg-zinc-950/90 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
-            <div className="flex items-center justify-between gap-4">
+          <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/92 px-3 py-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-md sm:hidden dark:border-zinc-800 dark:bg-zinc-950/92 shadow-[0_-4px_18px_-12px_rgba(0,0,0,0.18)]">
+            <div className="flex items-center justify-between gap-3">
               <div className="flex flex-1 flex-col gap-1.5">
                 <div className="flex items-center justify-between text-xs font-medium">
                   <span className="text-zinc-900 dark:text-zinc-50">
@@ -426,7 +426,7 @@ export function SearchExperience() {
                     {dealers.doneDealerCount} / {dealers.targetDealerCount}
                   </span>
                 </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+                <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
                   <div
                     className={`h-full transition-all duration-500 ${search.reconnecting ? "bg-amber-500" : "bg-emerald-500"}`}
                     style={{ width: `${dealers.completedDealerPercent}%` }}
@@ -435,7 +435,7 @@ export function SearchExperience() {
               </div>
               <button
                 onClick={search.stopStream}
-                className="rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-900 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-50 dark:hover:bg-zinc-700"
+                className="rounded-lg bg-zinc-100 px-3 py-1.5 text-[11px] font-semibold text-zinc-900 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-50 dark:hover:bg-zinc-700"
               >
                 Stop
               </button>
