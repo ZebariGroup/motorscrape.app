@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useSearchStream } from "@/hooks/useSearchStream";
 import { useAccessSummary } from "@/hooks/useAccessSummary";
@@ -80,7 +80,8 @@ export function SearchExperience() {
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [dismissedQuotaCode, setDismissedQuotaCode] = useState<string | null>(null);
-  const [appliedCriteriaQuery, setAppliedCriteriaQuery] = useState<string | null>(null);
+  const appliedCriteriaQueryRef = useRef<string | null>(null);
+  const pendingUrlWriteQueryRef = useRef<string | null>(null);
 
   useEffect(() => {
     refresh();
@@ -108,12 +109,21 @@ export function SearchExperience() {
 
   useEffect(() => {
     const qs = searchParams.toString();
-    if (!qs || qs === appliedCriteriaQuery) return;
+    if (pendingUrlWriteQueryRef.current === qs) {
+      pendingUrlWriteQueryRef.current = null;
+      appliedCriteriaQueryRef.current = qs;
+      return;
+    }
+    if (!qs) {
+      appliedCriteriaQueryRef.current = "";
+      return;
+    }
+    if (qs === appliedCriteriaQueryRef.current) return;
     const parsed = parseSearchCriteriaQuery(new URLSearchParams(qs));
     if (!parsed) return;
     void applySavedSearchCriteria(parsed);
-    setAppliedCriteriaQuery(qs);
-  }, [appliedCriteriaQuery, applySavedSearchCriteria, searchParams]);
+    appliedCriteriaQueryRef.current = qs;
+  }, [applySavedSearchCriteria, searchParams]);
 
   const startCheckout = async (tier: "standard" | "premium" | "max_pro") => {
     setUpgradeError(null);
@@ -198,17 +208,16 @@ export function SearchExperience() {
 
   useEffect(() => {
     const qs = searchParams.toString();
-    if (qs && appliedCriteriaQuery === null) return;
+    if (qs && appliedCriteriaQueryRef.current === null) return;
     const nextQuery = form.location.trim().length >= 2 ? currentCriteriaQuery : "";
     if (qs === nextQuery) {
-      if (appliedCriteriaQuery !== nextQuery) {
-        setAppliedCriteriaQuery(nextQuery);
-      }
+      appliedCriteriaQueryRef.current = nextQuery;
       return;
     }
-    setAppliedCriteriaQuery(nextQuery);
+    pendingUrlWriteQueryRef.current = nextQuery;
+    appliedCriteriaQueryRef.current = nextQuery;
     router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
-  }, [appliedCriteriaQuery, currentCriteriaQuery, form.location, pathname, router, searchParams]);
+  }, [currentCriteriaQuery, form.location, pathname, router, searchParams]);
 
   useEffect(
     () => {
