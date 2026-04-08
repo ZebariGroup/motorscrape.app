@@ -19,4 +19,9 @@ describe("apiBase", () => {
     process.env.NEXT_PUBLIC_API_URL = "http://127.0.0.1:9999";
     expect(resolveApiUrl("/search/stream")).toBe("http://127.0.0.1:9999/search/stream");
   });
+
+  it("getApiBaseUrl strips trailing slash from configured relative base", () => {
+    process.env.NEXT_PUBLIC_API_URL = "/server/";
+    expect(getApiBaseUrl()).toBe("/server");
+  });
 });

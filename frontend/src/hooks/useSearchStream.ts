@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { resolveApiUrl } from "@/lib/apiBase";
 import { clampNumber, clampPercent, dealerSiteKey } from "@/lib/inventoryFormat";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import {
@@ -11,6 +10,7 @@ import {
   parseMarketRegion,
   type MarketRegion,
 } from "@/lib/marketRegion";
+import { buildSearchStreamUrl, searchLogUrl, stopSearchUrl } from "@/lib/searchStreamUrls";
 import { categoryUsesCatalog, defaultVehicleCategory, getMakesForCategory, getModelGroupsForMake, getModelsForMake } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { DealershipProgress, VehicleListing } from "@/types/inventory";
@@ -595,7 +595,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
 
   const recoverCompletedStream = useCallback(
     async (correlationId: string, isStaleSession: () => boolean): Promise<boolean> => {
-      const logsUrl = resolveApiUrl(`/search/logs/${encodeURIComponent(correlationId)}?include_events=false`);
+      const logsUrl = searchLogUrl(correlationId);
 
       for (const delayMs of STREAM_RECOVERY_POLL_SCHEDULE_MS) {
         if (isStaleSession()) return false;
@@ -664,7 +664,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     expectedDealerTotalRef.current = null;
     if (correlationId) {
       try {
-        await fetch(resolveApiUrl(`/search/stop/${correlationId}`), {
+        await fetch(stopSearchUrl(correlationId), {
           method: "POST",
           credentials: "include",
         });
@@ -814,25 +814,21 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     const startedAt = Date.now();
     setNowMs(startedAt);
 
-    const streamUrl = resolveApiUrl("/search/stream");
     const correlationId = buildClientSearchId();
     correlationIdRef.current = correlationId;
-    const params = new URLSearchParams({
-      location: location.trim(),
-      make: make.trim(),
-      model: model.trim(),
-      correlation_id: correlationId,
-      vehicle_category: vehicleCategory,
-      vehicle_condition: vehicleCondition,
-      radius_miles: radiusMiles,
-      inventory_scope: inventoryScope,
-      max_dealerships: maxDealerships,
-      market_region: marketRegion,
+    const url = buildSearchStreamUrl({
+      location,
+      make,
+      model,
+      correlationId,
+      vehicleCategory,
+      vehicleCondition,
+      radiusMiles,
+      inventoryScope,
+      maxDealerships,
+      marketRegion,
+      preferSmallDealers,
     });
-    if (preferSmallDealers) {
-      params.set("prefer_small_dealers", "true");
-    }
-    const url = `${streamUrl}?${params.toString()}`;
 
     const streamSessionId = streamSessionRef.current + 1;
     streamSessionRef.current = streamSessionId;

@@ -84,7 +84,7 @@ Auth API: `/server/auth/*`, billing: `/server/billing/*` (same paths without `/s
 
 The terminal SSE `done` event includes **`duration_ms`** and **`economics`** (`cost_driver_units` plus driver breakdown: dealerships, pages, managed fetch events, LLM pages, etc.) for margin analysis — see [`backend/app/services/economics.py`](backend/app/services/economics.py).
 
-**Tests / lint (local):** use a venv in `backend/`, then `pip install -r requirements-dev.txt && ruff check app tests && pytest`. Frontend: `npm run lint && npm run test && npm run build`.
+**Tests / lint (local):** use a venv in `backend/`, then `pip install -r requirements-dev.txt && python scripts/check_dependency_alignment.py && ruff check app tests && pytest`. Frontend: `npm run lint && npm run test && npm run build`.
 
 ## SSE event types
 
