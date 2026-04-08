@@ -92,6 +92,20 @@ def test_name_matches_make() -> None:
     assert places._name_matches_make("Any", "")
 
 
+def test_build_text_queries_prefers_generic_used_car_terms_for_smaller_dealer_mode() -> None:
+    queries = places._build_text_queries(
+        vehicle_category="car",
+        location="Detroit MI",
+        make="Cadillac",
+        model="Escalade",
+        prefer_small_dealers=True,
+    )
+
+    assert queries[0] == "Cadillac Escalade used cars near Detroit MI"
+    assert "used car dealer near Detroit MI" in queries
+    assert "Cadillac used cars near Detroit MI" in queries
+
+
 def test_effective_places_search_category_powersports_oem_under_car() -> None:
     """Car + Can-Am should use motorcycle Places profile (no strict car_dealer type)."""
     assert places._effective_places_search_category("car", "Can-Am") == "motorcycle"
@@ -336,6 +350,56 @@ async def test_find_car_dealerships_filters_results_outside_requested_radius(pla
     assert [dealer.name for dealer in out] == ["Nearby Ford"]
     assert search_bodies
     assert "locationRestriction" in search_bodies[0]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_find_car_dealerships_prefer_small_dealers_keeps_independent_candidates(places_api_key: str) -> None:
+    search_response = {
+        "places": [
+            {
+                "id": "ChIJoem",
+                "name": "places/ChIJoem",
+                "displayName": {"text": "Cadillac of Testville"},
+                "formattedAddress": "123 Main",
+                "websiteUri": "https://cadillacoftestville.example/",
+            },
+            {
+                "id": "ChIJindie",
+                "name": "places/ChIJindie",
+                "displayName": {"text": "Prestige Auto Sales"},
+                "formattedAddress": "456 Main",
+                "websiteUri": "https://prestigeautosales.example/",
+            },
+        ]
+    }
+    seen_queries: list[str] = []
+
+    def _route(request: object) -> Response:
+        try:
+            raw = request.content.decode() if getattr(request, "content", None) else "{}"  # type: ignore[union-attr]
+            body = json.loads(raw) if raw else {}
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return Response(200, json={"places": []})
+        seen_queries.append(str(body.get("textQuery") or ""))
+        return Response(200, json=search_response)
+
+    respx.get(places.GEOCODE_URL).mock(return_value=Response(200, json=_geocode_response(42.33, -83.04)))
+    respx.post(places.SEARCH_TEXT_URL).mock(side_effect=_route)
+
+    out = await places.find_car_dealerships(
+        "Detroit MI",
+        make="Cadillac",
+        model="Escalade",
+        prefer_small_dealers=True,
+        limit=5,
+        radius_miles=25,
+    )
+
+    assert [dealer.name for dealer in out][:2] == ["Prestige Auto Sales", "Cadillac of Testville"]
+    assert any("used car dealer near Detroit MI" == query for query in seen_queries)
 
 
 @respx.mock

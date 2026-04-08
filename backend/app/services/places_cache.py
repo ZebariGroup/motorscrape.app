@@ -131,6 +131,7 @@ def places_search_cache_key(
     vehicle_category: str,
     radius_miles: int,
     market_region: str,
+    prefer_small_dealers: bool = False,
 ) -> str:
     return _make_key(
         {
@@ -141,6 +142,7 @@ def places_search_cache_key(
             "vehicle_category": (vehicle_category or "car").strip().lower(),
             "radius_miles": int(radius_miles or 0),
             "market_region": (market_region or "us").strip().lower(),
+            "prefer_small_dealers": bool(prefer_small_dealers),
         }
     )
 

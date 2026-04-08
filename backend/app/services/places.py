@@ -14,6 +14,7 @@ import httpx
 
 from app.config import settings
 from app.schemas import DealershipFound
+from app.services.dealer_bias import dealer_preference_bias
 from app.services.inventory_filters import normalize_model_text, text_mentions_make
 from app.services.places_cache import (
     get_cached_geocode_center,
@@ -843,6 +844,7 @@ def _build_text_queries(
     make: str,
     model: str,
     market_region: str = "us",
+    prefer_small_dealers: bool = False,
 ) -> list[str]:
     config = _CATEGORY_SEARCH_CONFIG[_normalize_vehicle_category(vehicle_category)]
     make_q = make.strip()
@@ -853,6 +855,19 @@ def _build_text_queries(
 
     text_queries: list[str] = []
     primary_term = dealer_terms[0]
+    prefer_smaller_car_queries = prefer_small_dealers and _normalize_vehicle_category(vehicle_category) == "car"
+    if prefer_smaller_car_queries and make_q:
+        if model_q:
+            text_queries.append(f"{make_q} {model_q} used cars near {location}")
+            text_queries.append(f"{model_q} used cars near {location}")
+        text_queries.extend(
+            [
+                f"{make_q} used cars near {location}",
+                f"used car dealer near {location}",
+                f"auto sales near {location}",
+                f"independent used car dealer near {location}",
+            ]
+        )
     if make_q:
         text_queries.append(f"{make_q} {primary_term} near {location}")
         if model_q:
@@ -964,6 +979,7 @@ async def find_dealerships(
     make: str = "",
     model: str = "",
     vehicle_category: str = "car",
+    prefer_small_dealers: bool = False,
     limit: int = 20,
     radius_miles: int = 50,
     market_region: str = "us",
@@ -994,6 +1010,7 @@ async def find_dealerships(
         vehicle_category=vehicle_category,
         radius_miles=requested_radius,
         market_region=market_region,
+        prefer_small_dealers=prefer_small_dealers,
     )
     use_search_cache = query_variant_limit is None and location_center_override is None
     
@@ -1007,7 +1024,7 @@ async def find_dealerships(
                 metrics=metrics,
             )
             
-        if use_search_cache and location_center is not None:
+        if use_search_cache and location_center is not None and not prefer_small_dealers:
             from app.services.places_supabase import check_supabase_cache
             center_lat, center_lng = location_center
             supabase_cached_results = check_supabase_cache(
@@ -1044,6 +1061,7 @@ async def find_dealerships(
             make=make_q,
             model=model_q,
             market_region=market_region,
+            prefer_small_dealers=prefer_small_dealers,
         )
         if query_variant_limit is not None:
             text_queries = text_queries[: max(1, int(query_variant_limit))]
@@ -1225,7 +1243,7 @@ async def find_dealerships(
         def _finalize(found: list[DealershipFound]) -> list[DealershipFound]:
             if use_search_cache:
                 set_cached_places_search(search_cache_key, found)
-                if location_center is not None:
+                if location_center is not None and not prefer_small_dealers:
                     from app.services.places_supabase import save_to_supabase_cache
                     center_lat, center_lng = location_center
                     save_to_supabase_cache(
@@ -1274,6 +1292,18 @@ async def find_dealerships(
                 max_generic = min(len(category_matches), _generic_category_fallback_cap(category))
                 return _finalize(category_matches[:max_generic])
 
+        if prefer_small_dealers:
+            ranked_results = sorted(
+                results,
+                key=lambda dealer: dealer_preference_bias(
+                    dealer.name,
+                    dealer.website,
+                    search_make=make_q,
+                ),
+                reverse=True,
+            )
+            return _finalize(ranked_results)
+
         # Include website in the haystack: OEM often appears in the domain/path (e.g. …/shop-brp/can-am)
         # but not in the Google Places display name ("River Raisin Powersports").
         brand_matches = [
@@ -1290,6 +1320,7 @@ async def find_car_dealerships(
     *,
     make: str = "",
     model: str = "",
+    prefer_small_dealers: bool = False,
     limit: int = 20,
     radius_miles: int = 50,
     market_region: str = "us",
@@ -1302,6 +1333,7 @@ async def find_car_dealerships(
         make=make,
         model=model,
         vehicle_category="car",
+        prefer_small_dealers=prefer_small_dealers,
         limit=limit,
         radius_miles=radius_miles,
         market_region=market_region,
