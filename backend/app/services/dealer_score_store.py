@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.config import settings
@@ -15,6 +16,13 @@ NO_SCORE_DEFAULT = 50.0
 _LISTINGS_CAP = 50
 _FAST_SECONDS = 30.0
 _SLOW_SECONDS = 120.0
+
+
+@dataclass(frozen=True, slots=True)
+class DealerScoreCard:
+    score: float = NO_SCORE_DEFAULT
+    failure_streak: int = 0
+    last_elapsed_s: float | None = None
 
 
 def _connect(db_path: str | None = None) -> sqlite3.Connection | None:
@@ -189,6 +197,38 @@ def get_scores(domains: list[str], *, db_path: str | None = None) -> dict[str, f
         return {str(row["domain"]): float(row["score"]) for row in rows}
     except Exception as e:
         logger.debug("Dealer score lookup failed: %s", e)
+        return {}
+    finally:
+        conn.close()
+
+
+def get_score_cards(domains: list[str], *, db_path: str | None = None) -> dict[str, DealerScoreCard]:
+    normalized_domains = [str(domain or "").strip() for domain in domains if str(domain or "").strip()]
+    if not normalized_domains:
+        return {}
+    conn = _connect(db_path=db_path)
+    if not conn:
+        return {}
+    try:
+        placeholders = ",".join("?" for _ in normalized_domains)
+        rows = conn.execute(
+            f"""
+            SELECT domain, score, failure_streak, last_elapsed_s
+            FROM dealer_scores
+            WHERE domain IN ({placeholders})
+            """,
+            normalized_domains,
+        ).fetchall()
+        return {
+            str(row["domain"]): DealerScoreCard(
+                score=float(row["score"]),
+                failure_streak=int(row["failure_streak"] or 0),
+                last_elapsed_s=float(row["last_elapsed_s"]) if row["last_elapsed_s"] is not None else None,
+            )
+            for row in rows
+        }
+    except Exception as e:
+        logger.debug("Dealer score-card lookup failed: %s", e)
         return {}
     finally:
         conn.close()

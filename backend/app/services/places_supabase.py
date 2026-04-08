@@ -43,7 +43,10 @@ def check_supabase_cache(
                 "p_lat": lat,
                 "p_lng": lng,
                 "p_radius_meters": radius_meters,
-                "p_max_age_days": 30
+                "p_max_age_days": max(
+                    1,
+                    int(getattr(settings, "places_supabase_region_cache_max_age_days", 30) or 0),
+                ),
             }
         ).execute()
         
@@ -63,7 +66,7 @@ def check_supabase_cache(
         ).execute()
         
         results = []
-        for row in dealerships_res.data:
+        for row in dealerships_res.data or []:
             results.append(
                 DealershipFound(
                     place_id=row["place_id"],
@@ -74,7 +77,7 @@ def check_supabase_cache(
                     lng=row.get("lng")
                 )
             )
-        return results
+        return results or None
         
     except Exception as e:
         logger.error(f"Supabase cache check failed: {e}")
@@ -102,6 +105,7 @@ def save_to_supabase_cache(
     
     try:
         # 1. Insert dealerships
+        persisted_count = 0
         for d in dealerships:
             if d.lat is None or d.lng is None:
                 continue
@@ -118,6 +122,7 @@ def save_to_supabase_cache(
             }, on_conflict="place_id").execute()
             
             if d_res.data and len(d_res.data) > 0:
+                persisted_count += 1
                 d_id = d_res.data[0]["id"]
                 # Link make
                 client.table("dealership_makes").upsert({
@@ -125,7 +130,19 @@ def save_to_supabase_cache(
                     "make": make_q,
                     "vehicle_category": cat_q
                 }, on_conflict="dealership_id,make,vehicle_category").execute()
-                
+
+        coverage_confident = persisted_count > 0 and persisted_count == len(dealerships)
+        if not coverage_confident:
+            if persisted_count > 0:
+                logger.debug(
+                    "Skipping Supabase region coverage write for %s/%s: persisted %s of %s dealerships",
+                    make_q,
+                    cat_q,
+                    persisted_count,
+                    len(dealerships),
+                )
+            return
+
         # 2. Record the search region
         client.table("search_regions").insert({
             "make": make_q,
@@ -133,7 +150,9 @@ def save_to_supabase_cache(
             "lat": lat,
             "lng": lng,
             "center": f"SRID=4326;POINT({lng} {lat})",
-            "radius_meters": radius_meters
+            "radius_meters": radius_meters,
+            "dealership_count": persisted_count,
+            "coverage_confident": True,
         }).execute()
             
     except Exception as e:

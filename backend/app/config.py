@@ -53,6 +53,9 @@ class Settings(BaseSettings):
 
     # Max concurrent Place Details requests when Text Search omits websiteUri.
     places_details_max_concurrency: int = 8
+    # Cap website detail lookups per search so broad Places runs do not fan out
+    # into unbounded follow-up calls when discovery already found enough candidates.
+    places_details_budget_per_search: int = 12
 
     # Accept GOOGLE_PLACES_API_KEY or the common Google Cloud console name for a Maps/Places key.
 
@@ -66,7 +69,7 @@ class Settings(BaseSettings):
     # Remove websiteUri from Text Search by default so discovery stays on the cheaper Pro SKU.
     places_discovery_include_website_uri: bool = False
     # Bound how many searchText variants we try per search before we start scraping.
-    places_text_query_variant_cap: int = 4
+    places_text_query_variant_cap: int = 1
     # Only retry car searches without the strict includedType when the first pass returned very little.
     places_untyped_fallback_result_threshold: int = 0
     # Multiplier used to gather extra dealership candidates before route/cache scoring trims the list.
@@ -75,9 +78,13 @@ class Settings(BaseSettings):
     places_geocode_min_radius_miles: int = 5
     places_cache_enabled: bool = True
     places_cache_path: str = Field(default_factory=_default_places_cache_path)
-    places_search_cache_ttl_seconds: int = 60 * 60 * 12
-    places_details_cache_ttl_seconds: int = 60 * 60 * 24
-    places_geocode_cache_ttl_seconds: int = 60 * 60 * 24
+    places_search_cache_ttl_seconds: int = 60 * 60 * 24 * 7  # 7 days
+    # Empty result sets are useful as a short negative cache, but keep them brief so
+    # transient Places/filtering misses do not suppress legitimate retries for days.
+    places_search_empty_cache_ttl_seconds: int = 60 * 60 * 6  # 6 hours
+    places_details_cache_ttl_seconds: int = 60 * 60 * 24 * 45  # 45 days
+    places_geocode_cache_ttl_seconds: int = 60 * 60 * 24 * 30  # 30 days
+    places_supabase_region_cache_max_age_days: int = 30
     search_running_window_seconds: int = 60 * 20
     alerts_due_claim_ttl_seconds: int = 60 * 10
     openai_api_key: str = ""
@@ -139,6 +146,15 @@ class Settings(BaseSettings):
     search_max_pages_per_dealer_cap: int = 12
     # Blend factor for per-dealer scrape score updates. Higher values react faster to recent runs.
     dealer_score_ema_alpha: float = 0.35
+    # Use observed search economics as a soft ceiling once the search already has enough
+    # useful results; this helps weaker dealers fall back to cheaper paths earlier.
+    search_cost_soft_limit_units: float = 28.0
+    search_managed_fetch_budget: int = 18
+    search_llm_page_budget: int = 12
+    search_budget_relief_vehicle_target: int = 40
+    search_budget_relief_dealer_target: int = 2
+    dealer_score_budget_low_threshold: float = 40.0
+    dealer_failure_streak_budget_threshold: int = 2
     # Room58/Harley dealer SRPs often expose very large inventories and paginate cheaply over
     # direct HTTP; allow a higher safety cap only for Harley-focused searches.
     harley_search_max_pages_per_dealer_cap: int = 24
@@ -166,6 +182,7 @@ class Settings(BaseSettings):
     # Short-lived cache of per-dealer listing payloads (SQLite).
     inventory_cache_enabled: bool = True
     inventory_cache_ttl_seconds: int = 60 * 60 * 4
+    inventory_cache_stale_revalidate_seconds: int = 60 * 60 * 8
     inventory_cache_path: str = Field(default_factory=_default_inventory_cache_path)
 
     # Supabase configuration

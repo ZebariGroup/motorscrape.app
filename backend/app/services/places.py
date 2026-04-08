@@ -98,6 +98,7 @@ class PlacesSearchMetrics:
     query_variants_used: int = 0
     detail_candidates_considered: int = 0
     detail_candidates_resolved: int = 0
+    detail_candidates_skipped: int = 0
     search_status_code_counts: dict[str, int] = field(default_factory=dict)
     detail_status_code_counts: dict[str, int] = field(default_factory=dict)
     geocode_status_code_counts: dict[str, int] = field(default_factory=dict)
@@ -123,6 +124,7 @@ class PlacesSearchMetrics:
             "query_variants_used": self.query_variants_used,
             "detail_candidates_considered": self.detail_candidates_considered,
             "detail_candidates_resolved": self.detail_candidates_resolved,
+            "detail_candidates_skipped": self.detail_candidates_skipped,
             "discovery_mode": self.discovery_mode,
             "search_status_code_counts": dict(sorted(self.search_status_code_counts.items())),
             "detail_status_code_counts": dict(sorted(self.detail_status_code_counts.items())),
@@ -134,6 +136,22 @@ class PlacesSearchMetrics:
 class _GeocodeLocationLabel:
     search_label: str
     country_code: str | None = None
+
+
+def _normalize_location_text(location: str) -> str:
+    return re.sub(r"\s+", " ", str(location or "").strip())
+
+
+def _resolved_location_cache_key(
+    location: str,
+    *,
+    center: tuple[float, float] | None,
+) -> str:
+    normalized = _normalize_location_text(location)
+    if center is None:
+        return normalized
+    lat, lng = center
+    return f"resolved:{lat:.3f},{lng:.3f}"
 
 
 def _search_field_mask() -> str:
@@ -459,23 +477,26 @@ async def _resolve_location_center(
     location: str,
     metrics: PlacesSearchMetrics | None = None,
 ) -> tuple[float, float] | None:
-    cached = get_cached_geocode_center(location)
+    normalized_location = _normalize_location_text(location)
+    if not normalized_location:
+        return None
+    cached = get_cached_geocode_center(normalized_location)
     if cached is not None:
         if metrics is not None:
             metrics.geocode_cache_hits += 1
         return cached
-    params = {"address": location, "key": key}
+    params = {"address": normalized_location, "key": key}
     if metrics is not None:
         metrics.location_resolve_calls += 1
     try:
         r = await client.get(GEOCODE_URL, params=params)
     except Exception as e:
-        logger.debug("Location geocode lookup failed for %r: %s", location, e)
+        logger.debug("Location geocode lookup failed for %r: %s", normalized_location, e)
         return None
     if metrics is not None:
         metrics.bump_status(metrics.geocode_status_code_counts, r.status_code)
     if r.status_code != 200:
-        logger.debug("Location geocode HTTP %s for %r: %s", r.status_code, location, r.text[:300])
+        logger.debug("Location geocode HTTP %s for %r: %s", r.status_code, normalized_location, r.text[:300])
         return None
     payload = r.json() if r.content else {}
     
@@ -492,7 +513,7 @@ async def _resolve_location_center(
     if lat is None or lng is None:
         return None
     center = (float(lat), float(lng))
-    set_cached_geocode_center(location, center)
+    set_cached_geocode_center(normalized_location, center)
     return center
 
 
@@ -602,7 +623,7 @@ async def expand_large_radius_search_locations(
     metrics: PlacesSearchMetrics | None = None,
 ) -> list[str]:
     """Add nearby city-style aliases for sparse large-radius ZIP/city searches."""
-    base_location = (location or "").strip()
+    base_location = _normalize_location_text(location)
     if not base_location:
         return []
     max_locations = max(1, int(max_locations or 1))
@@ -999,19 +1020,11 @@ async def find_dealerships(
             "Environment Variables for Production and Preview; a local .env file is not deployed."
         )
 
+    normalized_location = _normalize_location_text(location)
     make_q = make.strip()
     model_q = model.strip()
     requested_radius = max(5, min(int(radius_miles or 25), 250))
     metrics = metrics or PlacesSearchMetrics()
-    search_cache_key = places_search_cache_key(
-        location=location,
-        make=make_q,
-        model=model_q,
-        vehicle_category=vehicle_category,
-        radius_miles=requested_radius,
-        market_region=market_region,
-        prefer_small_dealers=prefer_small_dealers,
-    )
     use_search_cache = query_variant_limit is None and location_center_override is None
     
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -1020,9 +1033,18 @@ async def find_dealerships(
             location_center = await _resolve_location_center(
                 client,
                 key,
-                location=location,
+                location=normalized_location,
                 metrics=metrics,
             )
+        search_cache_key = places_search_cache_key(
+            location=_resolved_location_cache_key(normalized_location, center=location_center),
+            make=make_q,
+            model=model_q,
+            vehicle_category=vehicle_category,
+            radius_miles=requested_radius,
+            market_region=market_region,
+            prefer_small_dealers=prefer_small_dealers,
+        )
             
         if use_search_cache and location_center is not None and not prefer_small_dealers:
             from app.services.places_supabase import check_supabase_cache
@@ -1057,7 +1079,7 @@ async def find_dealerships(
         config = _CATEGORY_SEARCH_CONFIG[places_category]
         text_queries = _build_text_queries(
             vehicle_category=places_category,
-            location=location,
+            location=normalized_location,
             make=make_q,
             model=model_q,
             market_region=market_region,
@@ -1071,7 +1093,7 @@ async def find_dealerships(
             location_center is not None
             and category != "car"
             and make_q
-            and _looks_like_us_zip_location(location)
+            and _looks_like_us_zip_location(normalized_location)
         )
 
         places: list[dict[str, Any]] = []
@@ -1177,6 +1199,12 @@ async def find_dealerships(
 
         detail_sem = asyncio.Semaphore(max(1, settings.places_details_max_concurrency))
         metrics.detail_candidates_considered = len(candidates)
+        detail_budget = int(getattr(settings, "places_details_budget_per_search", 0) or 0)
+        detail_candidates = [c for c in candidates if not c.get("website") and c.get("place_resource")]
+        if detail_budget > 0 and len(detail_candidates) > detail_budget:
+            metrics.detail_candidates_skipped = len(detail_candidates) - detail_budget
+            detail_candidates = detail_candidates[:detail_budget]
+        search_cache_complete = metrics.detail_candidates_skipped == 0
 
         async def _ensure_website(c: dict[str, Any]) -> None:
             if c.get("website") or not c.get("place_resource"):
@@ -1192,7 +1220,7 @@ async def find_dealerships(
             c["website"] = w or ""
 
         await asyncio.gather(
-            *(_ensure_website(c) for c in candidates if not c.get("website") and c.get("place_resource"))
+            *(_ensure_website(c) for c in detail_candidates)
         )
 
         for c in candidates:
@@ -1241,9 +1269,9 @@ async def find_dealerships(
             )
 
         def _finalize(found: list[DealershipFound]) -> list[DealershipFound]:
-            if use_search_cache:
+            if use_search_cache and search_cache_complete:
                 set_cached_places_search(search_cache_key, found)
-                if location_center is not None and not prefer_small_dealers:
+                if location_center is not None and not prefer_small_dealers and found:
                     from app.services.places_supabase import save_to_supabase_cache
                     center_lat, center_lng = location_center
                     save_to_supabase_cache(

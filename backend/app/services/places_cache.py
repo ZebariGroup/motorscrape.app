@@ -59,6 +59,10 @@ def _make_key(payload: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
+def _normalize_cache_text(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
 def _use_kv() -> bool:
     return bool(settings.places_cache_enabled and kv_rest_store.enabled())
 
@@ -136,12 +140,12 @@ def places_search_cache_key(
     return _make_key(
         {
             "namespace": "places_search_v2",
-            "location": (location or "").strip().lower(),
-            "make": (make or "").strip().lower(),
-            "model": (model or "").strip().lower(),
-            "vehicle_category": (vehicle_category or "car").strip().lower(),
+            "location": _normalize_cache_text(location),
+            "make": _normalize_cache_text(make),
+            "model": _normalize_cache_text(model),
+            "vehicle_category": _normalize_cache_text(vehicle_category or "car") or "car",
             "radius_miles": int(radius_miles or 0),
-            "market_region": (market_region or "us").strip().lower(),
+            "market_region": _normalize_cache_text(market_region or "us") or "us",
             "prefer_small_dealers": bool(prefer_small_dealers),
         }
     )
@@ -162,9 +166,16 @@ def get_cached_places_search(key: str) -> list[DealershipFound] | None:
     return cached
 
 
-def set_cached_places_search(key: str, results: list[DealershipFound]) -> None:
+def set_cached_places_search(key: str, results: list[DealershipFound], *, ttl_seconds: int | None = None) -> None:
     payload = [item.model_dump(mode="json") for item in results]
-    _set("search", key, payload, settings.places_search_cache_ttl_seconds)
+    ttl = ttl_seconds
+    if ttl is None:
+        ttl = (
+            settings.places_search_cache_ttl_seconds
+            if results
+            else max(60, int(getattr(settings, "places_search_empty_cache_ttl_seconds", 60 * 60 * 6) or 0))
+        )
+    _set("search", key, payload, ttl)
 
 
 def get_cached_place_website(place_resource_name: str) -> str | None:
@@ -185,7 +196,7 @@ def set_cached_place_website(place_resource_name: str, website: str | None) -> N
 
 
 def geocode_cache_key(location: str) -> str:
-    return _make_key({"namespace": "places_geocode_v1", "location": (location or "").strip().lower()})
+    return _make_key({"namespace": "places_geocode_v1", "location": _normalize_cache_text(location)})
 
 
 def get_cached_geocode_center(location: str) -> tuple[float, float] | None:

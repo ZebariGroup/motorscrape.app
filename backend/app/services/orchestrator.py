@@ -19,7 +19,7 @@ from app.config import settings
 from app.schemas import DealershipFound, ExtractionResult, PaginationInfo, VehicleListing
 from app.services.dealer_bias import dealer_preference_bias
 from app.services.dealer_platforms import detect_platform_profile
-from app.services.dealer_score_store import NO_SCORE_DEFAULT, get_scores, record_scrape_outcome
+from app.services.dealer_score_store import DealerScoreCard, NO_SCORE_DEFAULT, get_score_cards, record_scrape_outcome
 from app.services.economics import build_search_economics, log_economics_line
 from app.services.inventory_discovery import discover_sitemap_inventory_urls
 from app.services.inventory_filters import (
@@ -32,7 +32,7 @@ from app.services.inventory_filters import (
     normalize_vehicle_condition,
 )
 from app.services.inventory_result_cache import (
-    get_cached_inventory_listings,
+    get_inventory_cache_entry,
     inventory_listings_cache_key,
     set_cached_inventory_listings,
 )
@@ -1094,13 +1094,44 @@ def _generic_vehicle_detail_overlay(v: VehicleListing, html: str) -> VehicleList
     )
 
 
-def _effective_dealer_timeout(requested_pages: int) -> float:
+def _effective_dealer_timeout(
+    requested_pages: int,
+    *,
+    dealer_score: float | None = None,
+    failure_streak: int = 0,
+) -> float:
     base_timeout = max(30.0, settings.dealership_timeout)
     if requested_pages >= 8:
-        return max(base_timeout, 240.0)
-    if requested_pages >= 5:
-        return max(base_timeout, 195.0)
+        base_timeout = max(base_timeout, 240.0)
+    elif requested_pages >= 5:
+        base_timeout = max(base_timeout, 195.0)
+    score = float(NO_SCORE_DEFAULT if dealer_score is None else dealer_score)
+    low_score_threshold = float(getattr(settings, "dealer_score_budget_low_threshold", 40.0) or 40.0)
+    streak_threshold = max(1, int(getattr(settings, "dealer_failure_streak_budget_threshold", 2) or 0))
+    if failure_streak >= streak_threshold and score < low_score_threshold:
+        return max(45.0, min(base_timeout, base_timeout * 0.55))
+    if failure_streak >= streak_threshold:
+        return max(50.0, min(base_timeout, base_timeout * 0.65))
+    if score < low_score_threshold:
+        return max(60.0, min(base_timeout, base_timeout * 0.75))
     return base_timeout
+
+
+def _dealer_budget_page_cap(
+    requested_pages: int,
+    *,
+    dealer_score: float | None = None,
+    failure_streak: int = 0,
+) -> int:
+    cap = max(1, int(requested_pages or 1))
+    score = float(NO_SCORE_DEFAULT if dealer_score is None else dealer_score)
+    low_score_threshold = float(getattr(settings, "dealer_score_budget_low_threshold", 40.0) or 40.0)
+    streak_threshold = max(1, int(getattr(settings, "dealer_failure_streak_budget_threshold", 2) or 0))
+    if failure_streak >= streak_threshold and score < low_score_threshold:
+        return min(cap, 1)
+    if failure_streak >= streak_threshold or score < low_score_threshold:
+        return min(cap, 2)
+    return cap
 
 
 def _effective_max_pages_for_route(
@@ -1573,10 +1604,15 @@ async def stream_search(
     extraction_metrics: dict[str, int] = defaultdict(int)
     warmed_inventory_cache: dict[str, dict[str, Any] | None] = {}
     platform_cache_entries: dict[str, Any] = {}
+    dealer_score_cards: dict[str, DealerScoreCard] = {}
+    dealer_last_fetch_method: dict[str, str] = {}
     places_metrics = PlacesSearchMetrics()
     candidate_limit = min(requested_dealerships * max(1, settings.places_candidate_limit_multiplier), 30)
     historical_snapshot_pool: list[dict[str, Any]] = []
     historical_snapshot_pool_loaded = False
+    completed_dealer_count = 0
+    successful_dealer_count = 0
+    streamed_vehicle_count = 0
 
     def _load_historical_snapshot_pool() -> list[dict[str, Any]]:
         nonlocal historical_snapshot_pool_loaded, historical_snapshot_pool
@@ -1622,6 +1658,55 @@ async def stream_search(
                 break
         historical_snapshot_pool = aggregated
         return historical_snapshot_pool
+
+    def _score_card_for_domain(domain: str) -> DealerScoreCard:
+        return dealer_score_cards.get(domain, DealerScoreCard())
+
+    def _current_economics_snapshot() -> dict[str, Any]:
+        return build_search_economics(
+            fetch_metrics=dict(fetch_metrics),
+            extraction_metrics=dict(extraction_metrics),
+            places_metrics=places_metrics.as_dict(),
+            requested_dealerships=requested_dealerships,
+            requested_pages=requested_pages,
+            radius_miles=radius_miles,
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+            vehicle_condition=vehicle_condition,
+            inventory_scope=inventory_scope,
+            ok=True,
+        )
+
+    def _search_has_budget_relief_targets() -> bool:
+        enough_dealers = completed_dealer_count >= max(
+            1,
+            int(getattr(settings, "search_budget_relief_dealer_target", 2) or 0),
+        )
+        enough_vehicles = streamed_vehicle_count >= max(
+            1,
+            int(getattr(settings, "search_budget_relief_vehicle_target", 40) or 0),
+        )
+        return enough_dealers or enough_vehicles
+
+    def _search_budget_pressure() -> bool:
+        economics = _current_economics_snapshot()
+        drivers = economics.get("drivers", {})
+        return (
+            float(economics.get("cost_driver_units") or 0.0)
+            >= float(getattr(settings, "search_cost_soft_limit_units", 28.0) or 0.0)
+            or int(drivers.get("managed_fetch_events") or 0)
+            >= max(1, int(getattr(settings, "search_managed_fetch_budget", 18) or 0))
+            or int(drivers.get("pages_llm") or 0)
+            >= max(1, int(getattr(settings, "search_llm_page_budget", 12) or 0))
+        )
+
+    def _dealer_budget_relief_active(score_card: DealerScoreCard) -> bool:
+        if not _search_has_budget_relief_targets() or not _search_budget_pressure():
+            return False
+        return (
+            float(score_card.score) < float(getattr(settings, "dealer_score_budget_low_threshold", 40.0) or 40.0)
+            or int(score_card.failure_streak or 0)
+            >= max(1, int(getattr(settings, "dealer_failure_streak_budget_threshold", 2) or 0))
+        )
 
     def finalize_done(base: dict[str, Any], *, ok: bool, status: str | None = None) -> dict[str, Any]:
         duration_ms = int((time.perf_counter() - t0) * 1000)
@@ -1850,7 +1935,7 @@ async def stream_search(
             if cache_warm_pairs:
                 cache_warm_results = await asyncio.gather(
                     *[
-                        asyncio.to_thread(get_cached_inventory_listings, cache_key)
+                        asyncio.to_thread(get_inventory_cache_entry, cache_key, allow_stale=True)
                         for cache_key, _website in cache_warm_pairs
                     ]
                 )
@@ -1866,11 +1951,12 @@ async def stream_search(
         await _warm_dealer_metadata(ranked)
         if len(ranked) > 1:
             dealer_domains = [normalize_dealer_domain((dealer.website or "").strip()) for dealer in ranked]
-            dealer_scores = await asyncio.to_thread(get_scores, dealer_domains)
+            dealer_score_cards.update(await asyncio.to_thread(get_score_cards, dealer_domains))
 
-            def _dealer_sort_key(dealer: DealershipFound) -> tuple[int, int, float]:
+            def _dealer_sort_key(dealer: DealershipFound) -> tuple[int, int, float, int]:
                 website = prefer_https_website_url((dealer.website or "").strip())
                 domain = normalize_dealer_domain(website)
+                score_card = dealer_score_cards.get(domain, DealerScoreCard())
                 inv_cache_key = inventory_listings_cache_key(
                     website=website,
                     domain=domain,
@@ -1882,6 +1968,9 @@ async def stream_search(
                     max_pages=requested_pages,
                 )
                 cached_inventory = warmed_inventory_cache.get(inv_cache_key) or {}
+                cache_hint_score = 0
+                if cached_inventory.get("listings"):
+                    cache_hint_score = 1 if cached_inventory.get("_cache_is_stale") else 2
                 platform_entry = platform_cache_entries.get(domain)
                 route_hint_score = 0
                 if platform_entry is not None:
@@ -1892,6 +1981,7 @@ async def stream_search(
                     if not platform_entry.requires_render:
                         route_hint_score += 4
                     route_hint_score -= min(int(platform_entry.failure_count or 0), 3) * 5
+                route_hint_score -= min(int(score_card.failure_streak or 0), 3) * 4
                 if prefer_small_dealers and vehicle_category == "car":
                     route_hint_score += dealer_preference_bias(
                         dealer.name,
@@ -1899,9 +1989,10 @@ async def stream_search(
                         search_make=make,
                     )
                 return (
-                    1 if cached_inventory.get("listings") else 0,
+                    cache_hint_score,
                     route_hint_score,
-                    dealer_scores.get(domain, NO_SCORE_DEFAULT),
+                    float(score_card.score),
+                    -int(score_card.failure_streak or 0),
                 )
 
             ranked.sort(key=_dealer_sort_key, reverse=True)
@@ -1924,7 +2015,11 @@ async def stream_search(
         platform_entry = platform_cache_entries.get(domain)
         queued_info = "Waiting for an open scrape worker."
         if cached_inventory.get("listings"):
-            queued_info = "Cache hit ready to stream inventory."
+            queued_info = (
+                "Stale cache hit ready while inventory refreshes."
+                if cached_inventory.get("_cache_is_stale")
+                else "Cache hit ready to stream inventory."
+            )
         elif platform_entry is not None and platform_entry.inventory_url_hint:
             queued_info = "Queued with a known inventory route."
         return {
@@ -2031,14 +2126,12 @@ async def stream_search(
     )
 
     sem = asyncio.Semaphore(effective_concurrency)
-    dealer_timeout = _effective_dealer_timeout(requested_pages)
-    # Keep per-phase timeouts inside the overall dealer worker budget.
-    fetch_timeout = min(settings.scrape_timeout * 3 + 5.0, max(20.0, dealer_timeout * 0.5))
-    parse_timeout = min(settings.openai_timeout + 5.0, max(20.0, dealer_timeout * 0.35))
     metrics_lock = asyncio.Lock()
     inv_url_cache: dict[str, str] = {}
 
     async def process_one(index: int, d: DealershipFound, sse_stream_queue: asyncio.Queue[str | object]) -> None:
+        nonlocal completed_dealer_count, successful_dealer_count, streamed_vehicle_count
+
         async def _emit(raw: str) -> None:
             await sse_stream_queue.put(raw)
 
@@ -2075,6 +2168,15 @@ async def stream_search(
         total_vehicles = 0
         dealer_failed = False
         score_recorded = False
+        stale_cache_seed_listings: list[dict[str, Any]] = []
+        score_card = _score_card_for_domain(domain)
+        dealer_timeout = _effective_dealer_timeout(
+            requested_pages,
+            dealer_score=score_card.score,
+            failure_streak=score_card.failure_streak,
+        )
+        fetch_timeout = min(settings.scrape_timeout * 3 + 5.0, max(20.0, dealer_timeout * 0.5))
+        parse_timeout = min(settings.openai_timeout + 5.0, max(20.0, dealer_timeout * 0.35))
 
         async def _fetch(
             url: str,
@@ -2085,15 +2187,19 @@ async def stream_search(
         ) -> tuple[str, str]:
             host_key = normalize_dealer_domain(url) or domain or "unknown"
             local_fetch_metrics: dict[str, int] = {}
+            allow_escalation = not _dealer_budget_relief_active(score_card)
             async with domain_fetch_limiter(host_key):
                 html, method = await fetch_page_html(
                     url,
                     page_kind=page_kind,
                     prefer_render=prefer_render,
+                    allow_escalation=allow_escalation,
                     metrics=local_fetch_metrics,
                     platform_id=platform_id,
                 )
             fetch_methods_used.append(method)
+            if domain:
+                dealer_last_fetch_method[domain] = method
             async with metrics_lock:
                 key = f"fetch_{method}"
                 fetch_metrics[key] += 1
@@ -2234,15 +2340,16 @@ async def stream_search(
             nonlocal score_recorded
             if score_recorded or used_cache or not domain:
                 return
+            score_rows = listings_for_cache or stale_cache_seed_listings
             elapsed_s = time.perf_counter() - dealer_started_at
             await asyncio.to_thread(
                 record_scrape_outcome,
                 domain,
                 listings=total_vehicles,
-                price_fill=_price_fill_rate(listings_for_cache),
-                vin_fill=_vin_fill_rate(listings_for_cache),
+                price_fill=_price_fill_rate(score_rows),
+                vin_fill=_vin_fill_rate(score_rows),
                 elapsed_s=elapsed_s,
-                failed=dealer_failed or total_vehicles <= 0,
+                failed=dealer_failed or (total_vehicles <= 0 and not score_rows),
             )
             score_recorded = True
 
@@ -2264,10 +2371,11 @@ async def stream_search(
             if inv_cache_key in warmed_inventory_cache:
                 cached_inv = warmed_inventory_cache[inv_cache_key]
             else:
-                cached_inv = await asyncio.to_thread(get_cached_inventory_listings, inv_cache_key)
+                cached_inv = await asyncio.to_thread(get_inventory_cache_entry, inv_cache_key, allow_stale=True)
             if cached_inv and cached_inv.get("listings"):
                 fetch_methods_used.append("inventory_cache")
                 cached_listings = cached_inv["listings"]
+                cached_is_stale = bool(cached_inv.get("_cache_is_stale"))
                 total_cached = 0
                 for listing_chunk in _chunk_listings(cached_listings):
                     total_cached += len(listing_chunk)
@@ -2288,6 +2396,52 @@ async def stream_search(
                             },
                         )
                     )
+                if not cached_is_stale:
+                    await _emit(
+                        sse_pack(
+                            "dealership",
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "status": "done",
+                                "listings_found": total_cached,
+                                "fetch_methods": fetch_methods_used,
+                                "platform_id": cached_inv.get("platform_id"),
+                                "platform_source": "cache",
+                                "strategy_used": "inventory_cache",
+                                "from_cache": True,
+                                "info": "Loaded from warm inventory cache.",
+                            },
+                        )
+                    )
+                    async with metrics_lock:
+                        completed_dealer_count += 1
+                        successful_dealer_count += 1
+                        streamed_vehicle_count += total_cached
+                    if recorder is not None:
+                        recorder.note_dealer_done(listings_found=total_cached)
+                        recorder.event(
+                            event_type="dealer_done",
+                            phase="scrape",
+                            level="info",
+                            message=f"Finished dealership scrape for {d.name}.",
+                            dealership_name=d.name,
+                            dealership_website=website,
+                            payload={
+                                "index": index,
+                                "listings_found": total_cached,
+                                "from_cache": True,
+                                "fetch_methods": fetch_methods_used,
+                            },
+                        )
+                    await _record_dealer_score(used_cache=True)
+                    return
+                stale_cache_seed_listings = [
+                    dict(item) for item in cached_listings if isinstance(item, dict)
+                ]
+                total_vehicles = total_cached
                 await _emit(
                     sse_pack(
                         "dealership",
@@ -2296,35 +2450,17 @@ async def stream_search(
                             "total": len(dealers),
                             "name": d.name,
                             "website": website,
-                            "status": "done",
+                            "status": "scraping",
                             "listings_found": total_cached,
                             "fetch_methods": fetch_methods_used,
                             "platform_id": cached_inv.get("platform_id"),
                             "platform_source": "cache",
                             "strategy_used": "inventory_cache",
                             "from_cache": True,
-                            "info": "Loaded from warm inventory cache.",
+                            "info": "Loaded from stale inventory cache while refreshing dealership data.",
                         },
                     )
                 )
-                if recorder is not None:
-                    recorder.note_dealer_done(listings_found=total_cached)
-                    recorder.event(
-                        event_type="dealer_done",
-                        phase="scrape",
-                        level="info",
-                        message=f"Finished dealership scrape for {d.name}.",
-                        dealership_name=d.name,
-                        dealership_website=website,
-                        payload={
-                            "index": index,
-                            "listings_found": total_cached,
-                            "from_cache": True,
-                            "fetch_methods": fetch_methods_used,
-                        },
-                    )
-                await _record_dealer_score(used_cache=True)
-                return
 
             # 1. Try a known inventory route first when platform cache already has a usable hint.
             base_url = website
@@ -3085,6 +3221,14 @@ async def stream_search(
             current_url = inv_url
             pages_scraped = 0
             route_page_cap = _effective_max_pages_for_route(requested_pages, route)
+            route_page_cap = min(
+                route_page_cap,
+                _dealer_budget_page_cap(
+                    route_page_cap,
+                    dealer_score=score_card.score,
+                    failure_streak=score_card.failure_streak,
+                ),
+            )
             absolute_page_cap = _effective_absolute_page_cap(
                 settings.search_max_pages_per_dealer_cap,
                 make=make,
@@ -3097,7 +3241,6 @@ async def stream_search(
             # site reports additional pages (or keeps yielding next-page URLs),
             # allow controlled expansion up to the global safety cap.
             page_budget = min(route_page_cap, absolute_page_cap)
-            total_vehicles = 0
             skip_info: str | None = None
             latest_pagination: PaginationInfo | None = None
             dealer_dot_com_make_retry_attempted = False
@@ -3156,6 +3299,11 @@ async def stream_search(
                     queued_urls = {current_url}
                     pending_urls = [u for u in tesla_urls[1:] if u not in queued_urls]
             emitted_listing_keys: set[str] = set()
+            for cached_listing in stale_cache_seed_listings:
+                try:
+                    emitted_listing_keys.add(_listing_emit_key(VehicleListing.model_validate(cached_listing)))
+                except Exception:
+                    continue
             current_inventory_path = urlsplit(current_url).path.rstrip("/").lower() if current_url else ""
             current_inventory_condition = (
                 "new"
@@ -3347,6 +3495,11 @@ async def stream_search(
                     )
                 )
                 if ext_result is None:
+                    if _dealer_budget_relief_active(score_card):
+                        skip_info = (
+                            "Skipped AI extraction for a low-priority dealership after search reached budget targets."
+                        )
+                        break
                     try:
                         llm_timeout = _phase_timeout(parse_timeout)
                         if llm_timeout is None:
@@ -3848,12 +4001,13 @@ async def stream_search(
                 if next_url and next_url not in queued_urls:
                     queued_urls.add(next_url)
                     pending_urls.append(next_url)
-                page_budget = _expand_page_budget(
-                    page_budget,
-                    pagination=ext_result.pagination,
-                    has_pending_urls=bool(pending_urls),
-                    absolute_cap=absolute_page_cap,
-                )
+                if not _dealer_budget_relief_active(score_card):
+                    page_budget = _expand_page_budget(
+                        page_budget,
+                        pagination=ext_result.pagination,
+                        has_pending_urls=bool(pending_urls),
+                        absolute_cap=absolute_page_cap,
+                    )
 
                 current_url = pending_urls.pop(0) if pending_urls else None
                 pages_scraped += 1
@@ -3910,6 +4064,11 @@ async def stream_search(
                     },
                 )
             await _emit(sse_pack("dealership", done_payload))
+            async with metrics_lock:
+                completed_dealer_count += 1
+                if total_vehicles > 0:
+                    successful_dealer_count += 1
+                    streamed_vehicle_count += total_vehicles
             await _record_dealer_score()
             if recorder is not None:
                 recorder.note_dealer_done(listings_found=total_vehicles)
@@ -3931,9 +4090,17 @@ async def stream_search(
         try:
             async with sem:
                 try:
+                    website = prefer_https_website_url((d.website or "").strip())
+                    domain = normalize_dealer_domain(website)
+                    score_card = _score_card_for_domain(domain)
+                    worker_timeout = _effective_dealer_timeout(
+                        requested_pages,
+                        dealer_score=score_card.score,
+                        failure_streak=score_card.failure_streak,
+                    )
                     await asyncio.wait_for(
                         process_one(index, d, sse_stream_queue),
-                        timeout=dealer_timeout + 15.0,
+                        timeout=worker_timeout + 15.0,
                     )
                 except asyncio.TimeoutError:
                     website = d.website or ""
@@ -3945,6 +4112,7 @@ async def stream_search(
                         recorder.note_dealer_issue(
                             issue_type="timeout",
                             platform_id=platform_entry.platform_id if platform_entry is not None else None,
+                            fetch_method=dealer_last_fetch_method.get(domain),
                         )
                         recorder.event(
                             event_type="dealer_timeout",
@@ -3956,6 +4124,7 @@ async def stream_search(
                             payload={
                                 "index": index,
                                 "platform_id": platform_entry.platform_id if platform_entry is not None else None,
+                                "fetch_method": dealer_last_fetch_method.get(domain),
                                 "error_code": "dealer.timeout",
                             },
                         )
@@ -4003,6 +4172,7 @@ async def stream_search(
             await sse_stream_queue.put(_SSE_STREAM_WORKER_DONE)
 
     tasks: list[asyncio.Task[None]] = []
+    queued_dealer_count = 0
     launched_domains: set[str] = set()
 
     async def _log_discovery_result() -> None:
@@ -4032,6 +4202,7 @@ async def stream_search(
         return bool(entry.requires_render)
 
     async def _launch_dealers(batch: list[DealershipFound]) -> int:
+        nonlocal queued_dealer_count
         launched_now = 0
         for dealer in batch:
             dealer_domain = normalize_dealer_domain((dealer.website or "").strip())
@@ -4039,7 +4210,25 @@ async def stream_search(
                 continue
             if dealer_domain:
                 launched_domains.add(dealer_domain)
-            index = len(tasks) + 1
+            queued_dealer_count += 1
+            index = queued_dealer_count
+            if _dealer_budget_relief_active(_score_card_for_domain(dealer_domain)):
+                await sse_stream_queue.put(
+                    sse_pack(
+                        "dealership",
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": dealer.name,
+                            "website": prefer_https_website_url((dealer.website or "").strip()),
+                            "address": dealer.address,
+                            "status": "done",
+                            "listings_found": 0,
+                            "info": "Skipped low-priority dealership after search reached budget targets.",
+                        },
+                    )
+                )
+                continue
             await sse_stream_queue.put(sse_pack("dealership", _dealership_queue_payload(index, len(dealers), dealer)))
             tasks.append(asyncio.create_task(dealer_worker(index, dealer)))
             launched_now += 1

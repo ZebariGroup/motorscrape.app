@@ -406,6 +406,7 @@ async def fetch_page_html(
     *,
     page_kind: PageKind = "inventory",
     prefer_render: bool = False,
+    allow_escalation: bool = True,
     metrics: dict[str, int] | None = None,
     platform_id: str | None = None,
 ) -> tuple[str, str]:
@@ -415,6 +416,9 @@ async def fetch_page_html(
     Order: direct HTTP → optional inventory API enrichment → if insufficient or direct fails,
     optional Playwright (self-hosted Chromium) → ZenRows (static, then JS render) →
     ScrapingBee → last-chance direct body.
+
+    When ``allow_escalation`` is false, only the cheaper direct path and final direct
+    fallback run; browser / managed-provider escalations are skipped.
 
     method_used values: direct, playwright, zenrows_static, zenrows_rendered,
     scrapingbee_static, scrapingbee_rendered, direct_fallback.
@@ -460,9 +464,12 @@ async def fetch_page_html(
     direct_was_insufficient = False
 
     if (
+        allow_escalation
+        and (
         prefer_render
         and page_kind == "inventory"
         and platform_id not in _DIRECT_FIRST_RENDER_PREFERRED_PLATFORMS
+        )
     ):
         # Some platforms truly need a browser pass first, but DealerOn inventory pages are often
         # fully SSR and should stay on the cheap direct path before trying Playwright.
@@ -522,7 +529,7 @@ async def fetch_page_html(
             if idx + 1 < len(direct_urls):
                 continue
 
-    if not attempted_playwright_early:
+    if allow_escalation and not attempted_playwright_early:
         pw_result = await _playwright_pass(
             effective_url,
             timeout,
@@ -536,7 +543,7 @@ async def fetch_page_html(
             return pw_result
 
     # 2) ZenRows: static then rendered
-    if settings.zenrows_api_key:
+    if allow_escalation and settings.zenrows_api_key:
         skip_zenrows_static = (
             prefer_render
             or (
@@ -604,7 +611,7 @@ async def fetch_page_html(
                     return html, "zenrows_rendered"
 
     # 3) ScrapingBee: static then rendered
-    if settings.scrapingbee_api_key:
+    if allow_escalation and settings.scrapingbee_api_key:
         try:
             html = await _scrapingbee_fetch(effective_url, timeout, render_js=False)
             html = await _maybe_append_inventory_api_data(effective_url, html, timeout)
