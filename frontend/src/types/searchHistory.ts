@@ -7,6 +7,7 @@ export type SearchHistoryRunRow = {
   vehicle_category: string;
   vehicle_condition: string;
   inventory_scope: string;
+  prefer_small_dealers?: boolean;
   radius_miles: number;
   requested_max_dealerships: number | null;
   requested_max_pages_per_dealer: number | null;

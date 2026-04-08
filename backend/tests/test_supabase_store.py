@@ -5,7 +5,9 @@ from types import SimpleNamespace
 from app.db.supabase_store import (
     SupabaseAccountStore,
     _missing_alert_change_columns_error,
+    _missing_scrape_run_legacy_columns_error,
     _strip_alert_change_option_fields,
+    _strip_scrape_run_legacy_option_fields,
 )
 
 
@@ -58,6 +60,67 @@ class _ExplodingClient:
         raise AssertionError(f"unexpected query to {name}")
 
 
+class _FakeScrapeRunInsertQuery:
+    def __init__(self, payloads: list[dict], fail_on_legacy_fields: bool) -> None:
+        self.payloads = payloads
+        self.fail_on_legacy_fields = fail_on_legacy_fields
+        self._payload: dict | None = None
+
+    def insert(self, payload: dict):
+        self._payload = dict(payload)
+        return self
+
+    def execute(self):
+        assert self._payload is not None
+        self.payloads.append(self._payload)
+        if self.fail_on_legacy_fields and "prefer_small_dealers" in self._payload:
+            raise RuntimeError(
+                "Could not find the 'prefer_small_dealers' column of 'scrape_runs' in the schema cache"
+            )
+        row = {
+            "id": "run_123",
+            "correlation_id": self._payload["correlation_id"],
+            "user_id": self._payload.get("user_id"),
+            "anon_key": self._payload.get("anon_key"),
+            "trigger_source": self._payload["trigger_source"],
+            "status": self._payload["status"],
+            "location": self._payload["location"],
+            "make": self._payload["make"],
+            "model": self._payload["model"],
+            "vehicle_category": self._payload["vehicle_category"],
+            "vehicle_condition": self._payload["vehicle_condition"],
+            "inventory_scope": self._payload["inventory_scope"],
+            "radius_miles": self._payload["radius_miles"],
+            "requested_max_dealerships": self._payload["requested_max_dealerships"],
+            "requested_max_pages_per_dealer": self._payload["requested_max_pages_per_dealer"],
+            "result_count": 0,
+            "dealer_discovery_count": None,
+            "dealer_deduped_count": None,
+            "dealerships_attempted": 0,
+            "dealerships_succeeded": 0,
+            "dealerships_failed": 0,
+            "error_count": 0,
+            "warning_count": 0,
+            "error_message": None,
+            "summary_json": {},
+            "economics_json": {},
+            "listings_snapshot_json": None,
+            "prefer_small_dealers": self._payload.get("prefer_small_dealers", False),
+            "started_at": self._payload["started_at"],
+            "completed_at": None,
+        }
+        return SimpleNamespace(data=[row])
+
+
+class _FakeScrapeRunClient:
+    def __init__(self, payloads: list[dict], fail_on_legacy_fields: bool) -> None:
+        self.query = _FakeScrapeRunInsertQuery(payloads, fail_on_legacy_fields)
+
+    def table(self, name: str):
+        assert name == "scrape_runs"
+        return self.query
+
+
 def test_strip_alert_change_option_fields_removes_new_delivery_keys() -> None:
     payload = {
         "name": "My alert",
@@ -78,6 +141,25 @@ def test_missing_alert_change_columns_error_detects_schema_cache_failures() -> N
 
     assert _missing_alert_change_columns_error(exc) is True
     assert _missing_alert_change_columns_error(RuntimeError("some other database failure")) is False
+
+
+def test_strip_scrape_run_legacy_option_fields_removes_prefer_small_dealers() -> None:
+    payload = {
+        "correlation_id": "srch-123",
+        "inventory_scope": "all",
+        "prefer_small_dealers": True,
+    }
+
+    stripped = _strip_scrape_run_legacy_option_fields(payload)
+
+    assert stripped == {"correlation_id": "srch-123", "inventory_scope": "all"}
+
+
+def test_missing_scrape_run_legacy_columns_error_detects_schema_cache_failures() -> None:
+    exc = RuntimeError("Could not find the 'prefer_small_dealers' column of 'scrape_runs' in the schema cache")
+
+    assert _missing_scrape_run_legacy_columns_error(exc) is True
+    assert _missing_scrape_run_legacy_columns_error(RuntimeError("some other database failure")) is False
 
 
 def test_create_alert_subscription_retries_without_new_fields_on_legacy_schema() -> None:
@@ -108,6 +190,36 @@ def test_create_alert_subscription_retries_without_new_fields_on_legacy_schema()
     assert subscription.include_new_listings is True
     assert subscription.include_price_drops is True
     assert subscription.min_price_drop_usd is None
+
+
+def test_create_scrape_run_retries_without_legacy_fields_on_legacy_schema() -> None:
+    payloads: list[dict] = []
+    store = object.__new__(SupabaseAccountStore)
+    store.client = _FakeScrapeRunClient(payloads, fail_on_legacy_fields=True)
+
+    run = store.create_scrape_run(
+        correlation_id="srch-legacy-safe",
+        user_id=None,
+        anon_key="anon-key",
+        trigger_source="interactive",
+        status="running",
+        location="48220",
+        make="Smart",
+        model="",
+        vehicle_category="car",
+        vehicle_condition="all",
+        inventory_scope="all",
+        radius_miles=100,
+        requested_max_dealerships=8,
+        requested_max_pages_per_dealer=10,
+        started_at=1.0,
+        prefer_small_dealers=True,
+    )
+
+    assert len(payloads) == 2
+    assert "prefer_small_dealers" in payloads[0]
+    assert "prefer_small_dealers" not in payloads[1]
+    assert run.prefer_small_dealers is False
 
 
 def test_get_user_by_id_skips_legacy_non_uuid_session_ids() -> None:

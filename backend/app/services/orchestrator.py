@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.schemas import DealershipFound, ExtractionResult, PaginationInfo, VehicleListing
+from app.services.dealer_bias import dealer_preference_bias
 from app.services.dealer_platforms import detect_platform_profile
 from app.services.dealer_score_store import NO_SCORE_DEFAULT, get_scores, record_scrape_outcome
 from app.services.economics import build_search_economics, log_economics_line
@@ -70,6 +71,7 @@ from app.services.provider_router import (
     remember_provider_success,
     resolve_inventory_url_for_provider,
     speculative_inventory_url,
+    speculative_inventory_urls_for_unknown_site,
 )
 from app.services.providers import extract_with_provider
 from app.services.search_errors import SearchErrorInfo, with_search_error
@@ -1299,6 +1301,13 @@ def _inventory_url_recovery_candidates(
                     if not make_norm or not model_norm:
                         continue
                     add(urlunsplit((parsed_canonical.scheme, parsed_canonical.netloc, f"{path}/{make_norm}-{model_norm}", "", "")))
+        for candidate in speculative_inventory_urls_for_unknown_site(
+            base_url,
+            condition,
+            make=make,
+            model=model,
+        ):
+            add(candidate)
 
     # Cross-stack safety net for misdetected inventory routes (common on express.* sites):
     # try generic OEM and Dealer.com canonical SRP paths on both current and www hosts.
@@ -1485,6 +1494,7 @@ async def stream_search(
     vehicle_condition: str = "all",
     radius_miles: int = 50,
     inventory_scope: str = "all",
+    prefer_small_dealers: bool = False,
     max_dealerships: int | None = None,
     max_pages_per_dealer: int | None = None,
     outcome_holder: dict[str, Any] | None = None,
@@ -1516,6 +1526,7 @@ async def stream_search(
                 "vehicle_category": vehicle_category,
                 "vehicle_condition": vehicle_condition,
                 "inventory_scope": inventory_scope,
+                "prefer_small_dealers": prefer_small_dealers,
                 "radius_miles": radius_miles,
                 "market_region": market_region,
             },
@@ -1850,6 +1861,12 @@ async def stream_search(
                     if not platform_entry.requires_render:
                         route_hint_score += 4
                     route_hint_score -= min(int(platform_entry.failure_count or 0), 3) * 5
+                if prefer_small_dealers and vehicle_category == "car":
+                    route_hint_score += dealer_preference_bias(
+                        dealer.name,
+                        website,
+                        search_make=make,
+                    )
                 return (
                     1 if cached_inventory.get("listings") else 0,
                     route_hint_score,
@@ -2413,6 +2430,14 @@ async def stream_search(
                     logger.warning(f"{cid_log}Scrape timed out for %s", website)
                     homepage_timed_out_msg = f"Timed out while fetching pages after ~{int(fetch_timeout)}s."
                     guess_candidates = guess_franchise_inventory_srp_urls(base_url, vehicle_condition)
+                    guess_candidates.extend(
+                        speculative_inventory_urls_for_unknown_site(
+                            base_url,
+                            vehicle_condition,
+                            make=make,
+                            model=model,
+                        )
+                    )
                     homepage_norm = prefer_https_website_url(base_url).rstrip("/")
                     rescued_from_homepage_timeout = False
                     for guess_inv in guess_candidates:
@@ -2463,6 +2488,14 @@ async def stream_search(
                 except Exception as e:
                     logger.warning(f"{cid_log}Scrape failed for %s: %s", website, e)
                     guess_candidates = guess_franchise_inventory_srp_urls(base_url, vehicle_condition)
+                    guess_candidates.extend(
+                        speculative_inventory_urls_for_unknown_site(
+                            base_url,
+                            vehicle_condition,
+                            make=make,
+                            model=model,
+                        )
+                    )
                     homepage_norm = prefer_https_website_url(base_url).rstrip("/")
                     rescued_from_homepage_failure = False
                     for guess_inv in guess_candidates:
@@ -2575,6 +2608,56 @@ async def stream_search(
 
             current_html = prefetched_html or homepage_html or ""
             current_method = prefetched_method or homepage_method or "unknown"
+
+            if (
+                route is None
+                and inv_url
+                and prefer_https_website_url(inv_url).rstrip("/") == prefer_https_website_url(base_url).rstrip("/")
+            ):
+                for speculative_url in speculative_inventory_urls_for_unknown_site(
+                    base_url,
+                    vehicle_condition,
+                    make=make,
+                    model=model,
+                ):
+                    if speculative_url.rstrip("/") == prefer_https_website_url(base_url).rstrip("/"):
+                        continue
+                    await _emit(
+                        sse_pack(
+                            "dealership",
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "current_url": speculative_url,
+                                "status": "scraping",
+                                "info": "Trying a likely inventory path for a smaller dealer site.",
+                            },
+                        )
+                    )
+                    try:
+                        speculative_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                        if speculative_timeout is None:
+                            raise RuntimeError("dealer_time_budget_exhausted")
+                        speculative_html, speculative_method = await asyncio.wait_for(
+                            _fetch(speculative_url, "inventory", prefer_render=True),
+                            timeout=speculative_timeout,
+                        )
+                        if _looks_like_block_page(speculative_html):
+                            continue
+                        current_html = speculative_html
+                        current_method = speculative_method
+                        inv_url = speculative_url
+                        route = detect_or_lookup_provider(domain=domain, website=speculative_url, homepage_html=speculative_html)
+                        break
+                    except Exception as speculative_error:
+                        logger.debug(
+                            "Unknown-platform speculative inventory fetch skipped for %s via %s: %s",
+                            d.name,
+                            speculative_url,
+                            speculative_error,
+                        )
 
             if route and route.platform_id == "tesla_inventory":
                 seed_tesla_urls = _tesla_inventory_urls(

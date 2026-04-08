@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     vehicle_category TEXT NOT NULL,
     vehicle_condition TEXT NOT NULL,
     inventory_scope TEXT NOT NULL,
+    prefer_small_dealers INTEGER NOT NULL DEFAULT 0,
     radius_miles INTEGER NOT NULL,
     requested_max_dealerships INTEGER,
     requested_max_pages_per_dealer INTEGER,
@@ -255,6 +256,8 @@ def init_db(path: str) -> None:
             scrape_cols = {str(row["name"]) for row in conn.execute("PRAGMA table_info(scrape_runs)").fetchall()}
             if "listings_snapshot_json" not in scrape_cols:
                 conn.execute("ALTER TABLE scrape_runs ADD COLUMN listings_snapshot_json TEXT")
+            if "prefer_small_dealers" not in scrape_cols:
+                conn.execute("ALTER TABLE scrape_runs ADD COLUMN prefer_small_dealers INTEGER NOT NULL DEFAULT 0")
             conn.commit()
         finally:
             conn.close()
@@ -365,6 +368,7 @@ class ScrapeRunRecord:
     vehicle_category: str
     vehicle_condition: str
     inventory_scope: str
+    prefer_small_dealers: bool
     radius_miles: int
     requested_max_dealerships: int | None
     requested_max_pages_per_dealer: int | None
@@ -1495,6 +1499,7 @@ class AccountStore:
         requested_max_dealerships: int | None,
         requested_max_pages_per_dealer: int | None,
         started_at: float,
+        prefer_small_dealers: bool = False,
     ) -> ScrapeRunRecord:
         with self._conn() as c:
             cur = c.execute(
@@ -1502,10 +1507,10 @@ class AccountStore:
                 INSERT INTO scrape_runs (
                     correlation_id, user_id, anon_key, trigger_source, status,
                     location, make, model, vehicle_category, vehicle_condition,
-                    inventory_scope, radius_miles, requested_max_dealerships,
-                    requested_max_pages_per_dealer, started_at
+                    inventory_scope, prefer_small_dealers, radius_miles,
+                    requested_max_dealerships, requested_max_pages_per_dealer, started_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     correlation_id,
@@ -1519,6 +1524,7 @@ class AccountStore:
                     vehicle_category,
                     vehicle_condition,
                     inventory_scope,
+                    1 if prefer_small_dealers else 0,
                     radius_miles,
                     requested_max_dealerships,
                     requested_max_pages_per_dealer,
@@ -1996,6 +2002,7 @@ def _row_to_scrape_run(row: sqlite3.Row) -> ScrapeRunRecord:
         vehicle_category=str(row["vehicle_category"]),
         vehicle_condition=str(row["vehicle_condition"]),
         inventory_scope=str(row["inventory_scope"]),
+        prefer_small_dealers=bool(row["prefer_small_dealers"]),
         radius_miles=int(row["radius_miles"]),
         requested_max_dealerships=(
             int(row["requested_max_dealerships"]) if row["requested_max_dealerships"] is not None else None

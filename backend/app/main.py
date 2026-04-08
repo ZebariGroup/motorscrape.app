@@ -55,6 +55,7 @@ async def search_stream(
     vehicle_condition: Literal["all", "new", "used"] = Query("all"),
     radius_miles: int = Query(default=25, ge=5, le=250),
     inventory_scope: str = Query("all"),
+    prefer_small_dealers: bool = Query(default=False),
     max_dealerships: int | None = Query(default=None, ge=1, le=20),
     max_pages_per_dealer: int | None = Query(
         default=None,
@@ -127,6 +128,7 @@ async def search_stream(
         vehicle_category=vehicle_category,
         vehicle_condition=vehicle_condition,
         inventory_scope=eff_inventory_scope,
+        prefer_small_dealers=prefer_small_dealers,
         radius_miles=eff_radius,
         requested_max_dealerships=eff_max_d,
         requested_max_pages_per_dealer=eff_pages,
@@ -194,6 +196,7 @@ async def search_stream(
                     vehicle_condition=vehicle_condition,
                     radius_miles=eff_radius,
                     inventory_scope=eff_inventory_scope,
+                    prefer_small_dealers=prefer_small_dealers,
                     max_dealerships=eff_max_d,
                     max_pages_per_dealer=eff_pages,
                     outcome_holder=outcome,

@@ -44,6 +44,7 @@ describe("EmailAlertPanel", () => {
           vehicle_condition: "used",
           radius_miles: 25,
           inventory_scope: "all",
+          prefer_small_dealers: true,
           max_dealerships: 8,
           max_pages_per_dealer: 3,
           market_region: "us",

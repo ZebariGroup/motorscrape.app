@@ -25,6 +25,7 @@ class AlertCriteriaBody(BaseModel):
     vehicle_condition: Literal["all", "new", "used"] = "all"
     radius_miles: int = Field(default=25, ge=5, le=250)
     inventory_scope: Literal["all", "on_lot_only", "exclude_shared", "include_transit"] = "all"
+    prefer_small_dealers: bool = False
     max_dealerships: int | None = Field(default=None, ge=1, le=20)
     max_pages_per_dealer: int | None = Field(default=None, ge=1, le=50)
     market_region: Literal["us", "eu"] = "us"

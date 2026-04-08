@@ -19,8 +19,16 @@ _SITEMAP_LINE_RE = re.compile(
 )
 _INVENTORY_PATH_HINTS = (
     "inventory",
+    "all-inventory",
+    "inventory-for-sale",
+    "our-inventory",
     "new-inventory",
     "used-inventory",
+    "new-cars-for-sale",
+    "used-cars-for-sale",
+    "vehicles-for-sale",
+    "used-cars",
+    "new-cars",
     "pre-owned",
     "showroom",
     "models",

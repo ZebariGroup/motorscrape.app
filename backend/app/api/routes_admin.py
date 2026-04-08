@@ -82,6 +82,7 @@ def _serialize_run(record: ScrapeRunRecord, *, user_email: str | None) -> dict[s
         "vehicle_category": record.vehicle_category,
         "vehicle_condition": record.vehicle_condition,
         "inventory_scope": record.inventory_scope,
+        "prefer_small_dealers": record.prefer_small_dealers,
         "radius_miles": record.radius_miles,
         "requested_max_dealerships": record.requested_max_dealerships,
         "requested_max_pages_per_dealer": record.requested_max_pages_per_dealer,

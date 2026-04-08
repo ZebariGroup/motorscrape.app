@@ -467,6 +467,12 @@ def _normalize_schema_org(rec: dict) -> dict:
         if k.startswith("@"):
             continue
         if isinstance(v, dict):
+            if k == "itemOffered":
+                nested = _normalize_schema_org(v)
+                for nk, nv in nested.items():
+                    if nv not in (None, "", [], {}) and nk not in out:
+                        out[nk] = nv
+                continue
             if k in ("trackingPricing", "pricing", "offers"):
                 out[k] = v
             elif "name" in v:

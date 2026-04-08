@@ -98,6 +98,7 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
   const [vehicleCondition, setVehicleCondition] = useState<AlertSubscription["criteria"]["vehicle_condition"]>("all");
   const [radiusMiles, setRadiusMiles] = useState("25");
   const [inventoryScope, setInventoryScope] = useState<AlertSubscription["criteria"]["inventory_scope"]>("all");
+  const [preferSmallDealers, setPreferSmallDealers] = useState(false);
   const [maxDealerships, setMaxDealerships] = useState("8");
   const [marketRegion] = useState<MarketRegion>(() => {
     if (typeof window === "undefined") return "us";
@@ -153,6 +154,7 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
     vehicle_condition: vehicleCondition,
     radius_miles: Number.parseInt(radiusMiles, 10) || 25,
     inventory_scope: inventoryScope,
+    prefer_small_dealers: preferSmallDealers,
     max_dealerships: Number.parseInt(maxDealerships, 10) || null,
     max_pages_per_dealer: null,
     market_region: marketRegion,
@@ -471,6 +473,20 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="md:col-span-2 flex items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60">
+                <input
+                  type="checkbox"
+                  checked={preferSmallDealers}
+                  onChange={(event) => setPreferSmallDealers(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500 dark:border-zinc-700 dark:bg-zinc-900"
+                />
+                <span className="flex flex-col gap-1">
+                  <span className="font-medium text-zinc-800 dark:text-zinc-200">Prefer smaller dealers</span>
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Bias recurring runs toward smaller dealers instead of obvious major chains.
+                  </span>
+                </span>
               </label>
             </div>
             <div className="mt-4">

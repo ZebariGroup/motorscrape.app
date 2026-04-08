@@ -1158,6 +1158,72 @@ def speculative_inventory_url(
     return _normalize_inventory_candidate_url(urlunsplit((scheme, netloc, path, "", "")))
 
 
+def speculative_inventory_urls_for_unknown_site(
+    website: str,
+    vehicle_condition: str,
+    *,
+    make: str = "",
+    model: str = "",
+) -> list[str]:
+    parts = urlsplit((website or "").strip())
+    scheme = parts.scheme or "https"
+    netloc = parts.netloc
+    if not netloc:
+        return []
+
+    condition = (vehicle_condition or "all").strip().lower()
+    make_norm = normalize_model_text(make)
+    requested_models = [part.strip() for part in (model or "").split(",") if part.strip()]
+    model_values = [normalize_model_text(part) for part in requested_models if normalize_model_text(part)]
+    model_norm = model_values[0] if model_values else ""
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add(path: str, query: dict[str, str] | None = None) -> None:
+        url = _normalize_inventory_candidate_url(urlunsplit((scheme, netloc, path, "", "")))
+        if query and url:
+            url = _with_query_params(url, query)
+        norm = (url or "").rstrip("/")
+        if not norm or norm in seen:
+            return
+        seen.add(norm)
+        candidates.append(url)
+
+    add("/inventory/")
+    add("/inventory")
+    add("/cars-for-sale/")
+    add("/vehicles-for-sale/")
+    add("/all-inventory/")
+    add("/inventory-for-sale/")
+
+    if condition in {"all", "used"}:
+        add("/used-inventory/")
+        add("/used-vehicles/")
+        add("/used-cars-for-sale/")
+        add("/inventory/used/")
+    if condition in {"all", "new"}:
+        add("/new-inventory/")
+        add("/new-vehicles/")
+        add("/new-cars-for-sale/")
+        add("/inventory/new/")
+
+    if make_norm:
+        add("/inventory/", {"make": make.strip()})
+        add(f"/inventory/{make_norm}/")
+        add(f"/{make_norm}-for-sale/")
+        if condition == "used":
+            add(f"/used-{make_norm}/")
+        elif condition == "new":
+            add(f"/new-{make_norm}/")
+    if make_norm and model_norm:
+        add("/inventory/", {"make": make.strip(), "model": requested_models[0] if requested_models else model.strip()})
+        add(f"/inventory/{make_norm}/{model_norm}/")
+        add(f"/{make_norm}-{model_norm}-for-sale/")
+
+    return candidates[:12]
+
+
 def _homepage_conflicts_with_cached_route(
     entry: PlatformCacheEntry,
     *,

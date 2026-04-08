@@ -9,6 +9,7 @@ import pytest
 from app.config import settings
 from app.db.account_store import get_account_store
 from app.schemas import DealershipFound, ExtractionResult, PaginationInfo, VehicleListing
+from app.services.dealer_bias import dealer_preference_bias
 from app.services.orchestrator_market import historical_market_points_for_listing
 from app.services.orchestrator import (
     _bounded_phase_timeout,
@@ -39,7 +40,7 @@ from app.services.orchestrator_utils import (
     prefer_https_website_url,
 )
 from app.services.platform_store import PlatformCacheEntry
-from app.services.provider_router import ProviderRoute
+from app.services.provider_router import ProviderRoute, speculative_inventory_urls_for_unknown_site
 from app.services.scrape_logging import create_scrape_run_recorder
 
 
@@ -73,6 +74,35 @@ def test_guess_franchise_inventory_srp_urls_returns_multiple_candidates() -> Non
     assert len(used) == 2
     assert used[0] == "https://www.mhchevy.com/inventory/used"
     assert used[1] == "https://www.mhchevy.com/used-vehicles/"
+
+
+def test_dealer_preference_bias_penalizes_major_groups_and_favors_independents() -> None:
+    major = dealer_preference_bias(
+        "AutoNation Ford Bellevue",
+        "https://www.autonationfordbellevue.com/",
+        search_make="Smart",
+    )
+    independent = dealer_preference_bias(
+        "City Smart Auto Sales",
+        "https://www.citysmartauto.example/",
+        search_make="Smart",
+    )
+
+    assert major < 0
+    assert independent > 0
+    assert independent > major
+
+
+def test_unknown_site_speculative_inventory_urls_cover_small_dealer_patterns() -> None:
+    candidates = speculative_inventory_urls_for_unknown_site(
+        "https://smallcars.example/",
+        "used",
+        make="Smart",
+        model="Fortwo",
+    )
+
+    assert "https://smallcars.example/used-cars-for-sale/" in candidates
+    assert "https://smallcars.example/inventory/?make=Smart" in candidates
 
 
 def test_effective_max_pages_for_route_respects_requested_pages() -> None:
@@ -953,6 +983,59 @@ async def test_stream_search_places_error_surfaces_search_error() -> None:
     assert "search_error" in text
     assert "Places missing" in text
     assert '"ok": false' in text
+
+
+@pytest.mark.asyncio
+async def test_stream_search_prefers_smaller_dealers_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.services.orchestrator.settings.inventory_cache_enabled", False)
+    dealers = [
+        DealershipFound(
+            name="AutoNation Ford Bellevue",
+            place_id="p1",
+            address="1 Main St",
+            website="https://www.autonationfordbellevue.com/",
+        ),
+        DealershipFound(
+            name="City Smart Auto Sales",
+            place_id="p2",
+            address="2 Main St",
+            website="https://www.citysmartauto.example/",
+        ),
+    ]
+
+    async def first_visited_url(*, prefer_small_dealers: bool) -> str:
+        visited: list[str] = []
+
+        async def fake_fetch(url: str, *_args, **_kwargs) -> str:
+            visited.append(url)
+            raise RuntimeError("stop after first fetch")
+
+        with (
+            patch(
+                "app.services.orchestrator.find_car_dealerships",
+                new_callable=AsyncMock,
+                return_value=dealers,
+            ),
+            patch("app.services.orchestrator.get_scores", return_value={}),
+            patch("app.services.orchestrator.fetch_page_html", side_effect=fake_fetch),
+        ):
+            async for _ in stream_search(
+                "Seattle",
+                "Smart",
+                "",
+                max_dealerships=1,
+                max_pages_per_dealer=1,
+                prefer_small_dealers=prefer_small_dealers,
+            ):
+                pass
+        assert visited
+        return visited[0]
+
+    default_first = await first_visited_url(prefer_small_dealers=False)
+    biased_first = await first_visited_url(prefer_small_dealers=True)
+
+    assert "autonationfordbellevue.com" in default_first
+    assert "citysmartauto.example" in biased_first
 
 
 @pytest.mark.asyncio

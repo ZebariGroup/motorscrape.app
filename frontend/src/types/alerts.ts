@@ -6,6 +6,7 @@ export type AlertCriteria = {
   vehicle_condition: "all" | "new" | "used";
   radius_miles: number;
   inventory_scope: "all" | "on_lot_only" | "exclude_shared" | "include_transit";
+  prefer_small_dealers: boolean;
   max_dealerships: number | null;
   max_pages_per_dealer: number | null;
   market_region?: "us" | "eu";

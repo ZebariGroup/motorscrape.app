@@ -171,6 +171,7 @@ export function SearchExperience() {
       vehicle_condition: form.vehicleCondition as "all" | "new" | "used",
       radius_miles: Number.parseInt(form.radiusMiles, 10) || 25,
       inventory_scope: form.inventoryScope as "all" | "on_lot_only" | "exclude_shared" | "include_transit",
+      prefer_small_dealers: form.preferSmallDealers,
       max_dealerships: Number.parseInt(form.maxDealerships, 10) || null,
       max_pages_per_dealer: null,
       market_region: form.marketRegion,
@@ -182,6 +183,7 @@ export function SearchExperience() {
       form.marketRegion,
       form.maxDealerships,
       form.model,
+      form.preferSmallDealers,
       form.radiusMiles,
       form.vehicleCategory,
       form.vehicleCondition,
@@ -331,6 +333,8 @@ export function SearchExperience() {
           setRadiusMiles={form.setRadiusMiles}
           inventoryScope={form.inventoryScope}
           setInventoryScope={form.setInventoryScope}
+          preferSmallDealers={form.preferSmallDealers}
+          setPreferSmallDealers={form.setPreferSmallDealers}
           maxDealerships={form.maxDealerships}
           setMaxDealerships={form.setMaxDealerships}
           onSearch={search.startSearch}

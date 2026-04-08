@@ -487,6 +487,7 @@ async def execute_alert_subscription(
         vehicle_category=request.vehicle_category,
         vehicle_condition=request.vehicle_condition,
         inventory_scope=request.inventory_scope,
+        prefer_small_dealers=request.prefer_small_dealers,
         radius_miles=request.radius_miles,
         requested_max_dealerships=request.max_dealerships,
         requested_max_pages_per_dealer=request.max_pages_per_dealer,

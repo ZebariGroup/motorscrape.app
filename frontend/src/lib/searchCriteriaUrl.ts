@@ -9,6 +9,9 @@ export function buildSearchCriteriaQuery(criteria: SavedSearchCriteria): string 
   params.set("vehicle_condition", criteria.vehicle_condition);
   params.set("radius_miles", String(criteria.radius_miles));
   params.set("inventory_scope", criteria.inventory_scope);
+  if (criteria.prefer_small_dealers) {
+    params.set("prefer_small_dealers", "1");
+  }
   if (criteria.max_dealerships != null) {
     params.set("max_dealerships", String(criteria.max_dealerships));
   }
@@ -28,6 +31,7 @@ export function parseSearchCriteriaQuery(searchParams: URLSearchParams): SavedSe
   const vehicleCategory = searchParams.get("vehicle_category");
   const vehicleCondition = searchParams.get("vehicle_condition");
   const inventoryScope = searchParams.get("inventory_scope");
+  const preferSmallDealers = searchParams.get("prefer_small_dealers");
   const marketRegion = searchParams.get("market_region");
 
   const radiusMilesRaw = Number.parseInt(searchParams.get("radius_miles") ?? "", 10);
@@ -46,6 +50,8 @@ export function parseSearchCriteriaQuery(searchParams: URLSearchParams): SavedSe
       inventoryScope === "on_lot_only" || inventoryScope === "exclude_shared" || inventoryScope === "include_transit"
         ? inventoryScope
         : "all",
+    prefer_small_dealers:
+      preferSmallDealers === "1" || preferSmallDealers === "true" || preferSmallDealers === "yes",
     max_dealerships: Number.isFinite(maxDealershipsRaw) ? maxDealershipsRaw : null,
     max_pages_per_dealer: Number.isFinite(maxPagesRaw) ? maxPagesRaw : null,
     market_region: marketRegion === "eu" ? "eu" : "us",

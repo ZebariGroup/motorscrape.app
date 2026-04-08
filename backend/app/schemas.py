@@ -32,6 +32,10 @@ class SearchRequest(BaseModel):
         default="all",
         description="Inventory availability scope to include in results.",
     )
+    prefer_small_dealers: bool = Field(
+        default=False,
+        description="When true, bias dealership discovery toward smaller dealers instead of obvious major groups.",
+    )
     max_dealerships: int | None = Field(
         default=None,
         ge=1,

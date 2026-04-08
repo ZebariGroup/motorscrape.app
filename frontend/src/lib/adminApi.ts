@@ -31,6 +31,7 @@ export type AdminRun = {
   vehicle_category: string;
   vehicle_condition: string;
   inventory_scope: string;
+  prefer_small_dealers?: boolean;
   result_count: number;
   error_count: number;
   warning_count: number;

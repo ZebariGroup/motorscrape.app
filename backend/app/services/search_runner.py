@@ -53,6 +53,7 @@ async def run_search_once(
         vehicle_condition=request.vehicle_condition,
         radius_miles=request.radius_miles,
         inventory_scope=request.inventory_scope,
+        prefer_small_dealers=request.prefer_small_dealers,
         max_dealerships=request.max_dealerships,
         max_pages_per_dealer=request.max_pages_per_dealer,
         market_region=request.market_region,

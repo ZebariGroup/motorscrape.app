@@ -41,6 +41,8 @@ type Props = {
   setRadiusMiles: (v: string) => void;
   inventoryScope: string;
   setInventoryScope: (v: string) => void;
+  preferSmallDealers: boolean;
+  setPreferSmallDealers: (v: boolean) => void;
   maxDealerships: string;
   setMaxDealerships: (v: string) => void;
   onSearch: () => void;
@@ -84,6 +86,8 @@ export function SearchFormSection({
   setRadiusMiles,
   inventoryScope,
   setInventoryScope,
+  preferSmallDealers,
+  setPreferSmallDealers,
   maxDealerships,
   setMaxDealerships,
   onSearch,
@@ -205,6 +209,7 @@ export function SearchFormSection({
                 </span>
                 <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
                   {radiusSummary} · {vehicleCondition} · {maxDealerships} dealers
+                  {preferSmallDealers ? " · smaller-dealer bias" : ""}
                 </span>
               </div>
               <button
@@ -435,6 +440,21 @@ export function SearchFormSection({
                       </option>
                     ))}
                   </select>
+                </label>
+                <label className="col-span-full flex items-start gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60">
+                  <input
+                    type="checkbox"
+                    checked={preferSmallDealers}
+                    onChange={(e) => setPreferSmallDealers(e.target.checked)}
+                    disabled={running}
+                    className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500 dark:border-zinc-700 dark:bg-zinc-900"
+                  />
+                  <span className="flex flex-col gap-1">
+                    <span className="font-medium text-zinc-800 dark:text-zinc-200">Prefer smaller dealers</span>
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Down-rank obvious major chains and franchise groups without fully excluding them.
+                    </span>
+                  </span>
                 </label>
               </>
             )}

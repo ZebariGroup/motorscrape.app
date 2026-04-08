@@ -247,6 +247,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     return parseMarketRegion(localStorage.getItem(MARKET_REGION_STORAGE_KEY));
   });
   const [inventoryScope, setInventoryScope] = useState("all");
+  const [preferSmallDealers, setPreferSmallDealers] = useState(false);
   const [maxDealerships, setMaxDealerships] = useState("8");
   const [status, setStatus] = useState<string | null>(null);
   const [dealers, setDealers] = useState<Record<string, DealershipProgress>>({});
@@ -706,6 +707,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       setVehicleCondition(criteria.vehicle_condition);
       setRadiusMiles(String(criteria.radius_miles || 25));
       setInventoryScope(criteria.inventory_scope || "all");
+      setPreferSmallDealers(Boolean(criteria.prefer_small_dealers));
       if (criteria.max_dealerships != null) {
         setMaxDealerships(String(criteria.max_dealerships));
       }
@@ -724,6 +726,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     setVehicleCondition(run.vehicle_condition || "all");
     setRadiusMiles(String(run.radius_miles ?? 25));
     setInventoryScope(run.inventory_scope || "all");
+    setPreferSmallDealers(Boolean(run.prefer_small_dealers));
     if (run.requested_max_dealerships != null) {
       setMaxDealerships(String(run.requested_max_dealerships));
     }
@@ -826,6 +829,9 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       max_dealerships: maxDealerships,
       market_region: marketRegion,
     });
+    if (preferSmallDealers) {
+      params.set("prefer_small_dealers", "true");
+    }
     const url = `${streamUrl}?${params.toString()}`;
 
     const streamSessionId = streamSessionRef.current + 1;
@@ -1033,6 +1039,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     make,
     maxDealerships,
     model,
+    preferSmallDealers,
     radiusMiles,
     recoverCompletedStream,
     stopStream,
@@ -1061,6 +1068,8 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       setRadiusMiles,
       inventoryScope,
       setInventoryScope,
+      preferSmallDealers,
+      setPreferSmallDealers,
       maxDealerships,
       setMaxDealerships,
       modelOptions,

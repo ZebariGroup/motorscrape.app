@@ -88,6 +88,7 @@ describe("useSearchStream", () => {
     expect(result.current.search.reconnecting).toBe(false);
     expect(result.current.form.location).toBe("");
     expect(result.current.form.inventoryScope).toBe("all");
+    expect(result.current.form.preferSmallDealers).toBe(false);
   });
 
   it("should start search and handle events", () => {
@@ -439,6 +440,22 @@ describe("useSearchStream", () => {
 
     expect(MockEventSource.instances.length).toBe(1);
     expect(MockEventSource.instances[0].url).toContain("vehicle_category=boat");
+  });
+
+  it("should include smaller-dealer bias in the stream URL when enabled", () => {
+    const { result } = renderHook(() => useSearchStream());
+
+    act(() => {
+      result.current.form.setLocation("Seattle");
+      result.current.form.setPreferSmallDealers(true);
+    });
+
+    act(() => {
+      result.current.search.startSearch();
+    });
+
+    expect(MockEventSource.instances.length).toBe(1);
+    expect(MockEventSource.instances[0].url).toContain("prefer_small_dealers=true");
   });
 
   it("should stop the backend search by correlation id", async () => {

@@ -32,6 +32,7 @@ _ALERT_CHANGE_OPTION_FIELDS = frozenset(
         "min_price_drop_usd",
     }
 )
+_SCRAPE_RUN_LEGACY_OPTION_FIELDS = frozenset({"prefer_small_dealers"})
 
 
 class EmailNotVerifiedError(Exception):
@@ -63,6 +64,18 @@ def _missing_alert_change_columns_error(exc: Exception) -> bool:
     message = (getattr(exc, "message", None) or str(exc)).lower()
     return (
         any(field in message for field in _ALERT_CHANGE_OPTION_FIELDS)
+        and ("column" in message or "schema cache" in message)
+    )
+
+
+def _strip_scrape_run_legacy_option_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if key not in _SCRAPE_RUN_LEGACY_OPTION_FIELDS}
+
+
+def _missing_scrape_run_legacy_columns_error(exc: Exception) -> bool:
+    message = (getattr(exc, "message", None) or str(exc)).lower()
+    return (
+        any(field in message for field in _SCRAPE_RUN_LEGACY_OPTION_FIELDS)
         and ("column" in message or "schema cache" in message)
     )
 
@@ -786,6 +799,7 @@ class SupabaseAccountStore:
         requested_max_dealerships: int | None,
         requested_max_pages_per_dealer: int | None,
         started_at: float,
+        prefer_small_dealers: bool = False,
     ) -> ScrapeRunRecord:
         payload = {
             "correlation_id": correlation_id,
@@ -799,12 +813,23 @@ class SupabaseAccountStore:
             "vehicle_category": vehicle_category,
             "vehicle_condition": vehicle_condition,
             "inventory_scope": inventory_scope,
+            "prefer_small_dealers": prefer_small_dealers,
             "radius_miles": radius_miles,
             "requested_max_dealerships": requested_max_dealerships,
             "requested_max_pages_per_dealer": requested_max_pages_per_dealer,
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started_at)),
         }
-        res = self.client.table("scrape_runs").insert(payload).execute()
+        try:
+            res = self.client.table("scrape_runs").insert(payload).execute()
+        except Exception as exc:
+            if not _missing_scrape_run_legacy_columns_error(exc):
+                raise
+            logger.warning(
+                "Supabase scrape_runs schema is missing prefer_small_dealers; retrying insert without it."
+            )
+            res = self.client.table("scrape_runs").insert(
+                _strip_scrape_run_legacy_option_fields(payload)
+            ).execute()
         return _row_to_scrape_run(res.data[0])
 
     def finalize_scrape_run(
@@ -1171,6 +1196,7 @@ def _row_to_scrape_run(row: dict[str, Any]) -> ScrapeRunRecord:
         vehicle_category=str(row["vehicle_category"]),
         vehicle_condition=str(row["vehicle_condition"]),
         inventory_scope=str(row["inventory_scope"]),
+        prefer_small_dealers=bool(row.get("prefer_small_dealers") or False),
         radius_miles=int(row.get("radius_miles") or 0),
         requested_max_dealerships=(
             int(row["requested_max_dealerships"]) if row.get("requested_max_dealerships") is not None else None

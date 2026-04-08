@@ -291,6 +291,7 @@ def create_scrape_run_recorder(
     radius_miles: int,
     requested_max_dealerships: int | None,
     requested_max_pages_per_dealer: int | None,
+    prefer_small_dealers: bool = False,
     user_id: str | None = None,
     anon_key: str | None = None,
 ) -> ScrapeRunRecorder:
@@ -307,14 +308,16 @@ def create_scrape_run_recorder(
         vehicle_category=vehicle_category,
         vehicle_condition=vehicle_condition,
         inventory_scope=inventory_scope,
+        prefer_small_dealers=prefer_small_dealers,
         radius_miles=radius_miles,
         requested_max_dealerships=requested_max_dealerships,
         requested_max_pages_per_dealer=requested_max_pages_per_dealer,
         started_at=started_at,
     )
+    run_id = getattr(run, "id", run)
     return ScrapeRunRecorder(
         store=store,
-        run_id=run.id,
+        run_id=str(run_id),
         correlation_id=correlation_id,
         trigger_source=trigger_source,
         started_at=started_at,
