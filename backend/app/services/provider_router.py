@@ -215,7 +215,11 @@ def _mentioned_brand_tokens(text: str) -> set[str]:
     text_norm = _norm(text)
     if not text_norm:
         return set()
-    return {token for token in _KNOWN_BRAND_TOKENS if token in text_norm}
+    found = set()
+    for token in _KNOWN_BRAND_TOKENS:
+        if re.search(rf"\b{token}\b", text_norm):
+            found.add(token)
+    return found
 
 
 def _looks_like_inventory_detail_url(url: str) -> bool:
@@ -551,7 +555,11 @@ def _dealer_dot_com_host_brand_tokens(url: str) -> set[str]:
     if host.startswith("www."):
         host = host.removeprefix("www.")
     host_norm = _norm(host)
-    return {token for token in _KNOWN_BRAND_TOKENS if token in host_norm}
+    found = set()
+    for token in _KNOWN_BRAND_TOKENS:
+        if token in host_norm:
+            found.add(token)
+    return found
 
 
 def _dealer_dot_com_host_is_multi_brand(url: str, make_norm: str) -> bool:

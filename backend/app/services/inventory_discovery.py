@@ -121,11 +121,11 @@ async def discover_sitemap_inventory_urls(site_url: str, timeout: httpx.Timeout)
                 continue
 
             # If this looks like a sitemap index (nested sitemaps), fetch a few child sitemaps
-            child_sitemaps = [u for u in locs if "sitemap" in u.lower() and u.endswith(".xml")]
+            child_sitemaps = [u for u in locs if "sitemap" in u.lower()]
             page_locs = [u for u in locs if u not in child_sitemaps]
 
             for u in page_locs[:_MAX_URLS_PER_SITEMAP]:
-                if _is_inventory_like_url(u) and u not in candidates:
+                if _is_inventory_like_url(u) and "sitemap" not in u.lower() and u not in candidates:
                     candidates.append(u)
 
             for child in child_sitemaps[:2]:
@@ -137,7 +137,7 @@ async def discover_sitemap_inventory_urls(site_url: str, timeout: httpx.Timeout)
                     if cr.status_code != 200:
                         continue
                     for u in _loc_urls_from_sitemap_xml(cr.text)[:_MAX_URLS_PER_SITEMAP]:
-                        if _is_inventory_like_url(u) and u not in candidates:
+                        if _is_inventory_like_url(u) and "sitemap" not in u.lower() and u not in candidates:
                             candidates.append(u)
                 except Exception as e:
                     logger.debug("child sitemap failed %s: %s", child, e)
