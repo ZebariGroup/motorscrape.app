@@ -17,6 +17,7 @@ import {
   categoryUsesCatalog,
   defaultVehicleCategory,
   getMakesForCategory,
+  getModelGroupsForMake,
   getModelsForMake,
   vehicleCategoryLabel,
 } from "@/lib/vehicleCatalog";
@@ -136,7 +137,7 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
   const allowAnyModel = ["premium", "max_pro", "enterprise", "custom"].includes(tier.toLowerCase());
   const usesCatalog = useMemo(() => categoryUsesCatalog(vehicleCategory), [vehicleCategory]);
   const makeOptions = useMemo(() => getMakesForCategory(vehicleCategory, marketRegion), [marketRegion, vehicleCategory]);
-  const modelOptions = useMemo(() => getModelsForMake(vehicleCategory, make, marketRegion), [make, marketRegion, vehicleCategory]);
+  const modelOptions = useMemo(() => getModelGroupsForMake(vehicleCategory, make, marketRegion), [make, marketRegion, vehicleCategory]);
   const radiusOptions = useMemo(() => RADIUS_CHOICES.filter((miles) => miles <= maxRadiusCap), [maxRadiusCap]);
   const radiusKmOptions = useMemo(() => {
     const capKm = milesToKm(maxRadiusCap);

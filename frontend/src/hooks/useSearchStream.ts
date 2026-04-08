@@ -11,7 +11,7 @@ import {
   parseMarketRegion,
   type MarketRegion,
 } from "@/lib/marketRegion";
-import { categoryUsesCatalog, defaultVehicleCategory, getMakesForCategory, getModelsForMake } from "@/lib/vehicleCatalog";
+import { categoryUsesCatalog, defaultVehicleCategory, getMakesForCategory, getModelGroupsForMake, getModelsForMake } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { DealershipProgress, VehicleListing } from "@/types/inventory";
 import type { SavedSearchCriteria } from "@/types/savedSearch";
@@ -331,7 +331,7 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
 
   const usesCatalog = useMemo(() => categoryUsesCatalog(vehicleCategory), [vehicleCategory]);
   const modelOptions = useMemo(
-    () => getModelsForMake(vehicleCategory, make, marketRegion),
+    () => getModelGroupsForMake(vehicleCategory, make, marketRegion),
     [make, vehicleCategory, marketRegion],
   );
 

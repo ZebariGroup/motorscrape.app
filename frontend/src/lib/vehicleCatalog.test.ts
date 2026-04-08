@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { getMakesForCategory, getModelsForMake } from "./vehicleCatalog";
 
 describe("vehicleCatalog", () => {
-  it("does not expose Tesla in the car make catalog", () => {
-    expect(getMakesForCategory("car")).not.toContain("Tesla");
-    expect(getModelsForMake("car", "Tesla")).toEqual([]);
+  it("exposes Tesla in the car make catalog", () => {
+    expect(getMakesForCategory("car")).toContain("Tesla");
+    expect(getModelsForMake("car", "Tesla")).toContain("Model 3");
   });
 
   it("exposes major motorcycle makes", () => {
