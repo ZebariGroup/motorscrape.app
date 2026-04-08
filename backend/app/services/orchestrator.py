@@ -765,18 +765,32 @@ def _listing_emit_key(v: Any) -> str:
 
 def _looks_like_model_index_batch(vdicts: list[dict[str, Any]], current_url: str) -> bool:
     path = urlsplit(current_url).path.rstrip("/").lower()
-    if path != "/new-vehicles" or not vdicts:
+    if path not in {"/new-vehicles", "/used-vehicles", "/inventory/new", "/inventory/used"} or not vdicts:
         return False
-    strong = False
+    listing_urls: list[str] = []
     for row in vdicts:
         listing_url = str(row.get("listing_url") or "").strip().lower()
-        if row.get("vin") or row.get("price") not in (None, ""):
-            strong = True
-            break
-        if "/inventory/" in listing_url or "/vehicle/" in listing_url or "/detail/" in listing_url:
-            strong = True
-            break
-    return not strong
+        if not listing_url:
+            continue
+        listing_urls.append(listing_url)
+    if not listing_urls:
+        return False
+    for listing_url in listing_urls:
+        listing_path = urlsplit(listing_url).path.rstrip("/").lower()
+        if not listing_path.startswith(path + "/"):
+            return False
+        suffix = listing_path[len(path) :].strip("/")
+        if not suffix:
+            return False
+        parts = [segment for segment in suffix.split("/") if segment]
+        if not parts or len(parts) > 2:
+            return False
+        if any(
+            token in listing_path
+            for token in ("/viewdetails/", "/vehicle-details/", "/detail/", "/vdp/")
+        ):
+            return False
+    return True
 
 
 def _needs_vdp_enrichment(vehicles: list[VehicleListing]) -> bool:
@@ -3142,33 +3156,45 @@ async def stream_search(
                     queued_urls = {current_url}
                     pending_urls = [u for u in tesla_urls[1:] if u not in queued_urls]
             emitted_listing_keys: set[str] = set()
+            current_inventory_path = urlsplit(current_url).path.rstrip("/").lower() if current_url else ""
+            current_inventory_condition = (
+                "new"
+                if current_inventory_path in {"/new-vehicles", "/inventory/new"}
+                else "used"
+                if current_inventory_path in {"/used-vehicles", "/inventory/used"}
+                else ""
+            )
             dealer_inspire_fallback_urls = (
                 _dealer_inspire_model_inventory_urls(
                     current_html,
                     current_url or base_url,
-                    vehicle_condition=vehicle_condition,
+                    vehicle_condition=current_inventory_condition,
                     model=model,
                 )
                 if route
                 and route.platform_id == "dealer_inspire"
-                and vehicle_condition in {"new", "used"}
+                and current_inventory_condition in {"new", "used"}
                 and current_url
-                and urlsplit(current_url).path.rstrip("/").lower() in {"/new-vehicles", "/used-vehicles"}
+                and current_inventory_path in {"/new-vehicles", "/used-vehicles"}
                 else []
             )
-            team_velocity_fallback_urls = (
+            inventory_model_fallback_urls = (
                 _team_velocity_model_inventory_urls(
                     current_html,
                     current_url or base_url,
-                    vehicle_condition=vehicle_condition,
+                    vehicle_condition=current_inventory_condition,
                     model=model,
                 )
                 if route
-                and route.platform_id in {"team_velocity", "nissan_infiniti_inventory", "dealer_inspire"}
-                and vehicle_condition in {"new", "used"}
+                and route.platform_id in {
+                    "team_velocity",
+                    "nissan_infiniti_inventory",
+                    "dealer_inspire",
+                    "honda_acura_inventory",
+                }
+                and current_inventory_condition in {"new", "used"}
                 and current_url
-                and urlsplit(current_url).path.rstrip("/").lower()
-                == f"/inventory/{vehicle_condition}"
+                and current_inventory_path in {"/inventory/new", "/inventory/used"}
                 else []
             )
 
@@ -3734,12 +3760,16 @@ async def stream_search(
                     next_url = None
                 if (
                     route
-                    and route.platform_id == "dealer_inspire"
+                    and route.platform_id in {"dealer_inspire", "team_velocity", "nissan_infiniti_inventory", "honda_acura_inventory"}
                     and not model.strip()
-                    and vehicle_condition == "new"
                     and _looks_like_model_index_batch(vdicts, current_url)
                 ):
-                    for extra_url in dealer_inspire_fallback_urls:
+                    fallback_urls = (
+                        dealer_inspire_fallback_urls
+                        if route.platform_id == "dealer_inspire"
+                        else inventory_model_fallback_urls
+                    )
+                    for extra_url in fallback_urls:
                         if extra_url not in queued_urls:
                             queued_urls.add(extra_url)
                             pending_urls.append(extra_url)
@@ -3798,13 +3828,17 @@ async def stream_search(
                 # the generic page never mentions that model in the first HTML chunk.
                 if (
                     route
-                    and route.platform_id in {"team_velocity", "nissan_infiniti_inventory", "dealer_inspire"}
+                    and route.platform_id in {
+                        "team_velocity",
+                        "nissan_infiniti_inventory",
+                        "dealer_inspire",
+                        "honda_acura_inventory",
+                    }
                     and current_url
-                    and urlsplit(current_url).path.rstrip("/").lower()
-                    == f"/inventory/{vehicle_condition}"
+                    and urlsplit(current_url).path.rstrip("/").lower() in {"/inventory/new", "/inventory/used"}
                 ):
                     appended_tv_model_fallback = False
-                    for extra_url in team_velocity_fallback_urls:
+                    for extra_url in inventory_model_fallback_urls:
                         if extra_url not in queued_urls:
                             queued_urls.add(extra_url)
                             pending_urls.append(extra_url)

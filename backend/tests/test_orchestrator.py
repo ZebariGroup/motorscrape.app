@@ -23,6 +23,7 @@ from app.services.orchestrator import (
     _generic_vehicle_detail_overlay,
     _inventory_url_uses_scoped_filters,
     _inventory_url_recovery_candidates,
+    _looks_like_model_index_batch,
     _needs_vdp_usage_enrichment,
     _oneaudi_all_inventory_urls,
     _room58_detail_overlay,
@@ -485,6 +486,38 @@ def test_team_velocity_model_inventory_urls_acura_integra_style_paths() -> None:
     assert not any("/acura/mdx" in u.lower() for u in urls)
 
 
+def test_looks_like_model_index_batch_detects_acura_inventory_hub_rows() -> None:
+    rows = [
+        {
+            "vin": "5J8YE1H33TL011152",
+            "price": 55950,
+            "listing_url": "https://www.jeffreyacura.com/inventory/new/acura/mdx?paymenttype=lease",
+        },
+        {
+            "vin": "5J8TC2H42TL000402",
+            "price": 47050,
+            "listing_url": "https://www.jeffreyacura.com/inventory/new/acura/rdx?paymenttype=lease",
+        },
+    ]
+    assert _looks_like_model_index_batch(rows, "https://www.jeffreyacura.com/inventory/new") is True
+
+
+def test_looks_like_model_index_batch_rejects_true_vdp_rows() -> None:
+    rows = [
+        {
+            "vin": "5J8YE1H33TL011152",
+            "price": 55950,
+            "listing_url": "https://www.jeffreyacura.com/viewdetails/new/5j8ye1h33tl011152/2026-acura-mdx-sport-utility",
+        },
+        {
+            "vin": "5J8YE1H48TL023547",
+            "price": 61450,
+            "listing_url": "https://www.jeffreyacura.com/viewdetails/new/5j8ye1h48tl023547/2026-acura-mdx-sport-utility",
+        },
+    ]
+    assert _looks_like_model_index_batch(rows, "https://www.jeffreyacura.com/inventory/new/acura/mdx") is False
+
+
 def test_team_velocity_inventory_url_from_model_hub_preserves_model_path() -> None:
     rerouted = _team_velocity_inventory_url_from_model_hub(
         "https://www.example.com/new-vehicles/chevrolet-blazer",
@@ -527,6 +560,130 @@ def test_route_supports_team_velocity_style_inventory_reroute() -> None:
         inventory_url_hint="https://www.example.com/new-vehicles/",
     )
     assert _route_supports_team_velocity_style_inventory_reroute(di_plain) is False
+
+
+@pytest.mark.asyncio
+async def test_stream_search_honda_acura_inventory_hub_falls_through_to_model_pages() -> None:
+    dealers = [
+        DealershipFound(
+            name="Jeffrey Acura",
+            place_id="p1",
+            address="30800 Gratiot Ave",
+            website="https://www.jeffreyacura.com/",
+        )
+    ]
+    homepage_html = "<html><body><a href='/inventory/new'>New Inventory</a></body></html>"
+    inventory_hub_html = """
+    <html><body>
+      <a href="/inventory/new/acura/mdx?paymenttype=lease">MDX</a>
+      <a href="/inventory/new/acura/rdx?paymenttype=lease">RDX</a>
+    </body></html>
+    """
+    fetch_calls: list[tuple[str, str]] = []
+
+    async def fake_fetch(url, page_kind, *_args, **_kwargs):
+        fetch_calls.append((url, page_kind))
+        if url == "https://www.jeffreyacura.com/" and page_kind == "homepage":
+            return homepage_html, "direct"
+        if url == "https://www.jeffreyacura.com/inventory/new" and page_kind == "inventory":
+            return inventory_hub_html, "direct"
+        if url == "https://www.jeffreyacura.com/inventory/new/acura/mdx" and page_kind == "inventory":
+            return "<html><body><div>MDX inventory</div></body></html>", "direct"
+        if url == "https://www.jeffreyacura.com/inventory/new/acura/rdx" and page_kind == "inventory":
+            return "<html><body><div>RDX inventory</div></body></html>", "direct"
+        raise AssertionError(f"unexpected fetch {url} {page_kind}")
+
+    route = ProviderRoute(
+        platform_id="honda_acura_inventory",
+        confidence=1.0,
+        extraction_mode="structured_json",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("inventory/new", "inventory/used"),
+        inventory_url_hint="https://www.jeffreyacura.com/inventory/new",
+    )
+
+    def fake_extract(platform_id, **kwargs):
+        page_url = kwargs["page_url"]
+        if platform_id == "honda_acura_inventory" and page_url == "https://www.jeffreyacura.com/inventory/new":
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2026,
+                        make="Acura",
+                        model="MDX",
+                        price=55950,
+                        vin="5J8YE1H33TL011152",
+                        listing_url="https://www.jeffreyacura.com/inventory/new/acura/mdx?paymenttype=lease",
+                    ),
+                    VehicleListing(
+                        year=2026,
+                        make="Acura",
+                        model="RDX",
+                        price=47050,
+                        vin="5J8TC2H42TL000402",
+                        listing_url="https://www.jeffreyacura.com/inventory/new/acura/rdx?paymenttype=lease",
+                    ),
+                ],
+                next_page_url=None,
+                pagination=None,
+            )
+        if platform_id == "honda_acura_inventory" and page_url == "https://www.jeffreyacura.com/inventory/new/acura/mdx":
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2026,
+                        make="Acura",
+                        model="MDX",
+                        price=61450,
+                        vin="5J8YE1H48TL023547",
+                        listing_url="https://www.jeffreyacura.com/viewdetails/new/5j8ye1h48tl023547/2026-acura-mdx-sport-utility",
+                    )
+                ],
+                next_page_url=None,
+                pagination=None,
+            )
+        if platform_id == "honda_acura_inventory" and page_url == "https://www.jeffreyacura.com/inventory/new/acura/rdx":
+            return ExtractionResult(
+                vehicles=[
+                    VehicleListing(
+                        year=2026,
+                        make="Acura",
+                        model="RDX",
+                        price=47050,
+                        vin="5J8TC2H42TL000402",
+                        listing_url="https://www.jeffreyacura.com/viewdetails/new/5j8tc2h42tl000402/2026-acura-rdx-suv",
+                    )
+                ],
+                next_page_url=None,
+                pagination=None,
+            )
+        return None
+
+    with (
+        patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
+        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
+        patch("app.services.orchestrator.detect_or_lookup_provider", return_value=route),
+        patch(
+            "app.services.orchestrator.resolve_inventory_url_for_provider",
+            return_value="https://www.jeffreyacura.com/inventory/new",
+        ),
+        patch("app.services.orchestrator.extract_with_provider", side_effect=fake_extract),
+        patch("app.services.orchestrator.remember_provider_success", return_value=None),
+        patch("app.services.orchestrator.record_provider_failure", return_value=None),
+    ):
+        chunks: list[str] = []
+        async for c in stream_search("48235", "Acura", "", max_dealerships=1, max_pages_per_dealer=1):
+            chunks.append(c)
+
+    tail = "".join(chunks)
+    assert ("https://www.jeffreyacura.com/inventory/new/acura/mdx", "inventory") in fetch_calls
+    assert ("https://www.jeffreyacura.com/inventory/new/acura/rdx", "inventory") in fetch_calls
+    assert "inventory/new/acura/mdx?paymenttype=lease" not in tail
+    assert '"listings_found": 2' in tail
 
 
 def test_dealer_on_multi_model_inventory_urls_builds_model_and_trim_filters() -> None:
