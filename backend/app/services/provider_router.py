@@ -426,6 +426,18 @@ def _build_family_inventory_path(
     )
 
 
+def _looks_like_family_inventory_base(url: str) -> bool:
+    path = urlsplit(url).path.lower().rstrip("/")
+    if not path:
+        return False
+    return (
+        path.endswith("/inventory/new")
+        or path.endswith("/inventory/used")
+        or "/inventory/new/" in path
+        or "/inventory/used/" in path
+    )
+
+
 def _build_family_inventory_path_variants(
     base_url: str,
     make: str,
@@ -1197,6 +1209,19 @@ def speculative_inventory_urls_for_unknown_site(
     add("/all-inventory/")
     add("/inventory-for-sale/")
 
+    if make_norm and model_norm:
+        add("/inventory/", {"make": make.strip(), "model": requested_models[0] if requested_models else model.strip()})
+        add("/cars-for-sale/", {"Make": make.strip(), "Model": requested_models[0] if requested_models else model.strip()})
+        add(
+            "/vehicles-for-sale/",
+            {"Make": make.strip(), "Model": requested_models[0] if requested_models else model.strip()},
+        )
+
+    if make_norm:
+        add("/inventory/", {"make": make.strip()})
+        add("/cars-for-sale/", {"Make": make.strip()})
+        add("/vehicles-for-sale/", {"Make": make.strip()})
+
     if condition in {"all", "used"}:
         add("/used-inventory/")
         add("/used-vehicles/")
@@ -1209,15 +1234,12 @@ def speculative_inventory_urls_for_unknown_site(
         add("/inventory/new/")
 
     if make_norm:
-        add("/inventory/", {"make": make.strip()})
         add(f"/inventory/{make_norm}/")
         add(f"/{make_norm}-for-sale/")
         if condition == "used":
             add(f"/used-{make_norm}/")
         elif condition == "new":
             add(f"/new-{make_norm}/")
-    if make_norm and model_norm:
-        add("/inventory/", {"make": make.strip(), "model": requested_models[0] if requested_models else model.strip()})
         add(f"/inventory/{make_norm}/{model_norm}/")
         add(f"/{make_norm}-{model_norm}-for-sale/")
 
@@ -1451,6 +1473,19 @@ def resolve_inventory_url_for_provider(
         mentioned_brand_tokens = _mentioned_brand_tokens(f"{text} {href_lower}")
         if make_norms and any(variant in combined_norm for variant in make_norms):
             score += 30
+        if (
+            not route
+            and make_norm
+            and not model_norm
+            and _url_path_contains_token(href, make_norm)
+            and (
+                "inventory" in href_lower
+                or "for-sale" in href_lower
+                or "inventory" in text
+                or "for sale" in text
+            )
+        ):
+            score += 70
         if make_norms and mentioned_brand_tokens.intersection(make_norms):
             score += 40
         elif make_norms and mentioned_brand_tokens:
@@ -1855,6 +1890,7 @@ def resolve_inventory_url_for_provider(
                 fallback_norm
                 and _looks_like_generic_inventory_url(fallback_norm)
                 and not _looks_like_generic_inventory_url(best_norm)
+                and make_norm not in best_combined_norm
             ):
                 best_url = fallback_norm
             elif (
@@ -1868,14 +1904,15 @@ def resolve_inventory_url_for_provider(
 
     if not route and make_norm and model_norm:
         base_for_family = _normalize_inventory_candidate_url(best_url if best_score > 0 else fallback_url)
-        candidate = _build_family_inventory_path(
-            base_for_family,
-            make=make,
-            model=(model.split(",")[0].strip() if "," in model else model),
-            condition=condition,
-        )
-        if candidate != base_for_family:
-            best_url = candidate
+        if _looks_like_family_inventory_base(base_for_family):
+            candidate = _build_family_inventory_path(
+                base_for_family,
+                make=make,
+                model=(model.split(",")[0].strip() if "," in model else model),
+                condition=condition,
+            )
+            if candidate != base_for_family:
+                best_url = candidate
 
     if model_norm and route:
         generic_base = _normalize_inventory_candidate_url(

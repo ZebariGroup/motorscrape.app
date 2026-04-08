@@ -566,7 +566,11 @@ def _collect_vehicle_arrays(obj: Any, out: list[dict], depth: int = 0) -> None:
                 or bool(_TITLE_YEAR_RE.match(title))
             )
         )
-        if len(lower_keys & _INVENTORY_KEYS) >= 2 or has_vehicle_offer_record:
+        has_nested_vehicleinfo_record = (
+            "vehicleinfo" in lower_keys
+            and any(key in lower_keys for key in {"pricing", "mainphotourl", "vin"})
+        )
+        if len(lower_keys & _INVENTORY_KEYS) >= 2 or has_vehicle_offer_record or has_nested_vehicleinfo_record:
             out.append(obj)
             return
         for v in obj.values():

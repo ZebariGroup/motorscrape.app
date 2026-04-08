@@ -336,6 +336,61 @@ def test_cdk_dealerfire_extract_inventory_normalizes_structured_payload_fields()
     assert vehicle.vehicle_identifier == "1HGCV1F30MA000001"
 
 
+def test_cdk_dealerfire_extract_inventory_accepts_flattened_gatsby_rows() -> None:
+    html = """
+    <html><body>
+      <script type="application/json" data-ms-source="inventory-api">
+        {
+          "inventory": [
+            {
+              "vin": "SCFRMHAV4SGN12345",
+              "pricing": {"List": 245000, "Special": 239000},
+              "make": "Aston Martin",
+              "model": "DB12",
+              "trim": "Volante",
+              "year": 2026,
+              "stockNumber": "DB12001",
+              "vehicleStatus": "In-Stock",
+              "condition": "new",
+              "imageUrl": "https://cdn.example/db12.jpg"
+            },
+            {
+              "vin": "1G1YB2D47M5111099",
+              "pricing": {"List": 69290, "Special": 69290},
+              "make": "Chevrolet",
+              "model": "Corvette",
+              "year": 2021,
+              "stockNumber": "M5111099",
+              "condition": "used",
+              "imageUrl": "https://cdn.example/corvette.jpg"
+            }
+          ]
+        }
+      </script>
+    </body></html>
+    """
+    result = extract_cdk_dealerfire(
+        page_url="https://www.astonmartinsandiego.com/new-inventory/?new=true",
+        html=html,
+        make_filter="Aston Martin",
+        model_filter="",
+        vehicle_category="car",
+    )
+    assert result is not None
+    assert len(result.vehicles) == 1
+    vehicle = result.vehicles[0]
+    assert vehicle.make == "Aston Martin"
+    assert vehicle.model == "DB12"
+    assert vehicle.trim == "Volante"
+    assert vehicle.year == 2026
+    assert vehicle.price == 239000
+    assert vehicle.msrp == 245000
+    assert vehicle.dealer_discount == 6000
+    assert vehicle.vehicle_condition == "new"
+    assert vehicle.image_url == "https://cdn.example/db12.jpg"
+    assert vehicle.vehicle_identifier == "SCFRMHAV4SGN12345"
+
+
 def test_fusionzone_extract_inventory_normalizes_structured_payload_fields() -> None:
     html = """
     <html><body>

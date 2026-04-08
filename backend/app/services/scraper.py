@@ -1566,6 +1566,114 @@ def _extract_inventory_get_requests(html: str, base_url: str) -> list[tuple[str,
     return requests
 
 
+def _looks_like_gatsby_inventory_shell(page_url: str, html: str) -> bool:
+    lower_html = (html or "").lower()
+    if "gatsby" not in lower_html and "window.___webpackcompilationhash" not in lower_html:
+        return False
+    path = urlsplit(page_url).path.lower()
+    return any(
+        token in path
+        for token in (
+            "/inventory",
+            "new-inventory",
+            "used-inventory",
+            "all-inventory",
+            "cars-for-sale",
+            "vehicles-for-sale",
+        )
+    )
+
+
+def _gatsby_page_data_url(page_url: str) -> str | None:
+    parts = urlsplit(page_url)
+    if not parts.scheme or not parts.netloc:
+        return None
+    path = parts.path or "/"
+    if "." in path.rsplit("/", 1)[-1]:
+        return None
+    if not path.endswith("/"):
+        path = f"{path}/"
+    return urlunsplit((parts.scheme, parts.netloc, f"/page-data{path}page-data.json", "", ""))
+
+
+def _flatten_gatsby_allinventory_row(row: object) -> dict[str, object] | None:
+    if not isinstance(row, dict):
+        return None
+    vehicle_info = row.get("VehicleInfo")
+    if not isinstance(vehicle_info, dict):
+        return None
+    pricing = row.get("Pricing")
+    flattened: dict[str, object] = {
+        "vin": row.get("VIN") or vehicle_info.get("VIN"),
+        "make": vehicle_info.get("Make"),
+        "model": vehicle_info.get("Model"),
+        "trim": vehicle_info.get("Trim"),
+        "year": vehicle_info.get("Year"),
+        "stockNumber": vehicle_info.get("StockNumber"),
+        "vehicleStatus": vehicle_info.get("VehicleStatus"),
+        "mileage": vehicle_info.get("Mileage"),
+        "bodyStyle": vehicle_info.get("BodyStyle") or vehicle_info.get("BodyType"),
+        "drivetrain": vehicle_info.get("Drivetrain"),
+        "transmission": vehicle_info.get("Transmission"),
+        "colorExterior": vehicle_info.get("ExteriorColor"),
+        "colorInterior": vehicle_info.get("InteriorColor"),
+        "dealerName": vehicle_info.get("DealerName"),
+        "imageUrl": row.get("MainPhotoUrl"),
+    }
+    if isinstance(pricing, dict):
+        flattened["pricing"] = pricing
+        if pricing.get("Special") not in (None, ""):
+            flattened["price"] = pricing.get("Special")
+        elif pricing.get("List") not in (None, ""):
+            flattened["price"] = pricing.get("List")
+        if pricing.get("List") not in (None, ""):
+            flattened["msrp"] = pricing.get("List")
+    is_new = vehicle_info.get("IsNew")
+    if is_new is True:
+        flattened["condition"] = "new"
+    elif is_new is False:
+        flattened["condition"] = "used"
+    return {key: value for key, value in flattened.items() if value not in (None, "", [], {})}
+
+
+async def _maybe_append_gatsby_page_data_inventory(
+    page_url: str,
+    html: str,
+    timeout: httpx.Timeout,
+) -> str:
+    if not _looks_like_gatsby_inventory_shell(page_url, html):
+        return html
+    page_data_url = _gatsby_page_data_url(page_url)
+    if not page_data_url:
+        return html
+    client = await _get_standard_httpx_client()
+    try:
+        headers = _browser_headers()
+        headers["Accept-Encoding"] = "gzip, deflate, identity"
+        response = await client.get(page_data_url, headers=headers, timeout=timeout)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        logger.debug("Gatsby page-data fetch failed for %s: %s", page_data_url, exc)
+        return html
+    if not isinstance(payload, dict):
+        return html
+    data = payload.get("result")
+    if isinstance(data, dict):
+        data = data.get("data")
+    if not isinstance(data, dict):
+        return html
+    inventory = data.get("AllInventory")
+    if not isinstance(inventory, list) or not inventory:
+        return html
+    flattened_inventory = [row for raw in inventory if (row := _flatten_gatsby_allinventory_row(raw))]
+    if not flattened_inventory:
+        return html
+    enriched_payload = json.dumps({"inventory": flattened_inventory}, separators=(",", ":"))
+    logger.info("Enriched %s with Gatsby page-data inventory payload", page_url)
+    return html + f'\n<script type="application/json" data-ms-source="inventory-api">{enriched_payload}</script>\n'
+
+
 async def _maybe_append_inventory_api_data(
     page_url: str,
     html: str,
@@ -1574,6 +1682,10 @@ async def _maybe_append_inventory_api_data(
     api_urls = _extract_inventory_api_urls(html, page_url)
     api_gets = _extract_inventory_get_requests(html, page_url)
     api_posts = _extract_inventory_post_requests(html, page_url)
+    if not api_urls and not api_gets and not api_posts:
+        gatsby_enriched = await _maybe_append_gatsby_page_data_inventory(page_url, html, timeout)
+        if gatsby_enriched != html:
+            return gatsby_enriched
     # If cards are already rendered and we do not see any API clues, there is nothing to enrich.
     if _html_looks_inventory_ready(html) and not api_urls and not api_gets and not api_posts:
         return html
@@ -1655,7 +1767,7 @@ async def _maybe_append_inventory_api_data(
         payloads.append(content)
 
     if not payloads:
-        return html
+        return await _maybe_append_gatsby_page_data_inventory(page_url, html, timeout)
 
     injected = "".join(
         f'\n<script type="application/json" data-ms-source="inventory-api">{p}</script>\n'

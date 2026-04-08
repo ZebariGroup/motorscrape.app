@@ -280,7 +280,62 @@ class CDKDealerfireInventoryParser:
     platform_id = "cdk_dealerfire"
 
     def normalize_pricing_dicts(self, records: list[dict]) -> list[dict]:
-        return _normalize_marketing_platform_records(records)
+        normalized: list[dict] = []
+        for record in records:
+            item = dict(record)
+            vehicle_info = item.get("VehicleInfo")
+            if isinstance(vehicle_info, dict):
+                flattened = {
+                    "make": vehicle_info.get("Make"),
+                    "model": vehicle_info.get("Model"),
+                    "trim": vehicle_info.get("Trim"),
+                    "year": vehicle_info.get("Year"),
+                    "stockNumber": vehicle_info.get("StockNumber"),
+                    "vehicleStatus": vehicle_info.get("VehicleStatus"),
+                    "mileage": vehicle_info.get("Mileage"),
+                    "bodyStyle": vehicle_info.get("BodyStyle") or vehicle_info.get("BodyType"),
+                    "drivetrain": vehicle_info.get("Drivetrain"),
+                    "transmission": vehicle_info.get("Transmission"),
+                    "colorExterior": vehicle_info.get("ExteriorColor"),
+                    "colorInterior": vehicle_info.get("InteriorColor"),
+                    "dealerName": vehicle_info.get("DealerName"),
+                }
+                pricing = item.get("Pricing")
+                if isinstance(pricing, dict):
+                    flattened["pricing"] = pricing
+                    if pricing.get("Special") not in (None, ""):
+                        flattened["price"] = pricing.get("Special")
+                    elif pricing.get("List") not in (None, ""):
+                        flattened["price"] = pricing.get("List")
+                    if pricing.get("List") not in (None, ""):
+                        flattened["msrp"] = pricing.get("List")
+                vin_value = item.get("VIN") or vehicle_info.get("VIN")
+                if vin_value:
+                    flattened["vin"] = vin_value
+                stock_value = vehicle_info.get("StockNumber")
+                if stock_value:
+                    flattened["stockNumber"] = stock_value
+                photo_value = item.get("MainPhotoUrl")
+                if photo_value:
+                    flattened["imageUrl"] = photo_value
+                is_new = vehicle_info.get("IsNew")
+                if is_new is True:
+                    flattened["condition"] = "new"
+                elif is_new is False:
+                    flattened["condition"] = "used"
+                item = flattened
+            else:
+                pricing = item.get("pricing")
+                if isinstance(pricing, dict):
+                    if item.get("price") in (None, ""):
+                        if pricing.get("Special") not in (None, ""):
+                            item["price"] = pricing.get("Special")
+                        elif pricing.get("List") not in (None, ""):
+                            item["price"] = pricing.get("List")
+                    if item.get("msrp") in (None, "") and pricing.get("List") not in (None, ""):
+                        item["msrp"] = pricing.get("List")
+            normalized.append(item)
+        return _normalize_marketing_platform_records(normalized)
 
 
 class FusionzoneInventoryParser:

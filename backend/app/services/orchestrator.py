@@ -1355,6 +1355,21 @@ def _bounded_phase_timeout(
     return max(min_timeout, min(float(base_timeout), remaining))
 
 
+def _cap_unknown_platform_fetch_timeout(
+    base_timeout: float,
+    *,
+    page_kind: PageKind,
+    platform_id: str | None,
+) -> float:
+    if platform_id is not None:
+        return float(base_timeout)
+    if page_kind == "homepage":
+        return min(float(base_timeout), 45.0)
+    if page_kind == "inventory":
+        return min(float(base_timeout), 55.0)
+    return float(base_timeout)
+
+
 def _merge_vehicle_detail(base: VehicleListing, enriched: VehicleListing) -> VehicleListing:
     base_data = base.model_dump()
     enriched_data = enriched.model_dump()
@@ -2409,7 +2424,13 @@ async def stream_search(
 
             if seed_inventory_url is None:
                 try:
-                    homepage_timeout = _phase_timeout(fetch_timeout)
+                    homepage_timeout = _phase_timeout(
+                        _cap_unknown_platform_fetch_timeout(
+                            fetch_timeout,
+                            page_kind="homepage",
+                            platform_id=None,
+                        )
+                    )
                     if homepage_timeout is None:
                         await append_dealer_error(
                             "Timed out while processing this dealership. Skipping to keep search moving."
@@ -2459,7 +2480,14 @@ async def stream_search(
                             )
                         )
                         try:
-                            rescue_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                            rescue_timeout = _phase_timeout(
+                                _cap_unknown_platform_fetch_timeout(
+                                    fetch_timeout,
+                                    page_kind="inventory",
+                                    platform_id=None,
+                                ),
+                                reserve_seconds=6.0,
+                            )
                             if rescue_timeout is None:
                                 raise RuntimeError("dealer_time_budget_exhausted")
                             homepage_html, homepage_method = await asyncio.wait_for(
@@ -2517,7 +2545,14 @@ async def stream_search(
                             )
                         )
                         try:
-                            rescue_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                            rescue_timeout = _phase_timeout(
+                                _cap_unknown_platform_fetch_timeout(
+                                    fetch_timeout,
+                                    page_kind="inventory",
+                                    platform_id=None,
+                                ),
+                                reserve_seconds=6.0,
+                            )
                             if rescue_timeout is None:
                                 raise RuntimeError("dealer_time_budget_exhausted")
                             homepage_html, homepage_method = await asyncio.wait_for(
@@ -2688,7 +2723,13 @@ async def stream_search(
                     )
                 )
                 try:
-                    inv_timeout = _phase_timeout(fetch_timeout)
+                    inv_timeout = _phase_timeout(
+                        _cap_unknown_platform_fetch_timeout(
+                            fetch_timeout,
+                            page_kind="inventory",
+                            platform_id=route.platform_id if route else None,
+                        )
+                    )
                     if inv_timeout is None:
                         await append_dealer_error(
                             "Timed out while processing this dealership. Skipping to keep search moving.",
@@ -2730,7 +2771,14 @@ async def stream_search(
                             )
                         )
                         try:
-                            retry_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                            retry_timeout = _phase_timeout(
+                                _cap_unknown_platform_fetch_timeout(
+                                    fetch_timeout,
+                                    page_kind="inventory",
+                                    platform_id=route.platform_id if route else None,
+                                ),
+                                reserve_seconds=6.0,
+                            )
                             if retry_timeout is None:
                                 raise RuntimeError("dealer_time_budget_exhausted")
                             current_html, current_method = await asyncio.wait_for(

@@ -124,6 +124,25 @@ def test_speculative_inventory_url_builds_platform_specific_srp() -> None:
     )
 
 
+def test_resolve_inventory_url_for_provider_unknown_site_keeps_generic_cars_for_sale_path() -> None:
+    html = """
+    <html><body>
+      <a href="/cars-for-sale/">Cars For Sale</a>
+      <a href="/contact-us/">Contact</a>
+    </body></html>
+    """
+    url = resolve_inventory_url_for_provider(
+        html,
+        "https://www.clawsonautosales.com/",
+        None,
+        fallback_url="https://www.clawsonautosales.com/",
+        make="Cadillac",
+        model="Escalade",
+        vehicle_condition="all",
+    )
+    assert url == "https://www.clawsonautosales.com/cars-for-sale/"
+
+
 def test_resolve_inventory_url_for_provider_canonicalizes_tesla_store_url() -> None:
     route = ProviderRoute(
         platform_id="tesla_inventory",

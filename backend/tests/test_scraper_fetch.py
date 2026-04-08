@@ -63,7 +63,7 @@ def zenrows_key(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_fetch_page_html_direct_ok(clear_scraper_keys: None) -> None:
     respx.get("https://dealer.example/inventory.htm").mock(return_value=Response(200, text=_inventory_html()))
     html, method = await fetch_page_html("https://dealer.example/inventory.htm", page_kind="inventory")
-    assert method == "direct"
+    assert method == "direct_fallback"
     assert "vehicle-card" in html
 
 
@@ -217,6 +217,48 @@ async def test_fetch_page_html_enriches_dealer_spike_generic_vehinv_cache(clear_
     assert '"make":"Ski-Doo"' in html
     assert '"model":"Summit Expert"' in html
     assert '"price":"19699"' in html
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_page_html_enriches_gatsby_page_data_inventory(clear_scraper_keys: None) -> None:
+    page_url = "https://dealer.example/new-inventory/?new=true"
+    page_data_url = "https://dealer.example/page-data/new-inventory/page-data.json"
+    html_shell = """
+    <html><head><meta name="generator" content="Gatsby 5.15.0" /></head><body>
+      <div>No matches were found.</div>
+      <script>window.___webpackCompilationHash="abc123"</script>
+    </body></html>
+    """
+    page_data = {
+        "result": {
+            "data": {
+                "AllInventory": [
+                    {
+                        "VIN": "SCFRMHAV4SGN12345",
+                        "Pricing": {"List": 245000, "Special": 239000},
+                        "VehicleInfo": {
+                            "IsNew": True,
+                            "Make": "Aston Martin",
+                            "Model": "DB12",
+                            "Year": 2026,
+                            "StockNumber": "DB12001",
+                        },
+                        "MainPhotoUrl": "https://cdn.example/db12.jpg",
+                    }
+                ]
+            }
+        }
+    }
+    respx.get(page_url).mock(return_value=Response(200, text=html_shell))
+    respx.get(page_data_url).mock(return_value=Response(200, json=page_data))
+
+    html, method = await fetch_page_html(page_url, page_kind="inventory")
+
+    assert method == "direct"
+    assert 'data-ms-source="inventory-api"' in html
+    assert '"vin":"SCFRMHAV4SGN12345"' in html
+    assert '"make":"Aston Martin"' in html
 
 
 @respx.mock

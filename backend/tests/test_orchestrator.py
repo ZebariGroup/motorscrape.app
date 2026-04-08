@@ -13,6 +13,7 @@ from app.services.dealer_bias import dealer_preference_bias
 from app.services.orchestrator_market import historical_market_points_for_listing
 from app.services.orchestrator import (
     _bounded_phase_timeout,
+    _cap_unknown_platform_fetch_timeout,
     _dealer_inspire_model_inventory_urls,
     _dealer_on_multi_model_inventory_urls,
     _effective_absolute_page_cap,
@@ -105,6 +106,20 @@ def test_unknown_site_speculative_inventory_urls_cover_small_dealer_patterns() -
     assert "https://smallcars.example/inventory/?make=Smart" in candidates
 
 
+def test_unknown_site_speculative_inventory_urls_include_query_filtered_cars_for_sale_candidates() -> None:
+    candidates = speculative_inventory_urls_for_unknown_site(
+        "https://www.clawsonautosales.com/",
+        "all",
+        make="Cadillac",
+        model="Escalade",
+    )
+
+    assert (
+        "https://www.clawsonautosales.com/cars-for-sale/?Make=Cadillac&Model=Escalade"
+        in candidates
+    )
+
+
 def test_effective_max_pages_for_route_respects_requested_pages() -> None:
     route = None
     assert effective_max_pages_for_route(1, route) == 1
@@ -138,6 +153,12 @@ def test_effective_dealer_timeout_scales_for_deep_searches(monkeypatch: pytest.M
     assert _effective_dealer_timeout(3) == 150.0
     assert _effective_dealer_timeout(5) == 195.0
     assert _effective_dealer_timeout(10) == 240.0
+
+
+def test_cap_unknown_platform_fetch_timeout_reduces_untyped_fetch_budgets() -> None:
+    assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="homepage", platform_id=None) == 45.0
+    assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="inventory", platform_id=None) == 55.0
+    assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="inventory", platform_id="dealer_on") == 95.0
 
 
 def test_needs_vdp_usage_enrichment_flags_used_listings_missing_mileage() -> None:
