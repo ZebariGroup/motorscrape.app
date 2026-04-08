@@ -16,7 +16,7 @@ import {
   ENABLED_VEHICLE_CATEGORY_OPTIONS,
   categoryUsesCatalog,
   defaultVehicleCategory,
-  getMakesForCategory,
+  getMakeGroupsForCategory,
   getModelGroupsForMake,
   getModelsForMake,
   vehicleCategoryLabel,
@@ -136,7 +136,7 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
   const inventoryScopePremium = access?.limits?.inventory_scope_premium ?? true;
   const allowAnyModel = ["premium", "max_pro", "enterprise", "custom"].includes(tier.toLowerCase());
   const usesCatalog = useMemo(() => categoryUsesCatalog(vehicleCategory), [vehicleCategory]);
-  const makeOptions = useMemo(() => getMakesForCategory(vehicleCategory, marketRegion), [marketRegion, vehicleCategory]);
+  const makeOptions = useMemo(() => getMakeGroupsForCategory(vehicleCategory, marketRegion), [marketRegion, vehicleCategory]);
   const modelOptions = useMemo(() => getModelGroupsForMake(vehicleCategory, make, marketRegion), [make, marketRegion, vehicleCategory]);
   const radiusOptions = useMemo(() => RADIUS_CHOICES.filter((miles) => miles <= maxRadiusCap), [maxRadiusCap]);
   const radiusKmOptions = useMemo(() => {
@@ -348,11 +348,24 @@ export function AlertManagerSection({ authenticated, tier, access }: Props) {
                   >
                     {allowAnyModel && <option value="">Any make</option>}
                     {!allowAnyModel && !make ? <option value="" disabled>Select make</option> : null}
-                    {makeOptions.map((makeOption) => (
-                      <option key={makeOption} value={makeOption}>
-                        {makeOption}
-                      </option>
-                    ))}
+                    {makeOptions.current.length > 0 && (
+                      <optgroup label="Current Makes">
+                        {makeOptions.current.map((makeOption) => (
+                          <option key={makeOption} value={makeOption}>
+                            {makeOption}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {makeOptions.discontinued.length > 0 && (
+                      <optgroup label="Discontinued Makes">
+                        {makeOptions.discontinued.map((makeOption) => (
+                          <option key={makeOption} value={makeOption}>
+                            {makeOption} (Discontinued)
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 ) : (
                   <input

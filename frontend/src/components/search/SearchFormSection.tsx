@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect, useRef, startTransition } from "react";
 import type { MarketRegion } from "@/lib/marketRegion";
 import { kmToMiles, milesToKm } from "@/lib/marketRegion";
-import { getMakesForCategory, vehicleCategoryLabel } from "@/lib/vehicleCatalog";
+import { getMakeGroupsForCategory, vehicleCategoryLabel } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { SearchHistoryRunRow } from "@/types/searchHistory";
@@ -148,7 +148,7 @@ export function SearchFormSection({
   }, [maxRadiusMilesCap]);
   const dealerOptions = useMemo(() => dealerChoices(maxDealersCap), [maxDealersCap]);
   const makeOptions = useMemo(
-    () => getMakesForCategory(vehicleCategory, marketRegion),
+    () => getMakeGroupsForCategory(vehicleCategory, marketRegion),
     [vehicleCategory, marketRegion],
   );
   const radiusSummary = useMemo(() => {
@@ -306,11 +306,24 @@ export function SearchFormSection({
                 >
                   {allowAnyModel && <option value="">Any make</option>}
                   {!allowAnyModel && !make && <option value="" disabled>Select make</option>}
-                  {makeOptions.map((makeOption) => (
-                    <option key={makeOption} value={makeOption}>
-                      {makeOption}
-                    </option>
-                  ))}
+                  {makeOptions.current.length > 0 && (
+                    <optgroup label="Current Makes">
+                      {makeOptions.current.map((makeOption) => (
+                        <option key={makeOption} value={makeOption}>
+                          {makeOption}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {makeOptions.discontinued.length > 0 && (
+                    <optgroup label="Discontinued Makes">
+                      {makeOptions.discontinued.map((makeOption) => (
+                        <option key={makeOption} value={makeOption}>
+                          {makeOption} (Discontinued)
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               ) : (
                 <input

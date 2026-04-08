@@ -608,6 +608,26 @@ export function getMakesForCategory(category: VehicleCategory, marketRegion: Mar
   return vehicleCatalogRows(category, marketRegion).map((entry) => entry.make);
 }
 
+export function getMakeGroupsForCategory(
+  category: VehicleCategory,
+  marketRegion: MarketRegion = "us",
+): { current: readonly string[]; discontinued: readonly string[] } {
+  const rows = vehicleCatalogRows(category, marketRegion);
+  const current: string[] = [];
+  const discontinued: string[] = [];
+
+  for (const row of rows) {
+    const isDiscontinued = row.models.length === 0 && ((row as any).discontinuedModels?.length ?? 0) > 0;
+    if (isDiscontinued) {
+      discontinued.push(row.make);
+    } else {
+      current.push(row.make);
+    }
+  }
+
+  return { current, discontinued };
+}
+
 export function getModelsForMake(
   category: VehicleCategory,
   make: string,

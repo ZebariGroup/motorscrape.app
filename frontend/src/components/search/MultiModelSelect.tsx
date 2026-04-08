@@ -45,7 +45,7 @@ export function MultiModelSelect({
       ? allowAnyModel
         ? "Any model"
         : "Select models (up to 5)"
-      : selectedModels.join(", ");
+      : selectedModels.map(m => discontinuedModels.includes(m) ? `${m} (Discontinued)` : m).join(", ");
 
   return (
     <div className="relative" ref={containerRef}>
@@ -136,7 +136,7 @@ export function MultiModelSelect({
                       disabled={isDisabled}
                       onChange={() => toggleModel(m)}
                     />
-                    <span className="ml-2 text-sm text-zinc-900 dark:text-zinc-100">{m}</span>
+                    <span className="ml-2 text-sm text-zinc-900 dark:text-zinc-100">{m} (Discontinued)</span>
                   </label>
                 );
               })}
