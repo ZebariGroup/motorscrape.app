@@ -98,6 +98,20 @@ export function SiteHeader({ access, marketRegion, onMarketRegionChange }: Props
               </span>
             ) : null}
           </div>
+          <div className="flex items-center gap-3 border-r border-zinc-200 pr-3 dark:border-zinc-800">
+            <Link
+              href="/directory"
+              className="shrink-0 font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+            >
+              Directory
+            </Link>
+            <Link
+              href="/guides"
+              className="shrink-0 font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+            >
+              Guides
+            </Link>
+          </div>
           {access.authenticated ? (
             <div className="flex items-center gap-2 sm:gap-3">
               {access.is_admin ? (

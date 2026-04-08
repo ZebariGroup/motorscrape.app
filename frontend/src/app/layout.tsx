@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { JsonLd } from "@/components/seo/JsonLd";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -64,12 +65,28 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const websiteSchema = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Motorscrape",
+    url: "https://www.motorscrape.com",
+    description: "Search nearby dealer websites for real vehicle inventory across brands and stores in one streamlined experience.",
+    potentialAction: {
+      "@type": "SearchAction",
+      target: "https://www.motorscrape.com/?location={search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
+  };
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <JsonLd data={websiteSchema} />
+        {children}
+      </body>
     </html>
   );
 }

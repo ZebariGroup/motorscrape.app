@@ -71,7 +71,15 @@ const CATEGORY_BUTTONS: {
   },
 ];
 
-export function SearchExperience() {
+export function SearchExperience({
+  initialCriteria,
+}: {
+  initialCriteria?: {
+    make?: string;
+    model?: string;
+    location?: string;
+  };
+} = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -116,6 +124,19 @@ export function SearchExperience() {
     }
     if (!qs) {
       appliedCriteriaQueryRef.current = "";
+      if (initialCriteria) {
+        const params = new URLSearchParams();
+        if (initialCriteria.location) params.set("location", initialCriteria.location);
+        else params.set("location", "US"); // Fallback to pass parse check if we only have make/model
+        if (initialCriteria.make) params.set("make", initialCriteria.make);
+        if (initialCriteria.model) params.set("model", initialCriteria.model);
+        
+        const parsed = parseSearchCriteriaQuery(params);
+        if (parsed) {
+          if (!initialCriteria.location) parsed.location = ""; // Reset fallback
+          void applySavedSearchCriteria(parsed);
+        }
+      }
       return;
     }
     if (qs === appliedCriteriaQueryRef.current) return;
@@ -123,7 +144,7 @@ export function SearchExperience() {
     if (!parsed) return;
     void applySavedSearchCriteria(parsed);
     appliedCriteriaQueryRef.current = qs;
-  }, [applySavedSearchCriteria, searchParams]);
+  }, [applySavedSearchCriteria, searchParams, initialCriteria]);
 
   const startCheckout = async (tier: "standard" | "premium" | "max_pro") => {
     setUpgradeError(null);

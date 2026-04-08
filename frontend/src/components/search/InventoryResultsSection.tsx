@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { downloadCsv, listingsToCsv } from "@/lib/csvExport";
 import {
@@ -266,13 +267,14 @@ export function InventoryResultsSection({
             >
               <div className="relative w-2/5 shrink-0 sm:w-full sm:aspect-[16/10] min-h-[128px] bg-zinc-100 dark:bg-zinc-900">
                 {v.image_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <Image
                     src={v.image_url}
                     alt={v.raw_title ?? "Listing"}
                     className="absolute inset-0 h-full w-full object-cover"
                     loading="lazy"
                     referrerPolicy="no-referrer"
+                    unoptimized
+                    fill
                   />
                 ) : (
                   <div className="flex h-full min-h-[128px] items-center justify-center text-xs text-zinc-400">
@@ -501,16 +503,17 @@ export function InventoryResultsSection({
             
             <div className="modal-card-scroll flex-1 min-h-0 overflow-y-auto">
               {selectedListing.image_url ? (
-                <div className="w-full bg-zinc-100 dark:bg-zinc-900">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={selectedListing.image_url}
-                    alt={selectedListing.raw_title ?? "Listing"}
-                    className="w-full h-auto max-h-[40vh] object-contain"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
+                  <div className="relative w-full h-[40vh] bg-zinc-100 dark:bg-zinc-900">
+                    <Image
+                      src={selectedListing.image_url}
+                      alt={selectedListing.raw_title ?? "Listing"}
+                      className="object-contain"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      unoptimized
+                      fill
+                    />
+                  </div>
               ) : (
                 <div className="flex h-48 w-full items-center justify-center bg-zinc-100 text-sm text-zinc-400 dark:bg-zinc-900">
                   No image available
