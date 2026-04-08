@@ -33,7 +33,7 @@ type Props = {
   setMake: (v: string) => void;
   model: string;
   setModel: (v: string) => void;
-  const modelOptions: readonly string[] | { current: readonly string[]; discontinued: readonly string[] };
+  modelOptions: readonly string[] | { current: readonly string[]; discontinued: readonly string[] };
   usesCatalog: boolean;
   vehicleCondition: string;
   setVehicleCondition: (v: string) => void;
