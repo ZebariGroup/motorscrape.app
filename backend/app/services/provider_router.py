@@ -1209,6 +1209,19 @@ def speculative_inventory_urls_for_unknown_site(
     add("/all-inventory/")
     add("/inventory-for-sale/")
 
+    if make_norm and model_norm:
+        add("/inventory/", {"make": make.strip(), "model": requested_models[0] if requested_models else model.strip()})
+        add("/cars-for-sale/", {"Make": make.strip(), "Model": requested_models[0] if requested_models else model.strip()})
+        add(
+            "/vehicles-for-sale/",
+            {"Make": make.strip(), "Model": requested_models[0] if requested_models else model.strip()},
+        )
+
+    if make_norm:
+        add("/inventory/", {"make": make.strip()})
+        add("/cars-for-sale/", {"Make": make.strip()})
+        add("/vehicles-for-sale/", {"Make": make.strip()})
+
     if condition in {"all", "used"}:
         add("/used-inventory/")
         add("/used-vehicles/")
@@ -1221,19 +1234,6 @@ def speculative_inventory_urls_for_unknown_site(
         add("/inventory/new/")
 
     if make_norm:
-        add("/inventory/", {"make": make.strip()})
-        add("/cars-for-sale/", {"Make": make.strip()})
-        add("/vehicles-for-sale/", {"Make": make.strip()})
-
-    if make_norm and model_norm:
-        add("/inventory/", {"make": make.strip(), "model": requested_models[0] if requested_models else model.strip()})
-        add("/cars-for-sale/", {"Make": make.strip(), "Model": requested_models[0] if requested_models else model.strip()})
-        add(
-            "/vehicles-for-sale/",
-            {"Make": make.strip(), "Model": requested_models[0] if requested_models else model.strip()},
-        )
-
-    if make_norm:
         add(f"/inventory/{make_norm}/")
         add(f"/{make_norm}-for-sale/")
         if condition == "used":
@@ -1243,7 +1243,7 @@ def speculative_inventory_urls_for_unknown_site(
         add(f"/inventory/{make_norm}/{model_norm}/")
         add(f"/{make_norm}-{model_norm}-for-sale/")
 
-    return candidates[:20]
+    return candidates[:12]
 
 
 def _homepage_conflicts_with_cached_route(

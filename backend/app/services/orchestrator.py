@@ -51,8 +51,8 @@ from app.services.orchestrator_utils import (
     html_mentions_model,
     prefer_https_website_url,
 )
-from app.services.parser import enrich_team_velocity_srp_pricing, extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.parser import monolith as parser_monolith
+from app.services.parser import enrich_team_velocity_srp_pricing, extract_vehicles_from_html, try_extract_vehicles_without_llm
 from app.services.places import (
     PlacesSearchMetrics,
     expand_large_radius_search_locations,
@@ -74,9 +74,9 @@ from app.services.provider_router import (
     speculative_inventory_urls_for_unknown_site,
 )
 from app.services.providers import extract_with_provider
+from app.services.search_errors import SearchErrorInfo, with_search_error
 from app.services.scrape_logging import ScrapeRunRecorder
 from app.services.scraper import PageKind, _looks_like_block_page, _sanitize_inventory_query_url, fetch_page_html
-from app.services.search_errors import SearchErrorInfo, with_search_error
 from app.services.vin_decoder import enrich_vehicle_listings_with_vin_data
 from app.sse import sse_pack
 
@@ -287,82 +287,6 @@ def _inventory_url_uses_scoped_filters(url: str | None, *, make: str, model: str
     for token in _scope_filter_tokens(make).union(_scope_filter_tokens(model)):
         if token and token in haystack:
             return True
-    return False
-
-
-def _route_matches_inventory_url(route: ProviderRoute | None, url: str | None) -> bool:
-    if route is None or not url:
-        return True
-    hints = tuple(route.inventory_path_hints or ())
-    if not hints:
-        return True
-    path = urlsplit(url).path.lower()
-    if not path:
-        return False
-    for hint in hints:
-        token = (hint or "").strip().lower().strip("/")
-        if token and token in path:
-            return True
-    return False
-
-
-def _profile_matches_inventory_url(profile: Any, url: str | None) -> bool:
-    if not url:
-        return True
-    path = urlsplit(url).path.lower().rstrip("/")
-    if profile.platform_id == "team_velocity" and path in {"/new-vehicles", "/used-vehicles"}:
-        # TeamVelocity hubs often start as /new-vehicles and need /inventory/{condition} reroute.
-        return True
-    hints = tuple(profile.inventory_path_hints or ())
-    if not hints:
-        return True
-    for hint in hints:
-        token = (hint or "").strip().lower().strip("/")
-        if token and token in path:
-            return True
-    return False
-
-
-def _should_promote_inventory_profile(
-    *,
-    route: ProviderRoute | None,
-    profile: Any,
-    inventory_url: str | None,
-) -> bool:
-    if route is None:
-        return True
-    path = urlsplit(inventory_url or "").path.lower().rstrip("/")
-    route_matches = _route_matches_inventory_url(route, inventory_url)
-    profile_matches = _profile_matches_inventory_url(profile, inventory_url)
-
-    if (
-        profile.platform_id == "team_velocity"
-        and path in {"/new-vehicles", "/used-vehicles"}
-        and route.platform_id != "team_velocity"
-    ):
-        return True
-
-    if route.platform_id == profile.platform_id:
-        return profile.confidence >= route.confidence
-
-    # If the current cached/detected route does not match this URL but a new profile does,
-    # trust the URL-local profile even at slightly lower confidence.
-    if not route_matches and profile_matches:
-        return True
-
-    if profile.confidence >= route.confidence and profile_matches:
-        return True
-
-    if route.platform_id in {"team_velocity", "fusionzone", "purecars", "jazel"} and profile_matches:
-        return True
-
-    if (
-        route.platform_id in {"dealer_on", "dealer_inspire", "dealer_dot_com"}
-        and profile.platform_id in _INVENTORY_FAMILY_PLATFORM_IDS
-        and profile_matches
-    ):
-        return True
-
     return False
 
 
@@ -3091,10 +3015,14 @@ async def stream_search(
                     )
 
             inventory_profile = detect_platform_profile(current_html, page_url=inv_url or base_url)
-            if inventory_profile and _should_promote_inventory_profile(
-                route=route,
-                profile=inventory_profile,
-                inventory_url=inv_url or base_url,
+            if inventory_profile and (
+                route is None
+                or inventory_profile.confidence >= route.confidence
+                or route.platform_id in {"team_velocity", "fusionzone", "purecars", "jazel"}
+                or (
+                    route.platform_id in {"dealer_on", "dealer_inspire", "dealer_dot_com"}
+                    and inventory_profile.platform_id in _INVENTORY_FAMILY_PLATFORM_IDS
+                )
             ):
                 route = ProviderRoute(
                     platform_id=inventory_profile.platform_id,

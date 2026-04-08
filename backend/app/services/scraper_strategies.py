@@ -116,11 +116,6 @@ async def zenrows_try_once(
         if _should_retry_zenrows_error_with_premium_proxy(e):
             needs_premium = True
 
-    if needs_premium and js_render and page_kind == "inventory":
-        # Keep inventory rendered retries to a single wait attempt; extra premium-proxy
-        # retries significantly increase long-tail latency and rarely improve yield.
-        return None
-
     if not needs_premium or settings.zenrows_premium_proxy:
         return None
 
