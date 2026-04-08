@@ -6,6 +6,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 
 from supabase import Client, create_client
 
@@ -107,6 +108,8 @@ class SupabaseAccountStore:
         return record
 
     def get_user_by_id(self, user_id: str) -> UserRecord | None:
+        if not _is_uuid_like(user_id):
+            return None
         res = self.client.table("profiles").select("*").eq("id", user_id).execute()
         if not res.data:
             return None
@@ -1273,6 +1276,16 @@ def _ts(value: Any) -> float:
         normalized = value.replace("Z", "+00:00")
         return datetime.fromisoformat(normalized).astimezone(timezone.utc).timestamp()
     raise TypeError(f"Unsupported timestamp value: {value!r}")
+
+
+def _is_uuid_like(value: Any) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        UUID(value)
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return True
 
 
 _store: SupabaseAccountStore | None = None

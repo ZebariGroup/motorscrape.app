@@ -53,6 +53,11 @@ class _FakeClient:
         return self.query
 
 
+class _ExplodingClient:
+    def table(self, name: str):
+        raise AssertionError(f"unexpected query to {name}")
+
+
 def test_strip_alert_change_option_fields_removes_new_delivery_keys() -> None:
     payload = {
         "name": "My alert",
@@ -103,3 +108,10 @@ def test_create_alert_subscription_retries_without_new_fields_on_legacy_schema()
     assert subscription.include_new_listings is True
     assert subscription.include_price_drops is True
     assert subscription.min_price_drop_usd is None
+
+
+def test_get_user_by_id_skips_legacy_non_uuid_session_ids() -> None:
+    store = object.__new__(SupabaseAccountStore)
+    store.client = _ExplodingClient()
+
+    assert store.get_user_by_id("42") is None
