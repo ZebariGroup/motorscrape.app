@@ -289,12 +289,18 @@ async def get_premium_report(
     vin: str,
     ctx: Annotated[AccessContext, Depends(get_access_context)],
 ) -> dict:
-    from app.services.marketcheck import fetch_premium_report
+    from app.services.marketcheck import fetch_premium_report, marketcheck_configured
     
     if ctx.limits.included_premium_reports_per_month <= 0:
         raise HTTPException(
             status_code=403, 
             detail="Premium reports require a paid subscription. Please upgrade to Starter, Pro, or Max Pro."
+        )
+
+    if not marketcheck_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="MarketCheck premium reports are not configured on this deployment.",
         )
         
     # TODO: Add strict metered counting against included_premium_reports_per_month
@@ -316,18 +322,27 @@ async def get_marketcheck_details(
     vin: str = Query(..., min_length=17, max_length=17),
     miles: int | None = Query(default=None, ge=1),
 ) -> dict:
-    from app.services.marketcheck import fetch_marketcheck_details
+    from app.services.marketcheck import fetch_marketcheck_details, marketcheck_configured
     from app.services.vin_decoder import _decode_vin
 
+    marketcheck_available = marketcheck_configured()
     details = await fetch_marketcheck_details(vin, miles)
+    source = "marketcheck"
+    message: str | None = None
     if details is None:
         decoded = await _decode_vin(vin)
         if decoded is None:
+            message = (
+                "MarketCheck is not configured on this deployment."
+                if not marketcheck_available
+                else "No MarketCheck details found for this VIN."
+            )
             return {
                 "ok": True,
                 "vin": vin,
                 "details": {"vin": vin, "marketcheck_features": []},
-                "message": "No MarketCheck details found for this VIN.",
+                "source": "none",
+                "message": message,
             }
         details = {
             "vin": decoded.get("vin", vin),
@@ -342,8 +357,17 @@ async def get_marketcheck_details(
             "engine": decoded.get("engine"),
             "marketcheck_features": [],
         }
+        source = "vin_decoder"
+        message = (
+            "MarketCheck is not configured on this deployment. Showing fallback VIN decoder data instead."
+            if not marketcheck_available
+            else "MarketCheck details were unavailable for this VIN. Showing fallback VIN decoder data instead."
+        )
 
-    return {"ok": True, "vin": details["vin"], "details": details}
+    response = {"ok": True, "vin": details["vin"], "details": details, "source": source}
+    if message:
+        response["message"] = message
+    return response
 
 @router.post("/search/stop/{correlation_id}")
 async def stop_search(

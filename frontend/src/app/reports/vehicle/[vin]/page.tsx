@@ -76,7 +76,15 @@ export default function VehicleReportPage() {
         if (detailsResult.value.ok) {
           const payload = (await detailsResult.value.json()) as MarketcheckDetailsResponse;
           if (!cancelled) {
-            setDetailsState({ loading: false, data: payload.details, error: null });
+            setDetailsState({
+              loading: false,
+              data: {
+                ...payload.details,
+                source: payload.source ?? payload.details.source ?? "marketcheck",
+                message: payload.message ?? payload.details.message,
+              },
+              error: null,
+            });
           }
         } else {
           const message = await readErrorMessage(detailsResult.value, "MarketCheck details are unavailable for this VIN.");
@@ -161,6 +169,12 @@ export default function VehicleReportPage() {
               <p className="mt-4 text-sm text-rose-600 dark:text-rose-400">{detailsState.error}</p>
             ) : detailsState.data ? (
               <>
+                {detailsState.data.message && detailsState.data.source !== "marketcheck" ? (
+                  <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                    {detailsState.data.message}
+                  </div>
+                ) : null}
+
                 <div className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
                   {detailsState.data.marketcheck_trim ? (
                     <p>Decoded trim: <span className="font-semibold">{detailsState.data.marketcheck_trim}</span></p>

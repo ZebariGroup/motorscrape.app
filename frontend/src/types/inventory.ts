@@ -130,10 +130,14 @@ export type MarketcheckDetails = {
   marketcheck_features?: string[];
   estimated_market_value?: number;
   marketcheck_days_to_sell?: number;
+  source?: "marketcheck" | "vin_decoder" | "none";
+  message?: string;
 };
 
 export type MarketcheckDetailsResponse = {
   ok: boolean;
   vin: string;
   details: MarketcheckDetails;
+  source?: "marketcheck" | "vin_decoder" | "none";
+  message?: string;
 };

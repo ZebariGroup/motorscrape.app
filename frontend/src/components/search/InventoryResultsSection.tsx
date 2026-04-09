@@ -143,6 +143,7 @@ export function InventoryResultsSection({
     selectedMarketcheckDetails !== "error"
       ? selectedMarketcheckDetails
       : null;
+  const selectedMarketcheckSource = selectedLoadedMarketcheckDetails?.source ?? null;
   const selectedMarketcheckFeatureCount = selectedLoadedMarketcheckDetails?.marketcheck_features?.length ?? 0;
   const canViewPrevious = effectiveSelectedListingIndex != null && effectiveSelectedListingIndex > 0;
   const canViewNext =
@@ -182,7 +183,14 @@ export function InventoryResultsSection({
       });
       if (!res.ok) throw new Error("Failed to fetch details");
       const data = (await res.json()) as MarketcheckDetailsResponse;
-      setMarketcheckDetails((prev) => ({ ...prev, [vin]: data.details }));
+      setMarketcheckDetails((prev) => ({
+        ...prev,
+        [vin]: {
+          ...data.details,
+          source: data.source ?? data.details.source ?? "marketcheck",
+          message: data.message ?? data.details.message,
+        },
+      }));
     } catch {
       setMarketcheckDetails((prev) => ({ ...prev, [vin]: "error" }));
     }
@@ -691,10 +699,11 @@ export function InventoryResultsSection({
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <h3 className="text-xs font-semibold uppercase tracking-wider text-indigo-800 dark:text-indigo-200">
-                          MarketCheck details
+                          Vehicle details
                         </h3>
                         <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
                           Load VIN-based trim, specs, and pricing comparisons on demand after the scrape finishes.
+                          MarketCheck is used when available, with VIN decoding as a fallback.
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -710,8 +719,10 @@ export function InventoryResultsSection({
                           {selectedMarketcheckDetails === "loading"
                             ? "Loading MarketCheck details..."
                             : selectedLoadedMarketcheckDetails
-                              ? "Refresh MarketCheck details"
-                              : "Load MarketCheck details"}
+                              ? selectedMarketcheckSource === "marketcheck"
+                                ? "Refresh MarketCheck details"
+                                : "Refresh vehicle details"
+                              : "Load vehicle details"}
                         </button>
                         <a
                           href={buildPremiumReportHref(selectedListing)}
@@ -732,6 +743,13 @@ export function InventoryResultsSection({
 
                     {selectedLoadedMarketcheckDetails ? (
                       <>
+                        {selectedLoadedMarketcheckDetails.message &&
+                        selectedMarketcheckSource !== "marketcheck" ? (
+                          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                            {selectedLoadedMarketcheckDetails.message}
+                          </div>
+                        ) : null}
+
                         <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
                           {selectedLoadedMarketcheckDetails.marketcheck_trim ? (
                             <p className="text-zinc-700 dark:text-zinc-300">
@@ -825,7 +843,7 @@ export function InventoryResultsSection({
                       </>
                     ) : (
                       <div className="mt-4 rounded-lg border border-dashed border-indigo-300/80 bg-white/70 px-4 py-3 text-sm text-zinc-700 dark:border-indigo-900 dark:bg-zinc-950/40 dark:text-zinc-300">
-                        Use <span className="font-semibold">Load MarketCheck details</span> to pull VIN-based trim, specs, features, and a pricing comparison for this vehicle.
+                        Use <span className="font-semibold">Load vehicle details</span> to pull VIN-based trim, specs, features, and a pricing comparison for this vehicle.
                       </div>
                     )}
 

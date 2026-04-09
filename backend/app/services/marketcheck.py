@@ -35,6 +35,10 @@ def _normalize_vin(vin: str) -> str:
     return vin.strip().upper()
 
 
+def marketcheck_configured() -> bool:
+    return bool(settings.marketcheck_api_key.strip())
+
+
 def _normalize_miles(miles: int | None) -> int | None:
     if miles is None:
         return None
@@ -128,7 +132,7 @@ def _compact_marketcheck_details(details: dict[str, Any]) -> dict[str, Any]:
 
 
 async def fetch_marketcheck_details(vin: str, miles: int | None = None) -> dict[str, Any] | None:
-    if not settings.marketcheck_api_key:
+    if not marketcheck_configured():
         return None
 
     normalized_vin = _normalize_vin(vin)
@@ -198,7 +202,7 @@ async def fetch_marketcheck_details(vin: str, miles: int | None = None) -> dict[
 
 async def fetch_premium_report(vin: str) -> list[dict[str, Any]] | None:
     """Fetch the historical listings for a VIN from Marketcheck's History API."""
-    if not settings.marketcheck_api_key:
+    if not marketcheck_configured():
         return None
 
     normalized_vin = _normalize_vin(vin)

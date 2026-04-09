@@ -55,6 +55,7 @@ def test_marketcheck_details_endpoint_is_public() -> None:
             "marketcheck_features": ["Heated Seats"],
             "estimated_market_value": 48172.0,
         },
+        "source": "marketcheck",
     }
     mocked_fetch.assert_awaited_once_with("3MW89CW07T8F92425", 4058)
 
@@ -62,6 +63,7 @@ def test_marketcheck_details_endpoint_is_public() -> None:
 def test_marketcheck_details_endpoint_falls_back_to_vin_decoder() -> None:
     with (
         patch("app.services.marketcheck.fetch_marketcheck_details", new=AsyncMock(return_value=None)),
+        patch("app.services.marketcheck.marketcheck_configured", return_value=False),
         patch(
             "app.services.vin_decoder._decode_vin",
             new=AsyncMock(
@@ -99,8 +101,31 @@ def test_marketcheck_details_endpoint_falls_back_to_vin_decoder() -> None:
             "engine": "2.3L 4-cyl",
             "marketcheck_features": [],
         },
+        "source": "vin_decoder",
+        "message": "MarketCheck is not configured on this deployment. Showing fallback VIN decoder data instead.",
     }
     mocked_decode.assert_awaited_once_with("1FMDE6BH1TLA86328")
+
+
+def test_premium_report_requires_marketcheck_configuration() -> None:
+    app.dependency_overrides[get_access_context] = lambda: AccessContext(
+        tier="premium",
+        limits=limits_for_tier("premium"),
+        user_id="user-1",
+        email="user@example.com",
+        anon_key=None,
+        is_admin=False,
+    )
+    try:
+        with patch("app.services.marketcheck.marketcheck_configured", return_value=False):
+            response = client.get("/vehicles/premium-report", params={"vin": "1FMDE6BH1TLA86328"})
+    finally:
+        app.dependency_overrides.pop(get_access_context, None)
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "MarketCheck premium reports are not configured on this deployment.",
+    }
 
 
 def test_premium_report_returns_empty_history_when_marketcheck_has_none() -> None:
@@ -113,7 +138,10 @@ def test_premium_report_returns_empty_history_when_marketcheck_has_none() -> Non
         is_admin=False,
     )
     try:
-        with patch("app.services.marketcheck.fetch_premium_report", new=AsyncMock(return_value=None)):
+        with (
+            patch("app.services.marketcheck.marketcheck_configured", return_value=True),
+            patch("app.services.marketcheck.fetch_premium_report", new=AsyncMock(return_value=None)),
+        ):
             response = client.get("/vehicles/premium-report", params={"vin": "1FMDE6BH1TLA86328"})
     finally:
         app.dependency_overrides.pop(get_access_context, None)
