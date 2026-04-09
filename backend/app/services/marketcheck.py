@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 MARKETCHECK_DECODE_URL = "https://api.marketcheck.com/v2/decode/car/{vin}/specs"
 MARKETCHECK_PREDICT_URL = "https://api.marketcheck.com/v2/predict/car/price"
+MARKETCHECK_HISTORY_URL = "https://api.marketcheck.com/v2/history/car/{vin}"
 
 _marketcheck_lock = asyncio.Lock()
 _marketcheck_client: httpx.AsyncClient | None = None
@@ -167,3 +168,20 @@ async def enrich_with_marketcheck(listings: list[VehicleListing]) -> list[Vehicl
         for idx in vin_to_indexes[vin]:
             out[idx] = _merge_marketcheck_fields(out[idx], decoded)
     return out
+
+async def fetch_premium_report(vin: str) -> list[dict[str, Any]] | None:
+    """Fetch the historical listings for a VIN from Marketcheck's History API."""
+    if not settings.marketcheck_api_key:
+        return None
+        
+    client = await _get_client()
+    try:
+        response = await client.get(
+            MARKETCHECK_HISTORY_URL.format(vin=vin),
+            params={"api_key": settings.marketcheck_api_key}
+        )
+        if response.status_code == 200:
+            return response.json()
+    except Exception as exc:
+        logger.error("Marketcheck history fetch failed for %s: %s", vin, exc)
+    return None

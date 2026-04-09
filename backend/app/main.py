@@ -281,6 +281,23 @@ async def search_stream(
     )
 
 
+@router.get("/vehicles/premium-report")
+async def get_premium_report(
+    vin: str,
+    ctx: Annotated[AccessContext, Depends(get_access_context)],
+) -> dict:
+    from app.services.marketcheck import fetch_premium_report
+    
+    # TODO: Add subscription/billing check here when premium plans are finalized
+    # if not ctx.limits.inventory_scope_premium:
+    #     raise HTTPException(status_code=403, detail="Premium report requires a Pro subscription.")
+        
+    report = await fetch_premium_report(vin)
+    if report is None:
+        raise HTTPException(status_code=404, detail="No premium history found for this VIN.")
+        
+    return {"ok": True, "vin": vin, "history": report}
+
 @router.post("/search/stop/{correlation_id}")
 async def stop_search(
     correlation_id: str,
