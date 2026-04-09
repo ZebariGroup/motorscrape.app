@@ -1,20 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "experimentalServices": {
-    "web": {
-      "entrypoint": "frontend",
-      "routePrefix": "/",
-      "framework": "nextjs"
-    },
-    "api": {
-      "entrypoint": "backend/main.py",
-      "routePrefix": "/server",
-      "framework": "fastapi",
-      "maxDuration": 300,
-      "excludeFiles": "{frontend/**,backend/tests/**,backend/.coverage,docs/**,supabase/**,.github/**,**/.venv/**,**/.git/**,**/__pycache__/**,**/*.pyc,**/.next/**,**/*.md}"
-    }
-  },
-  "env": {
-    "NEXT_PUBLIC_API_URL": "/server"
-  }
+  "framework": "nextjs",
+  "buildCommand": "cd frontend && npm run build",
+  "outputDirectory": "frontend/.next"
 }
