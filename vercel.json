@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/run-alerts",
+      "schedule": "0 * * * *"
+    }
+  ],
   "experimentalServices": {
     "web": {
       "entrypoint": "frontend",
