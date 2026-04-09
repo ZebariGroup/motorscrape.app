@@ -84,6 +84,20 @@ async def search_stream(
         logger.warning("Duplicate search stream prevented for correlation_id=%s", correlation_id)
         # Tell EventSource clients to stop retrying this duplicate stream request.
         return Response(status_code=204)
+    close_stale = getattr(store, "close_stale_running_scrape_runs", None)
+    if callable(close_stale):
+        stale_closed = close_stale(
+            user_id=ctx.user_id,
+            anon_key=ctx.anon_key,
+            started_before_ts=time.time() - max(30, int(settings.search_startup_stale_seconds or 0)),
+        )
+        if stale_closed:
+            logger.warning(
+                "Closed %s stale startup scrape run(s) before concurrency check user_id=%s anon=%s",
+                stale_closed,
+                ctx.user_id,
+                bool(ctx.anon_key),
+            )
     running_count = store.count_running_scrape_runs(
         user_id=ctx.user_id,
         anon_key=ctx.anon_key,

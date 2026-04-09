@@ -82,6 +82,7 @@ def test_search_stream_duplicate_running_correlation_id_returns_204() -> None:
 def test_search_stream_blocks_when_too_many_running_searches() -> None:
     mocked_store = SimpleNamespace(
         get_scrape_run=lambda correlation_id, *, user_id=None, anon_key=None: None,
+        close_stale_running_scrape_runs=lambda *, user_id=None, anon_key=None, started_before_ts=None: 0,
         count_running_scrape_runs=lambda *, user_id=None, anon_key=None, since_ts=None: 1,
     )
     with patch("app.main.get_account_store", return_value=mocked_store):
@@ -95,9 +96,45 @@ def test_search_stream_blocks_when_too_many_running_searches() -> None:
     assert "quota.concurrent_searches" in response.text
 
 
+def test_search_stream_closes_stale_startup_runs_before_concurrency_check() -> None:
+    stale_args: dict[str, object] = {}
+
+    def close_stale_running_scrape_runs(*, user_id=None, anon_key=None, started_before_ts=None) -> int:
+        stale_args["user_id"] = user_id
+        stale_args["anon_key"] = anon_key
+        stale_args["started_before_ts"] = started_before_ts
+        return 2
+
+    mocked_store = SimpleNamespace(
+        get_scrape_run=lambda correlation_id, *, user_id=None, anon_key=None: None,
+        close_stale_running_scrape_runs=close_stale_running_scrape_runs,
+        count_running_scrape_runs=lambda *, user_id=None, anon_key=None, since_ts=None: 0,
+        anon_increment=lambda anon_key: 1,
+        add_scrape_event=lambda **kwargs: None,
+        create_scrape_run=lambda **kwargs: "run-1",
+        finalize_scrape_run=lambda *args, **kwargs: None,
+    )
+    with patch("app.main.get_account_store", return_value=mocked_store):
+        with patch(
+            "app.main.evaluate_search_start",
+            return_value=SearchQuotaDecision(True, False, None),
+        ):
+            with patch(
+                "app.services.orchestrator.find_car_dealerships",
+                new_callable=AsyncMock,
+                return_value=[],
+            ):
+                with client.stream("GET", "/search/stream", params={"location": "Detroit, MI"}) as response:
+                    assert response.status_code == 200
+                    body = b"".join(response.iter_bytes())
+    assert b"event: done" in body
+    assert stale_args["started_before_ts"] is not None
+
+
 def test_search_stream_quota_blocked_sse_includes_structured_error() -> None:
     mocked_store = SimpleNamespace(
         get_scrape_run=lambda correlation_id, *, user_id=None, anon_key=None: None,
+        close_stale_running_scrape_runs=lambda *, user_id=None, anon_key=None, started_before_ts=None: 0,
         count_running_scrape_runs=lambda *, user_id=None, anon_key=None, since_ts=None: 0,
         add_scrape_event=lambda **kwargs: None,
         create_scrape_run=lambda **kwargs: "run-1",
