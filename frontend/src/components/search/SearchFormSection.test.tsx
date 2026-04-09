@@ -96,25 +96,22 @@ describe("SearchFormSection", () => {
     vi.clearAllMocks();
   });
 
-  it("collapses to a sticky mobile summary instead of making the whole section sticky", () => {
-    render(<SearchFormSection {...baseProps} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Scrape inventory" }));
-
-    expect(baseProps.onSearch).toHaveBeenCalledTimes(1);
-
-    const editButton = screen.getByRole("button", { name: "Edit scrape" });
-    const stickySummary = editButton.closest("div.sticky");
-    const section = editButton.closest("section");
-
-    expect(stickySummary).not.toBeNull();
-    expect(section?.className).not.toContain("sticky");
-  });
-
-  it("keeps collapsed mobile run status compact and hides wait facts", () => {
+  it("keeps the form expanded on mobile while scraping so the consolidated panel stays visible", () => {
     const { rerender } = render(<SearchFormSection {...baseProps} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Scrape inventory" }));
+    expect(baseProps.onSearch).toHaveBeenCalledTimes(1);
+
+    rerender(<SearchFormSection {...baseProps} running />);
+
+    expect(screen.queryByRole("button", { name: "Edit scrape" })).toBeNull();
+    expect(screen.getByText("Scraping inventory")).not.toBeNull();
+    const section = screen.getByText("Scraping inventory").closest("section");
+    expect(section?.className).not.toContain("sticky");
+  });
+
+  it("shows status, active dealers, and wait facts in the scrape panel when running expanded", () => {
+    const { rerender } = render(<SearchFormSection {...baseProps} />);
 
     rerender(
       <SearchFormSection
@@ -125,9 +122,9 @@ describe("SearchFormSection", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Edit scrape" })).not.toBeNull();
+    expect(screen.getByText("Scraping inventory")).not.toBeNull();
     expect(screen.getByText("Searching dealers")).not.toBeNull();
     expect(screen.getByText("2 dealers queued")).not.toBeNull();
-    expect(screen.queryByText("Wait facts")).toBeNull();
+    expect(screen.getByText("Wait facts")).not.toBeNull();
   });
 });

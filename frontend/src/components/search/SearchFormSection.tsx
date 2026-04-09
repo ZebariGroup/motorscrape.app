@@ -175,9 +175,6 @@ export function SearchFormSection({
   }, [marketRegion, radiusKmOptions, radiusMiles, setRadiusMiles]);
 
   const handleSearch = () => {
-    if (typeof window !== "undefined" && window.innerWidth < 1024) {
-      setIsFormExpanded(false);
-    }
     onSearch();
   };
 
