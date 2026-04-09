@@ -10,6 +10,7 @@ from app.config import settings
 from app.db.account_store import get_account_store
 from app.schemas import DealershipFound, ExtractionResult, PaginationInfo, VehicleListing
 from app.services.dealer_bias import dealer_preference_bias
+from app.services.dealer_score_store import DealerScoreCard
 from app.services.orchestrator import (
     _bounded_phase_timeout,
     _cap_unknown_platform_fetch_timeout,
@@ -103,7 +104,7 @@ def test_unknown_site_speculative_inventory_urls_cover_small_dealer_patterns() -
         model="Fortwo",
     )
 
-    assert "https://smallcars.example/used-cars-for-sale/" in candidates
+    assert "https://smallcars.example/used-inventory/" in candidates
     assert "https://smallcars.example/inventory/?make=Smart" in candidates
 
 
@@ -157,8 +158,8 @@ def test_effective_dealer_timeout_scales_for_deep_searches(monkeypatch: pytest.M
 
 
 def test_cap_unknown_platform_fetch_timeout_reduces_untyped_fetch_budgets() -> None:
-    assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="homepage", platform_id=None) == 45.0
-    assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="inventory", platform_id=None) == 55.0
+    assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="homepage", platform_id=None) == 18.0
+    assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="inventory", platform_id=None) == 24.0
     assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="inventory", platform_id="dealer_on") == 95.0
 
 
@@ -663,7 +664,7 @@ async def test_stream_search_honda_acura_inventory_hub_falls_through_to_model_pa
 
     with (
         patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
-        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
         patch("app.services.orchestrator.detect_or_lookup_provider", return_value=route),
@@ -1088,7 +1089,7 @@ async def test_stream_search_does_not_skip_make_when_dealer_context_matches() ->
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -1194,7 +1195,7 @@ async def test_stream_search_prefers_smaller_dealers_when_enabled(monkeypatch: p
                 new_callable=AsyncMock,
                 return_value=dealers,
             ),
-            patch("app.services.orchestrator.get_scores", return_value={}),
+            patch("app.services.orchestrator.get_score_cards", return_value={}),
             patch("app.services.orchestrator.fetch_page_html", side_effect=fake_fetch),
         ):
             async for _ in stream_search(
@@ -1251,7 +1252,7 @@ async def test_stream_search_persists_partial_failure_run() -> None:
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -1334,7 +1335,7 @@ async def test_stream_search_cancellation_persists_canceled_run() -> None:
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -1411,7 +1412,7 @@ async def test_stream_search_recovers_from_ford_family_zero_result_hyphen_url() 
 
     with (
         patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
-        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
         patch("app.services.orchestrator.detect_or_lookup_provider", return_value=route),
@@ -1486,7 +1487,7 @@ async def test_stream_search_recovers_from_dealer_on_scoped_empty_results() -> N
 
     with (
         patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
-        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
         patch("app.services.orchestrator.detect_or_lookup_provider", return_value=route),
@@ -1531,7 +1532,7 @@ async def test_stream_search_recovers_from_homepage_failure_with_guessed_invento
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -1610,8 +1611,11 @@ async def test_stream_search_prioritizes_higher_scored_dealers_first() -> None:
     with (
         patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
         patch("app.services.orchestrator.effective_search_concurrency", return_value=1),
-        patch("app.services.orchestrator.get_scores", return_value={"dealer-a.example": 20.0, "dealer-b.example": 80.0}),
-        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch(
+            "app.services.orchestrator.get_score_cards",
+            return_value={"dealer-a.example": DealerScoreCard(score=20.0), "dealer-b.example": DealerScoreCard(score=80.0)},
+        ),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
         patch(
@@ -1669,8 +1673,8 @@ async def test_stream_search_announces_full_dealer_lineup_before_scraping_starts
     with (
         patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
         patch("app.services.orchestrator.effective_search_concurrency", return_value=1),
-        patch("app.services.orchestrator.get_scores", return_value={}),
-        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.get_score_cards", return_value={}),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
         patch(
@@ -1722,8 +1726,8 @@ async def test_stream_search_records_dealer_score_on_success() -> None:
 
     with (
         patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
-        patch("app.services.orchestrator.get_scores", return_value={}),
-        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.get_score_cards", return_value={}),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
         patch(
@@ -1790,7 +1794,7 @@ async def test_stream_search_skips_homepage_when_platform_cache_has_inventory_hi
 
     with (
         patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
-        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.platform_store.get", return_value=cached_entry),
         patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
@@ -1888,7 +1892,7 @@ async def test_stream_search_reroutes_team_velocity_model_hub_to_inventory_srp()
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -2000,7 +2004,7 @@ async def test_stream_search_reroutes_dealer_inspire_model_hub_when_hints_includ
             return_value=None,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -2140,7 +2144,7 @@ async def test_stream_search_prefilters_dealer_inspire_multi_model_queries() -> 
             return_value=dealers,
         ),
         patch("app.services.orchestrator.platform_store.get", return_value=None),
-        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch(
             "app.services.orchestrator.fetch_page_html",
@@ -2210,7 +2214,7 @@ async def test_stream_search_done_includes_fetch_metrics() -> None:
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -2288,7 +2292,7 @@ async def test_stream_search_boats_does_not_skip_only_because_homepage_lacks_mak
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -2426,7 +2430,7 @@ async def test_stream_search_auto_expands_pagination_from_site_counts() -> None:
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -2563,7 +2567,7 @@ async def test_stream_search_auto_expands_dealer_on_pagination_beyond_initial_ro
             "app.services.orchestrator.resolve_inventory_url_for_provider",
             return_value="https://dealeron-example.test/inventory?page=1",
         ),
-        patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch(
             "app.services.orchestrator.fetch_page_html",
@@ -2651,7 +2655,7 @@ async def test_stream_search_retries_empty_dealer_dot_com_make_query_with_generi
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -2810,7 +2814,7 @@ async def test_stream_search_retries_suspicious_dealer_dot_com_scoped_pagination
             return_value=["48235"],
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -2965,7 +2969,7 @@ async def test_stream_search_retries_path_scoped_dealer_dot_com_pagination_with_
             return_value=["48235"],
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -3059,7 +3063,7 @@ async def test_stream_search_oneaudi_bypasses_raw_html_make_model_gate() -> None
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -3192,7 +3196,7 @@ async def test_stream_search_oneaudi_all_condition_fans_out_to_new_and_used() ->
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -3300,7 +3304,7 @@ async def test_stream_search_oneaudi_all_condition_keeps_localized_non_inventory
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
@@ -3410,7 +3414,7 @@ async def test_stream_search_oneaudi_all_condition_retries_used_when_new_fails_i
             return_value=dealers,
         ),
         patch(
-            "app.services.orchestrator.get_cached_inventory_listings",
+            "app.services.orchestrator.get_inventory_cache_entry",
             return_value=None,
         ),
         patch(
