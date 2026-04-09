@@ -16,5 +16,6 @@
   },
   "env": {
     "NEXT_PUBLIC_API_URL": "/server"
-  }
+  },
+  "installCommand": "pip install -r backend/requirements.txt && cd frontend && npm install"
 }
