@@ -198,11 +198,6 @@ export function DealerProgressList({
                 </div>
               </div>
 
-              {running ? (
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Dealers stay visible in the lineup while scrape workers free up and results stream in.
-                </p>
-              ) : null}
             </div>
           ) : null}
 
@@ -329,16 +324,11 @@ export function DealerProgressList({
                           />
                         ) : null}
 
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                            #{d.index}
+                        <div className="mb-2 flex items-center justify-end gap-2">
+                          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${stageBadgeClass}`}>
+                            {stageBadgeText}
                           </span>
-                          <div className="flex items-center gap-2">
-                            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${stageBadgeClass}`}>
-                              {stageBadgeText}
-                            </span>
-                            {isDone ? <IconCheck /> : isError ? <IconX /> : null}
-                          </div>
+                          {isDone ? <IconCheck /> : isError ? <IconX /> : null}
                         </div>
 
                         <div className="flex min-w-0 items-start justify-between gap-2">
