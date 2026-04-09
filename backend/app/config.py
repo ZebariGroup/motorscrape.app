@@ -85,10 +85,15 @@ class Settings(BaseSettings):
     places_details_cache_ttl_seconds: int = 60 * 60 * 24 * 45  # 45 days
     places_geocode_cache_ttl_seconds: int = 60 * 60 * 24 * 30  # 30 days
     places_supabase_region_cache_max_age_days: int = 30
-    search_running_window_seconds: int = 60 * 20
+    search_running_window_seconds: int = 60 * 10
     # Ignore orphaned runs that never progressed past startup when enforcing
     # concurrent-search quota, without force-failing them on the next request.
     search_startup_stale_seconds: int = 60 * 2
+    # Any run still "running" after this many seconds is considered abandoned
+    # (e.g. client disconnected without the backend detecting it) and will not
+    # block new searches.  Should be comfortably above the longest expected
+    # search duration (dealership_timeout × max_dealerships + buffer).
+    search_max_run_age_seconds: int = 60 * 7
     alerts_due_claim_ttl_seconds: int = 60 * 10
     openai_api_key: str = ""
     # LLM model used for extraction; keep this fast for stream responsiveness.
@@ -124,7 +129,7 @@ class Settings(BaseSettings):
     playwright_enabled: bool = False
     # Raise local browser fan-out so one slow dealership does not stall unrelated ones.
     playwright_max_workers: int = 4
-    playwright_timeout_ms: int = 45_000
+    playwright_timeout_ms: int = 15_000
     # Baseline settle wait before any platform-specific Playwright interaction recipe runs.
     playwright_post_load_wait_ms: int = 2500
     # Optional proxy server for Playwright (e.g. "http://user:pass@proxy.example.com:8080").

@@ -82,7 +82,7 @@ def test_search_stream_duplicate_running_correlation_id_returns_204() -> None:
 def test_search_stream_blocks_when_too_many_running_searches() -> None:
     mocked_store = SimpleNamespace(
         get_scrape_run=lambda correlation_id, *, user_id=None, anon_key=None: None,
-        count_running_scrape_runs=lambda *, user_id=None, anon_key=None, since_ts=None, startup_stale_before_ts=None: 1,
+        count_running_scrape_runs=lambda *, user_id=None, anon_key=None, since_ts=None, startup_stale_before_ts=None, max_run_age_ts=None: 1,
     )
     with patch("app.main.get_account_store", return_value=mocked_store):
         with patch("app.main.create_scrape_run_recorder") as mocked_recorder:
@@ -98,11 +98,12 @@ def test_search_stream_blocks_when_too_many_running_searches() -> None:
 def test_search_stream_ignores_stale_startup_runs_for_concurrency_check() -> None:
     count_args: dict[str, object] = {}
 
-    def count_running_scrape_runs(*, user_id=None, anon_key=None, since_ts=None, startup_stale_before_ts=None) -> int:
+    def count_running_scrape_runs(*, user_id=None, anon_key=None, since_ts=None, startup_stale_before_ts=None, max_run_age_ts=None) -> int:
         count_args["user_id"] = user_id
         count_args["anon_key"] = anon_key
         count_args["since_ts"] = since_ts
         count_args["startup_stale_before_ts"] = startup_stale_before_ts
+        count_args["max_run_age_ts"] = max_run_age_ts
         return 0
 
     mocked_store = SimpleNamespace(
@@ -128,12 +129,13 @@ def test_search_stream_ignores_stale_startup_runs_for_concurrency_check() -> Non
                     body = b"".join(response.iter_bytes())
     assert b"event: done" in body
     assert count_args["startup_stale_before_ts"] is not None
+    assert count_args["max_run_age_ts"] is not None
 
 
 def test_search_stream_quota_blocked_sse_includes_structured_error() -> None:
     mocked_store = SimpleNamespace(
         get_scrape_run=lambda correlation_id, *, user_id=None, anon_key=None: None,
-        count_running_scrape_runs=lambda *, user_id=None, anon_key=None, since_ts=None, startup_stale_before_ts=None: 0,
+        count_running_scrape_runs=lambda *, user_id=None, anon_key=None, since_ts=None, startup_stale_before_ts=None, max_run_age_ts=None: 0,
         add_scrape_event=lambda **kwargs: None,
         create_scrape_run=lambda **kwargs: "run-1",
         finalize_scrape_run=lambda *args, **kwargs: None,

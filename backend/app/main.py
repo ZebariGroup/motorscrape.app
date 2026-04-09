@@ -84,11 +84,13 @@ async def search_stream(
         logger.warning("Duplicate search stream prevented for correlation_id=%s", correlation_id)
         # Tell EventSource clients to stop retrying this duplicate stream request.
         return Response(status_code=204)
+    now = time.time()
     running_count = store.count_running_scrape_runs(
         user_id=ctx.user_id,
         anon_key=ctx.anon_key,
-        since_ts=time.time() - max(60, int(settings.search_running_window_seconds or 0)),
-        startup_stale_before_ts=time.time() - max(30, int(settings.search_startup_stale_seconds or 0)),
+        since_ts=now - max(60, int(settings.search_running_window_seconds or 0)),
+        startup_stale_before_ts=now - max(30, int(settings.search_startup_stale_seconds or 0)),
+        max_run_age_ts=now - max(60, int(settings.search_max_run_age_seconds or 0)),
     )
     if running_count >= max(1, int(lim.max_concurrent_searches)):
         error = SearchErrorInfo(

@@ -950,6 +950,7 @@ class SupabaseAccountStore:
         anon_key: str | None = None,
         since_ts: float | None = None,
         startup_stale_before_ts: float | None = None,
+        max_run_age_ts: float | None = None,
     ) -> int:
         if user_id is None and not anon_key:
             return 0
@@ -963,15 +964,16 @@ class SupabaseAccountStore:
             query = query.gte("started_at", threshold)
         res = query.execute()
         rows = res.data or []
-        if startup_stale_before_ts is None:
-            return len(rows)
         count = 0
         for row in rows:
             started_raw = row.get("started_at")
             started_ts = _ts(started_raw)
             dealerships_attempted = int(row.get("dealerships_attempted") or 0)
-            if dealerships_attempted == 0 and started_ts is not None and started_ts <= startup_stale_before_ts:
-                continue
+            if started_ts is not None:
+                if max_run_age_ts is not None and started_ts <= max_run_age_ts:
+                    continue
+                if startup_stale_before_ts is not None and dealerships_attempted == 0 and started_ts <= startup_stale_before_ts:
+                    continue
             count += 1
         return count
 

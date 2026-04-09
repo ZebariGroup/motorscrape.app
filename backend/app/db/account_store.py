@@ -1682,6 +1682,7 @@ class AccountStore:
         anon_key: str | None = None,
         since_ts: float | None = None,
         startup_stale_before_ts: float | None = None,
+        max_run_age_ts: float | None = None,
     ) -> int:
         if user_id is None and not anon_key:
             return 0
@@ -1696,6 +1697,9 @@ class AccountStore:
         if since_ts is not None:
             clauses.append("started_at >= ?")
             args.append(since_ts)
+        if max_run_age_ts is not None:
+            clauses.append("started_at > ?")
+            args.append(max_run_age_ts)
         if startup_stale_before_ts is not None:
             clauses.append("NOT (dealerships_attempted = 0 AND started_at <= ?)")
             args.append(startup_stale_before_ts)
