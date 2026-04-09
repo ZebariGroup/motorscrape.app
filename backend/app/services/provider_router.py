@@ -1208,6 +1208,8 @@ def speculative_inventory_urls_for_unknown_site(
     add("/vehicles-for-sale/")
     add("/all-inventory/")
     add("/inventory-for-sale/")
+    if condition in {"all", "used"}:
+        add("/used-cars-for-sale/")
 
     if make_norm and model_norm:
         add("/inventory/", {"make": make.strip(), "model": requested_models[0] if requested_models else model.strip()})
@@ -1243,7 +1245,7 @@ def speculative_inventory_urls_for_unknown_site(
         add(f"/inventory/{make_norm}/{model_norm}/")
         add(f"/{make_norm}-{model_norm}-for-sale/")
 
-    return candidates[:12]
+    return candidates[:16]
 
 
 def _homepage_conflicts_with_cached_route(

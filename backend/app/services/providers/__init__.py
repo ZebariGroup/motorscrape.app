@@ -22,8 +22,8 @@ from app.services.providers import (
     purecars,
     shift_digital,
     sincro_digital,
-    tesla_inventory,
     team_velocity,
+    tesla_inventory,
 )
 
 _HANDLERS = {

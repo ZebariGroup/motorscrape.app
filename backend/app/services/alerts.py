@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from html import escape
 import time
+from html import escape
 from typing import Any
 
 from app.api.deps import AccessContext
@@ -13,8 +13,8 @@ from app.services.alert_schedule import next_run_at_utc
 from app.services.csv_export import listings_to_csv
 from app.services.email_delivery import EmailAttachment, send_email
 from app.services.inventory_tracking import inventory_history_key
-from app.services.search_errors import SearchErrorInfo, with_search_error
 from app.services.scrape_logging import build_correlation_id, create_scrape_run_recorder
+from app.services.search_errors import SearchErrorInfo, with_search_error
 from app.services.search_runner import SearchRunResult, run_search_once
 from app.tiers import limits_for_tier
 
@@ -421,7 +421,11 @@ def _render_email(
         f"<div style=\"font-size:15px;line-height:22px;color:#374151;\">{result_count} vehicles found for your scheduled search.</div>",
         f"<div style=\"margin-top:10px;font-size:13px;line-height:20px;color:#6b7280;\">{escape(search_context)}</div>",
         "</td></tr>",
-        f"<tr><td style=\"padding:8px 20px 8px 28px;\"><table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\"><tr>{metric_cards}</tr></table></td></tr>",
+        (
+            f"<tr><td style=\"padding:8px 20px 8px 28px;\">"
+            f"<table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\">"
+            f"<tr>{metric_cards}</tr></table></td></tr>"
+        ),
         "<tr><td style=\"padding:12px 28px 0 28px;\">",
         "<div style=\"font-size:18px;line-height:24px;font-weight:700;color:#111827;\">What changed</div>",
         "<div style=\"margin-top:8px;font-size:14px;line-height:21px;color:#4b5563;\">",

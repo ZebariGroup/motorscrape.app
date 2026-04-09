@@ -393,7 +393,17 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
   const [score, setScore] = useState(0);
-  const [highScore, setHighScore] = useState(0);
+  const [highScore, setHighScore] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    try {
+      const raw = localStorage.getItem(HIGH_SCORE_KEY);
+      const n = raw != null ? Number.parseInt(raw, 10) : 0;
+      if (Number.isFinite(n) && n >= 0) return n;
+    } catch {
+      /* ignore */
+    }
+    return 0;
+  });
   const [character, setCharacter] = useState<CharacterType>("motorcycle");
   const [doneBanner, setDoneBanner] = useState(false);
   const characterRef = useRef<CharacterType>("motorcycle");
@@ -478,18 +488,6 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
     screenShake: 0,
     scorePop: 0,
   });
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(HIGH_SCORE_KEY);
-      const n = raw != null ? Number.parseInt(raw, 10) : 0;
-      if (Number.isFinite(n) && n >= 0) {
-        setHighScore(n);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   useEffect(() => {
     rootRef.current?.focus({ preventScroll: true });

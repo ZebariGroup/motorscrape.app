@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     # Remove websiteUri from Text Search by default so discovery stays on the cheaper Pro SKU.
     places_discovery_include_website_uri: bool = False
     # Bound how many searchText variants we try per search before we start scraping.
-    places_text_query_variant_cap: int = 1
+    places_text_query_variant_cap: int = 8
     # Only retry car searches without the strict includedType when the first pass returned very little.
     places_untyped_fallback_result_threshold: int = 0
     # Multiplier used to gather extra dealership candidates before route/cache scoring trims the list.

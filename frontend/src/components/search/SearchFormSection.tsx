@@ -596,6 +596,7 @@ export function SearchFormSection({
           ) : null}
           {showWaitFactsRotator ? (
             <SearchWaitFactsRotator
+              key={`${running}-${make}-${model}-${vehicleCategory}-${vehicleCondition}`}
               running={running}
               make={make}
               model={model}

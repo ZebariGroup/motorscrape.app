@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 from app.config import settings
 from app.schemas import DealershipFound
@@ -26,13 +25,13 @@ def check_supabase_cache(
     client = _get_client()
     if not client:
         return None
-    
+
     # Only cache searches that have a make
     if not make:
         return None
-        
+
     radius_meters = int(radius_miles * 1609.34)
-    
+
     try:
         # Check if search is covered
         is_covered_res = client.rpc(
@@ -49,10 +48,10 @@ def check_supabase_cache(
                 ),
             }
         ).execute()
-        
+
         if not is_covered_res.data:
             return None
-            
+
         # It is covered, fetch the dealerships
         dealerships_res = client.rpc(
             "find_cached_dealerships",
@@ -64,7 +63,7 @@ def check_supabase_cache(
                 "p_radius_meters": radius_meters
             }
         ).execute()
-        
+
         results = []
         for row in dealerships_res.data or []:
             results.append(
@@ -78,7 +77,7 @@ def check_supabase_cache(
                 )
             )
         return results or None
-        
+
     except Exception as e:
         logger.error(f"Supabase cache check failed: {e}")
         return None
@@ -94,22 +93,22 @@ def save_to_supabase_cache(
     client = _get_client()
     if not client:
         return
-        
+
     # Only cache searches that have a make
     if not make:
         return
-        
+
     radius_meters = int(radius_miles * 1609.34)
     make_q = make.strip().lower()
     cat_q = vehicle_category.strip().lower()
-    
+
     try:
         # 1. Insert dealerships
         persisted_count = 0
         for d in dealerships:
             if d.lat is None or d.lng is None:
                 continue
-                
+
             # Upsert dealership and get id
             d_res = client.table("dealerships").upsert({
                 "place_id": d.place_id,
@@ -120,7 +119,7 @@ def save_to_supabase_cache(
                 "lng": d.lng,
                 "location": f"SRID=4326;POINT({d.lng} {d.lat})"
             }, on_conflict="place_id").execute()
-            
+
             if d_res.data and len(d_res.data) > 0:
                 persisted_count += 1
                 d_id = d_res.data[0]["id"]
@@ -154,7 +153,7 @@ def save_to_supabase_cache(
             "dealership_count": persisted_count,
             "coverage_confident": True,
         }).execute()
-            
+
     except Exception as e:
         logger.error(f"Supabase cache save failed: {e}")
 

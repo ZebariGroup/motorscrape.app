@@ -35,11 +35,6 @@ export function SearchWaitFactsRotator({
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
-    if (!running) return;
-    setIndex(0);
-  }, [running, make, model, vehicleCategory, vehicleCondition]);
-
-  useEffect(() => {
     if (!running || facts.length <= 1) return;
     const id = window.setInterval(() => {
       setIndex((i) => (i + 1) % facts.length);
