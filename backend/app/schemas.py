@@ -101,10 +101,6 @@ class VehicleListing(BaseModel):
         default=None,
         description="Best available unit identifier such as VIN, HIN, or stock number.",
     )
-    marketcheck_trim: str | None = Field(default=None, description="Precise trim matched by Marketcheck.")
-    marketcheck_features: list[str] = Field(default_factory=list, description="Installed packages and features from Marketcheck.")
-    estimated_market_value: float | None = Field(default=None, description="Estimated market value (Bluebook) from Marketcheck.")
-    marketcheck_days_to_sell: int | None = Field(default=None, description="Estimated days to sell from Marketcheck.")
     image_url: str | None = Field(default=None, description="Absolute URL to the main image of the vehicle.")
     listing_url: str | None = Field(default=None, description="Absolute URL to the vehicle's detail page.")
     raw_title: str | None = Field(default=None, description="The raw title text of the listing.")

@@ -22,8 +22,8 @@ from app.config import settings, vehicle_category_enabled
 from app.db.account_store import get_account_store
 from app.services.active_searches import cancel_active_search, register_active_search, unregister_active_search
 from app.services.orchestrator import stream_search
-from app.services.search_errors import SearchErrorInfo, with_search_error
 from app.services.scrape_logging import build_correlation_id, create_scrape_run_recorder
+from app.services.search_errors import SearchErrorInfo, with_search_error
 from app.sse import sse_pack, stream_with_keepalive
 
 logging.basicConfig(level=logging.INFO)
@@ -284,89 +284,35 @@ async def search_stream(
     )
 
 
-@router.get("/vehicles/premium-report")
-async def get_premium_report(
-    vin: str,
-    ctx: Annotated[AccessContext, Depends(get_access_context)],
+@router.get("/vehicles/vin-details")
+async def get_vin_details(
+    vin: str = Query(..., min_length=17, max_length=17),
 ) -> dict:
-    from app.services.marketcheck import fetch_premium_report, marketcheck_configured
-    
-    if ctx.limits.included_premium_reports_per_month <= 0:
-        raise HTTPException(
-            status_code=403, 
-            detail="Premium reports require a paid subscription. Please upgrade to Starter, Pro, or Max Pro."
-        )
+    from app.services.vin_decoder import _decode_vin
 
-    if not marketcheck_configured():
-        raise HTTPException(
-            status_code=503,
-            detail="MarketCheck premium reports are not configured on this deployment.",
-        )
-        
-    # TODO: Add strict metered counting against included_premium_reports_per_month
-        
-    report = await fetch_premium_report(vin)
-    if report is None:
+    decoded = await _decode_vin(vin)
+    if decoded is None:
         return {
             "ok": True,
             "vin": vin,
-            "history": [],
-            "message": "No premium history found for this VIN.",
+            "details": {"vin": vin},
+            "source": "none",
+            "message": "No VIN details found for this vehicle.",
         }
 
-    return {"ok": True, "vin": vin, "history": report}
-
-
-@router.get("/vehicles/marketcheck-details")
-async def get_marketcheck_details(
-    vin: str = Query(..., min_length=17, max_length=17),
-    miles: int | None = Query(default=None, ge=1),
-) -> dict:
-    from app.services.marketcheck import fetch_marketcheck_details, marketcheck_configured
-    from app.services.vin_decoder import _decode_vin
-
-    marketcheck_available = marketcheck_configured()
-    details = await fetch_marketcheck_details(vin, miles)
-    source = "marketcheck"
-    message: str | None = None
-    if details is None:
-        decoded = await _decode_vin(vin)
-        if decoded is None:
-            message = (
-                "MarketCheck is not configured on this deployment."
-                if not marketcheck_available
-                else "No MarketCheck details found for this VIN."
-            )
-            return {
-                "ok": True,
-                "vin": vin,
-                "details": {"vin": vin, "marketcheck_features": []},
-                "source": "none",
-                "message": message,
-            }
-        details = {
-            "vin": decoded.get("vin", vin),
-            "year": decoded.get("year"),
-            "make": decoded.get("make"),
-            "model": decoded.get("model"),
-            "marketcheck_trim": decoded.get("trim"),
-            "body_style": decoded.get("body_style"),
-            "transmission": decoded.get("transmission"),
-            "drivetrain": decoded.get("drivetrain"),
-            "fuel_type": decoded.get("fuel_type"),
-            "engine": decoded.get("engine"),
-            "marketcheck_features": [],
-        }
-        source = "vin_decoder"
-        message = (
-            "MarketCheck is not configured on this deployment. Showing fallback VIN decoder data instead."
-            if not marketcheck_available
-            else "MarketCheck details were unavailable for this VIN. Showing fallback VIN decoder data instead."
-        )
-
-    response = {"ok": True, "vin": details["vin"], "details": details, "source": source}
-    if message:
-        response["message"] = message
+    details = {
+        "vin": decoded.get("vin", vin),
+        "year": decoded.get("year"),
+        "make": decoded.get("make"),
+        "model": decoded.get("model"),
+        "trim": decoded.get("trim"),
+        "body_style": decoded.get("body_style"),
+        "transmission": decoded.get("transmission"),
+        "drivetrain": decoded.get("drivetrain"),
+        "fuel_type": decoded.get("fuel_type"),
+        "engine": decoded.get("engine"),
+    }
+    response = {"ok": True, "vin": details["vin"], "details": details, "source": "vin_decoder"}
     return response
 
 @router.post("/search/stop/{correlation_id}")
@@ -419,12 +365,6 @@ async def lifespan(_app: FastAPI):
         from app.services.vin_decoder import close_vin_decoder_http_client
 
         await close_vin_decoder_http_client()
-    except Exception:
-        pass
-    try:
-        from app.services.marketcheck import close_marketcheck_http_client
-
-        await close_marketcheck_http_client()
     except Exception:
         pass
 app = FastAPI(title="Motorscrape API", version="0.1.0", lifespan=lifespan)

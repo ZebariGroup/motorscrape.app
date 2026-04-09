@@ -496,7 +496,7 @@ export function SearchExperience({
                 Create a free account to see results
               </h2>
               <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6">
-                Sign up now to get <strong>15 free searches</strong> and <strong>5 premium vehicle reports</strong>. 
+                Sign up now to get <strong>15 free searches</strong> and save your best runs.
                 It takes less than 30 seconds.
               </p>
               <div className="flex flex-col gap-3">

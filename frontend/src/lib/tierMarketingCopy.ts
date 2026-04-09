@@ -5,7 +5,6 @@
 
 export const STANDARD_BULLETS = [
   "25 included searches / month",
-  "15 Premium Vehicle Reports / month",
   "Up to 10 dealerships per run · up to 6 listing pages per dealer",
   "Focused local radius: up to 30 miles",
   "2 concurrent searches · CSV export · advanced inventory scope options",
@@ -14,7 +13,6 @@ export const STANDARD_BULLETS = [
 /** Pro tier — backend id is `premium`. */
 export const PRO_BULLETS = [
   "120 included searches / month",
-  "100 Premium Vehicle Reports / month",
   "Up to 20 dealerships per run · up to 10 listing pages per dealer",
   "Wide radius: up to 100 miles",
   "4 concurrent searches · CSV export · advanced inventory scope options",
@@ -22,7 +20,6 @@ export const PRO_BULLETS = [
 
 export const MAX_PRO_BULLETS = [
   "250 included searches / month",
-  "200 Premium Vehicle Reports / month",
   "Up to 20 dealerships per run · up to 10 listing pages per dealer",
   "Wide radius: up to 250 miles",
   "6 concurrent searches · CSV export · advanced inventory scope options",
@@ -30,19 +27,19 @@ export const MAX_PRO_BULLETS = [
 
 /** Shorter lists for compact UI (e.g. modal). */
 export const STANDARD_BULLETS_SHORT = [
-  "25 included searches & 15 Premium Reports",
+  "25 included searches / month",
   "Up to 10 dealerships · up to 30 mi radius",
   "CSV export · 2 concurrent searches · advanced inventory scope",
 ] as const;
 
 export const PRO_BULLETS_SHORT = [
-  "120 included searches & 100 Premium Reports",
+  "120 included searches / month",
   "Up to 20 dealerships · up to 100 mi radius",
   "CSV export · 4 concurrent searches · advanced inventory scope",
 ] as const;
 
 export const MAX_PRO_BULLETS_SHORT = [
-  "250 included searches & 200 Premium Reports",
+  "250 included searches / month",
   "Up to 20 dealerships · up to 250 mi radius",
   "CSV export · 6 concurrent searches · advanced inventory scope",
 ] as const;

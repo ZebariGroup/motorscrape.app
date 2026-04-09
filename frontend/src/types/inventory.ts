@@ -17,10 +17,6 @@ export type VehicleListing = {
   vehicle_condition?: "new" | "used";
   vin?: string;
   vehicle_identifier?: string;
-  marketcheck_trim?: string;
-  marketcheck_features?: string[];
-  estimated_market_value?: number;
-  marketcheck_days_to_sell?: number;
   image_url?: string;
   listing_url?: string;
   raw_title?: string;
@@ -92,52 +88,26 @@ export type DealershipProgress = {
   phaseSince?: number;
 };
 
-export type PremiumReportHistoryEntry = {
-  id: string;
-  price?: number;
-  miles?: number;
-  data_source?: string;
-  vdp_url?: string;
-  seller_type?: string;
-  inventory_type?: string;
-  last_seen_at_date?: string;
-  first_seen_at_date?: string;
-  source?: string;
-  seller_name?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
-};
-
-export type PremiumReport = {
-  ok: boolean;
-  vin: string;
-  history: PremiumReportHistoryEntry[];
-};
-
-export type MarketcheckDetails = {
+export type VinDetails = {
   vin: string;
   year?: number;
   make?: string;
   model?: string;
-  marketcheck_trim?: string;
+  trim?: string;
   body_style?: string;
   vehicle_type?: string;
   transmission?: string;
   drivetrain?: string;
   fuel_type?: string;
   engine?: string;
-  marketcheck_features?: string[];
-  estimated_market_value?: number;
-  marketcheck_days_to_sell?: number;
-  source?: "marketcheck" | "vin_decoder" | "none";
+  source?: "vin_decoder" | "none";
   message?: string;
 };
 
-export type MarketcheckDetailsResponse = {
+export type VinDetailsResponse = {
   ok: boolean;
   vin: string;
-  details: MarketcheckDetails;
-  source?: "marketcheck" | "vin_decoder" | "none";
+  details: VinDetails;
+  source?: "vin_decoder" | "none";
   message?: string;
 };

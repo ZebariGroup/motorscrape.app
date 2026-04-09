@@ -15,7 +15,6 @@ This repo is set up for **[Vercel Services](https://vercel.com/docs/services)**:
    |------|----------|--------|
    | `GOOGLE_PLACES_API_KEY` | Yes | Same key as in Google Cloud; you can also use `GOOGLE_MAPS_API_KEY`. Enable **[Places API](https://console.cloud.google.com/apis/library/places.googleapis.com)** (New) for Text Search + Place Details ([docs](https://developers.google.com/maps/documentation/places/web-service/text-search)) |
    | `OPENAI_API_KEY` | Yes | Used for inventory LLM extraction (default model `gpt-5.4-mini`; set `OPENAI_EXTRACTION_MODEL` to override) |
-   | `MARKETCHECK_API_KEY` | No | Enables VIN enrichment, estimated market value, and premium historical listing reports. Without it, the UI falls back to VIN decoding only and premium reports are unavailable. |
    | `ZENROWS_API_KEY` | No | Managed fetch / anti-bot ([ZenRows](https://docs.zenrows.com/)); used after direct fetch fails or HTML lacks inventory signals |
    | `SCRAPINGBEE_API_KEY` | No | Alternative managed fetch ([ScrapingBee](https://www.scrapingbee.com/documentation/)) |
 
@@ -79,7 +78,6 @@ Frontend: `cd frontend && npm install && npm run dev`.
 - **Anonymous:** 4 completed searches, then the stream returns a quota error until the user signs up.
 - **Free / Standard / Premium:** enforced in [`backend/app/tiers.py`](backend/app/tiers.py); Standard and Premium can attach a **metered** Stripe price for search overages after the included monthly allotment.
 - **Enterprise / custom:** documented for sales scoping in [`docs/ENTERPRISE_FEATURES.md`](docs/ENTERPRISE_FEATURES.md); set tier manually in the accounts DB or via a future admin flow (not Stripe Checkout).
-- **MarketCheck-powered reports:** require `MARKETCHECK_API_KEY`; without it, VIN detail cards use decoder fallback data only and premium history reports return unavailable.
 - **Product priorities (paid differentiation):** see [`docs/PRODUCT_ROADMAP.md`](docs/PRODUCT_ROADMAP.md).
 
 Auth API: `/server/auth/*`, billing: `/server/billing/*` (same paths without `/server` when running uvicorn on port 8000 alone).
