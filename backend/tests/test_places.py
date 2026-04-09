@@ -92,7 +92,10 @@ def test_name_matches_make() -> None:
     assert places._name_matches_make("Any", "")
 
 
-def test_build_text_queries_prefers_generic_used_car_terms_for_smaller_dealer_mode() -> None:
+def test_build_text_queries_prefers_generic_used_car_terms_for_smaller_dealer_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.services.places.settings.places_text_query_variant_cap", 20)
     queries = places._build_text_queries(
         vehicle_category="car",
         location="Detroit MI",
@@ -354,7 +357,10 @@ async def test_find_car_dealerships_filters_results_outside_requested_radius(pla
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_find_car_dealerships_prefer_small_dealers_keeps_independent_candidates(places_api_key: str) -> None:
+async def test_find_car_dealerships_prefer_small_dealers_keeps_independent_candidates(
+    places_api_key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.services.places.settings.places_text_query_variant_cap", 20)
     search_response = {
         "places": [
             {

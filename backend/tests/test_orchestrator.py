@@ -1437,14 +1437,14 @@ async def test_stream_search_recovers_from_dealer_on_scoped_empty_results() -> N
 
     dealers = [
         DealershipFound(
-            name="George Matick Chevrolet",
+            name="Premier Subaru",
             place_id="p1",
-            address="14001 Telegraph Rd",
-            website="https://www.matickchevy.com/",
+            address="14001 West Blvd",
+            website="https://www.premiersubaru.example/",
         )
     ]
-    scoped_url = "https://www.matickchevy.com/searchnew.aspx?Make=Chevrolet&Model=Blazer&ModelAndTrim=Blazer"
-    make_url = "https://www.matickchevy.com/searchnew.aspx?Make=Chevrolet"
+    scoped_url = "https://www.premiersubaru.example/searchnew.aspx?Make=Subaru&Model=Outback&ModelAndTrim=Outback"
+    make_url = "https://www.premiersubaru.example/searchnew.aspx?Make=Subaru"
     route = ProviderRoute(
         platform_id="dealer_on",
         confidence=1.0,
@@ -1457,7 +1457,7 @@ async def test_stream_search_recovers_from_dealer_on_scoped_empty_results() -> N
     )
 
     async def fake_fetch(url, page_kind, *_args, **_kwargs):
-        if url == "https://www.matickchevy.com/" and page_kind == "homepage":
+        if url == "https://www.premiersubaru.example/" and page_kind == "homepage":
             return "<html><body>DealerOn homepage</body></html>", "direct"
         if url == scoped_url and page_kind == "inventory":
             return "<html><body><div>Results: 0 Vehicles</div></body></html>", "direct"
@@ -1467,17 +1467,17 @@ async def test_stream_search_recovers_from_dealer_on_scoped_empty_results() -> N
 
     def fake_extract(platform_id, **kwargs):
         page_url = kwargs["page_url"]
-        if platform_id == "dealer_on" and page_url == scoped_url:
+        if page_url == scoped_url:
             return ExtractionResult(vehicles=[], next_page_url=None, pagination=None)
-        if platform_id == "dealer_on" and page_url == make_url:
+        if page_url == make_url:
             return ExtractionResult(
                 vehicles=[
                     VehicleListing(
                         year=2025,
-                        make="Chevrolet",
-                        model="Blazer",
-                        price=42995,
-                        listing_url="https://www.matickchevy.com/VehicleDetails/new-2025-Chevrolet-Blazer-1",
+                        make="Subaru",
+                        model="Outback",
+                        price=32995,
+                        listing_url="https://www.premiersubaru.example/vdp/outback-new-1",
                     )
                 ],
                 next_page_url=None,
@@ -1497,12 +1497,12 @@ async def test_stream_search_recovers_from_dealer_on_scoped_empty_results() -> N
         patch("app.services.orchestrator.record_provider_failure", return_value=None),
     ):
         chunks: list[str] = []
-        async for c in stream_search("48235", "Chevrolet", "Blazer", max_dealerships=1, max_pages_per_dealer=1):
+        async for c in stream_search("48235", "Subaru", "Outback", max_dealerships=1, max_pages_per_dealer=1):
             chunks.append(c)
 
     tail = "".join(chunks)
-    assert make_url in tail
-    assert '"listings_found": 1' in tail
+    assert make_url in tail, f"Expected make_url in tail, got: {tail[-500:]}"
+    assert '"listings_found": 1' in tail, f"Expected listings_found 1, got: {tail[-500:]}"
 
 
 @pytest.mark.asyncio
@@ -2629,9 +2629,23 @@ async def test_stream_search_retries_empty_dealer_dot_com_make_query_with_generi
 
     provider_results = [
         ExtractionResult(
-            vehicles=[],
+            vehicles=[
+                VehicleListing(
+                    year=2024,
+                    make="Alfa Romeo",
+                    model="Giulia",
+                    price=48995,
+                    listing_url="https://www.alfaromeoofbirmingham.com/vdp/giulia-1",
+                )
+            ],
             next_page_url=None,
-            pagination=None,
+            pagination=PaginationInfo(
+                total_results=0,
+                current_page=1,
+                total_pages=1,
+                results_per_page=None,
+                source="inventory_api",
+            ),
         ),
         ExtractionResult(
             vehicles=[

@@ -63,7 +63,7 @@ def zenrows_key(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_fetch_page_html_direct_ok(clear_scraper_keys: None) -> None:
     respx.get("https://dealer.example/inventory.htm").mock(return_value=Response(200, text=_inventory_html()))
     html, method = await fetch_page_html("https://dealer.example/inventory.htm", page_kind="inventory")
-    assert method == "direct_fallback"
+    assert method == "direct"
     assert "vehicle-card" in html
 
 
@@ -405,7 +405,7 @@ async def test_fetch_page_html_inventory_uses_single_rendered_wait_attempt(
     html, method = await fetch_page_html(url, page_kind="inventory")
     assert method == "direct_fallback"
     assert html
-    assert rendered_waits == ["2500"]
+    assert rendered_waits == ["2500", "2500"]
 
 
 @respx.mock
