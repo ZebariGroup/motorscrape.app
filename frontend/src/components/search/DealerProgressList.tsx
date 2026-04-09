@@ -170,28 +170,6 @@ export function DealerProgressList({
         <div className="border-t border-zinc-200 px-3 py-3 dark:border-zinc-800">
           {running || dealerList.length > 0 ? (
             <div className="mb-3 space-y-3 rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-              <div className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
-                <div className="rounded-lg bg-white px-2.5 py-2 dark:bg-zinc-950">
-                  <p className="text-zinc-500 dark:text-zinc-400">Visible</p>
-                  <p className="mt-0.5 font-semibold text-zinc-900 dark:text-zinc-50">
-                    {visibleCount}
-                    {targetDealerCount > 0 ? ` / ${targetDealerCount}` : ""}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-white px-2.5 py-2 dark:bg-zinc-950">
-                  <p className="text-zinc-500 dark:text-zinc-400">Live</p>
-                  <p className="mt-0.5 font-semibold text-amber-700 dark:text-amber-300">{activeCount}</p>
-                </div>
-                <div className="rounded-lg bg-white px-2.5 py-2 dark:bg-zinc-950">
-                  <p className="text-zinc-500 dark:text-zinc-400">Queued</p>
-                  <p className="mt-0.5 font-semibold text-sky-700 dark:text-sky-300">{queuedCount}</p>
-                </div>
-                <div className="rounded-lg bg-white px-2.5 py-2 dark:bg-zinc-950">
-                  <p className="text-zinc-500 dark:text-zinc-400">Finished</p>
-                  <p className="mt-0.5 font-semibold text-emerald-700 dark:text-emerald-300">{doneCount}</p>
-                </div>
-              </div>
-
               <div>
                 <div className="mb-1.5 flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
                   <span>Dealer flow</span>

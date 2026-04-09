@@ -63,14 +63,12 @@ const baseProps = {
   onStop: vi.fn(),
   canSearch: true,
   searchReadinessHint: null,
-  status: null,
   errors: [],
   discoveredDealerPercent: 25,
   completedDealerPercent: 10,
   dealerListLength: 2,
   targetDealerCount: 8,
   doneDealerCount: 1,
-  activeDealerSummary: null,
   listingsCount: 4,
   maxDealersCap: 30,
   maxRadiusMilesCap: 250,
@@ -120,14 +118,10 @@ describe("SearchFormSection", () => {
       <SearchFormSection
         {...baseProps}
         running
-        status="Searching dealers"
-        activeDealerSummary="2 dealers queued"
       />,
     );
 
     expect(screen.getByRole("button", { name: "Edit scrape" })).not.toBeNull();
-    expect(screen.getByText("Searching dealers")).not.toBeNull();
-    expect(screen.getByText("2 dealers queued")).not.toBeNull();
     expect(screen.queryByText("Wait facts")).toBeNull();
   });
 });

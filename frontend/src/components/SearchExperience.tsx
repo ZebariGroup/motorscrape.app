@@ -380,14 +380,12 @@ export function SearchExperience({
           onStop={search.stopStream}
           canSearch={canSearch}
           searchReadinessHint={searchReadinessHint}
-          status={search.status}
           errors={visibleErrors}
           discoveredDealerPercent={dealers.discoveredDealerPercent}
           completedDealerPercent={dealers.completedDealerPercent}
           dealerListLength={dealers.dealerList.length}
           targetDealerCount={dealers.targetDealerCount}
           doneDealerCount={dealers.doneDealerCount}
-          activeDealerSummary={dealers.activeDealerSummary}
           listingsCount={listings.listings.length}
           maxDealersCap={maxDealersCap}
           maxRadiusMilesCap={maxRadiusCap}

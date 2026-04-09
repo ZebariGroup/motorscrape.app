@@ -168,10 +168,6 @@ export function ResultFiltersPanel({
                       className="relative z-10 min-w-0 flex-1 appearance-none accent-emerald-600"
                     />
                   </div>
-                  <div className="flex justify-between text-[12px] text-zinc-500 dark:text-zinc-400">
-                    <span>{formatMoney(priceBounds.min)}</span>
-                    <span>{formatMoney(priceBounds.max)}</span>
-                  </div>
                 </div>
               ) : (
                 <div className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-900/70 dark:text-zinc-400">

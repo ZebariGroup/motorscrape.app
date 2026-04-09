@@ -49,14 +49,12 @@ type Props = {
   onStop: () => void;
   canSearch: boolean;
   searchReadinessHint?: string | null;
-  status: string | null;
   errors: string[];
   discoveredDealerPercent: number;
   completedDealerPercent: number;
   dealerListLength: number;
   targetDealerCount: number;
   doneDealerCount: number;
-  activeDealerSummary: string | null;
   listingsCount: number;
   /** When set, caps advanced options for the current account tier. */
   maxDealersCap?: number;
@@ -94,14 +92,12 @@ export function SearchFormSection({
   onStop,
   canSearch,
   searchReadinessHint,
-  status,
   errors,
   discoveredDealerPercent,
   completedDealerPercent,
   dealerListLength,
   targetDealerCount,
   doneDealerCount,
-  activeDealerSummary,
   listingsCount,
   maxDealersCap = 30,
   maxRadiusMilesCap = 250,
@@ -482,19 +478,18 @@ export function SearchFormSection({
             >
               {running ? (
                 <>
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-px" aria-hidden>
-                    <div className="h-0.5 w-full bg-black/15 dark:bg-black/30">
-                      <div
-                        className="h-full bg-gradient-to-r from-emerald-300 via-emerald-200 to-teal-300 transition-[width] duration-700 ease-out"
-                        style={{ width: `${discoveredDealerPercent}%` }}
-                      />
-                    </div>
-                    <div className="h-0.5 w-full bg-black/15 dark:bg-black/30">
-                      <div
-                        className="h-full bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-200 transition-[width] duration-700 ease-out"
-                        style={{ width: `${completedDealerPercent}%` }}
-                      />
-                    </div>
+                  <div className="pointer-events-none absolute inset-0 flex flex-col" aria-hidden>
+                    {/* Discovered progress background */}
+                    <div className="absolute inset-0 bg-emerald-700/50" />
+                    <div
+                      className="absolute inset-y-0 left-0 bg-emerald-500/40 transition-[width] duration-700 ease-out"
+                      style={{ width: `${discoveredDealerPercent}%` }}
+                    />
+                    {/* Completed progress background */}
+                    <div
+                      className="absolute inset-y-0 left-0 bg-emerald-400 transition-[width] duration-700 ease-out"
+                      style={{ width: `${completedDealerPercent}%` }}
+                    />
                   </div>
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 px-2" aria-hidden>
                     <div className="scrape-truck-track">
@@ -572,7 +567,7 @@ export function SearchFormSection({
           ) : null}
         </>
       )}
-      {status || running ? (
+      {running ? (
         <div
           className={`space-y-2 ${
             isFormExpanded
@@ -580,20 +575,6 @@ export function SearchFormSection({
               : "rounded-xl border border-zinc-200/80 bg-zinc-50/85 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/40"
           }`}
         >
-          {status ? (
-            <p className={`flex flex-wrap items-center gap-2 text-zinc-600 dark:text-zinc-400 ${isFormExpanded ? "text-sm" : "text-xs"}`}>
-              {running ? (
-                <span
-                  className="inline-flex h-2 w-2 shrink-0 rounded-full bg-emerald-500 animate-pulse"
-                  aria-hidden
-                />
-              ) : null}
-              <span>{status}</span>
-            </p>
-          ) : null}
-          {running && activeDealerSummary ? (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">{activeDealerSummary}</p>
-          ) : null}
           {showWaitFactsRotator ? (
             <SearchWaitFactsRotator
               running={running}
