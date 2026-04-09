@@ -21,8 +21,10 @@ This repo is set up for **[Vercel Services](https://vercel.com/docs/services)**:
    Optional overrides:
 
    - `NEXT_PUBLIC_API_URL` — set in [`vercel.json`](vercel.json) to `/server` so the browser hits the FastAPI service; override only if you change `routePrefix` or split deployments.
+   - `MOTORSCRAPE_API_ORIGIN` — local-development only. In this repo it is used by `frontend/next.config.ts` only when `NODE_ENV !== "production"` to proxy `/server/*` to a workstation FastAPI process.
 
-5. **Redeploy** after changing env vars (or push an empty commit) so new env values are picked up if needed.
+5. **Do not point production `/server/*` at an external backend** unless you intend to operate a separate deployment lifecycle for the scraper API. The supported default is one Vercel Services deployment for both Next.js and FastAPI.
+6. **Redeploy** after changing env vars (or push an empty commit) so new env values are picked up if needed.
    - Redeploy trigger marker: 2026-04-01T21:55Z
 
 ### Recommended: GitHub → Vercel (no CLI deploy)
@@ -67,7 +69,7 @@ See [`.env.example`](.env.example). Backend: `cd backend && pip install -r requi
 
 Frontend: `cd frontend && npm install && npm run dev`.
 
-**Recommended (accounts + cookies):** set `NEXT_PUBLIC_API_URL=/server` and `SESSION_SECRET` (see [`.env.example`](.env.example)). Next.js rewrites proxy `/server/*` to FastAPI on `127.0.0.1:8000` so the browser stays **same-origin** with the UI; session cookies and `EventSource` search streams then work without cross-site cookie issues.
+**Recommended (accounts + cookies):** set `NEXT_PUBLIC_API_URL=/server` and `SESSION_SECRET` (see [`.env.example`](.env.example)). In local development, Next.js rewrites proxy `/server/*` to FastAPI on `127.0.0.1:8000` so the browser stays **same-origin** with the UI; session cookies and `EventSource` search streams then work without cross-site cookie issues.
 
 **Alternative:** point the UI directly at FastAPI with `NEXT_PUBLIC_API_URL=http://localhost:8000` — search still works, but **login/session cookies will not** be sent on that origin from `localhost:3000`.
 

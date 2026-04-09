@@ -9,10 +9,13 @@ const nextConfig: NextConfig = {
     root: workspaceRoot,
   },
   /**
-   * Proxy `/server/*` to FastAPI so the browser stays same-origin with Next
-   * (cookies + EventSource).
+   * Local dev proxies `/server/*` to FastAPI on the workstation.
+   * Production should use the co-deployed `/server` service path directly.
    */
   async rewrites() {
+    if (process.env.NODE_ENV === "production") {
+      return [];
+    }
     const target = (process.env.MOTORSCRAPE_API_ORIGIN ?? "http://127.0.0.1:8000").replace(/\/$/, "");
     return [
       {
