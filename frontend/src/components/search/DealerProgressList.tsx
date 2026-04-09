@@ -75,6 +75,19 @@ function IconPin() {
   );
 }
 
+/** Google "G" mark for dealers discovered via Places (not system DB). */
+function GoogleDiscoveryBadge() {
+  return (
+    <span
+      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm bg-white text-[11px] font-bold leading-none text-[#4285F4] shadow-sm ring-1 ring-zinc-200/90 dark:bg-zinc-900 dark:text-[#8ab4f8] dark:ring-zinc-600"
+      title="Discovered via Google Places"
+      aria-label="Discovered via Google Places"
+    >
+      G
+    </span>
+  );
+}
+
 function ProgressBar({
   status,
   pagesScraped,
@@ -365,7 +378,10 @@ export function DealerProgressList({
 
                         <div className="flex min-w-0 items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="truncate font-medium text-zinc-900 dark:text-zinc-50">{d.name}</p>
+                            <p className="flex min-w-0 items-center gap-1.5 font-medium text-zinc-900 dark:text-zinc-50">
+                              {d.discovery_source === "google_places" ? <GoogleDiscoveryBadge /> : null}
+                              <span className="truncate">{d.name}</span>
+                            </p>
                             {d.address ? (
                               <p className="mt-0.5 truncate text-[12px] text-zinc-400 dark:text-zinc-500">{d.address}</p>
                             ) : null}

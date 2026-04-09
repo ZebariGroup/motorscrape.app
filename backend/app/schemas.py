@@ -6,6 +6,7 @@ VehicleCategory = Literal["car", "motorcycle", "boat", "other"]
 VehicleCondition = Literal["all", "new", "used"]
 ListingCondition = Literal["new", "used"]
 UsageUnit = Literal["miles", "hours"]
+DealershipDiscoverySource = Literal["google_places", "system_db"]
 
 
 class SearchRequest(BaseModel):
@@ -65,6 +66,10 @@ class DealershipFound(BaseModel):
     website: str | None = None
     lat: float | None = None
     lng: float | None = None
+    discovery_source: DealershipDiscoverySource = Field(
+        default="google_places",
+        description="Where this dealership row came from: Google Places API or the system dealership database.",
+    )
 
 
 class VehicleListing(BaseModel):
