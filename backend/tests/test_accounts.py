@@ -16,7 +16,7 @@ def test_access_summary_anonymous() -> None:
     data = r.json()
     assert data["authenticated"] is False
     assert data["tier"] == "anonymous"
-    assert data["anonymous"]["searches_remaining"] == 4
+    assert data["anonymous"]["searches_remaining"] == 1
 
 
 def test_signup_login_me_logout() -> None:
@@ -51,14 +51,14 @@ def test_access_summary_marks_bootstrapped_admin(monkeypatch) -> None:
 
 
 def test_anonymous_quota_sse() -> None:
-    """Fifth completed search hits quota message in the stream."""
+    """Second completed search hits quota message in the stream."""
     client = TestClient(app)
     with patch(
         "app.services.orchestrator.find_car_dealerships",
         new_callable=AsyncMock,
         return_value=[],
     ):
-        for i in range(4):
+        for i in range(1):
             with client.stream("GET", "/search/stream", params={"location": f"XX{i}"}) as resp:
                 assert resp.status_code == 200
                 body = b"".join(resp.iter_bytes())

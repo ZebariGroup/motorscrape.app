@@ -74,6 +74,8 @@ type Props = {
   activeDealerSummary?: string | null;
   activeDealerCount?: number;
   queuedDealerCount?: number;
+  isAnonymous?: boolean;
+  onSignupClick?: () => void;
   /** Merged onto the root section (e.g. grid order utilities). */
   className?: string;
   /** Shown when the grid is populated from a past search snapshot (not a live stream). */
@@ -96,6 +98,8 @@ export function InventoryResultsSection({
   activeDealerSummary = null,
   activeDealerCount = 0,
   queuedDealerCount = 0,
+  isAnonymous = false,
+  onSignupClick,
   className = "",
   savedResultsNotice = null,
 }: Props) {
@@ -268,7 +272,8 @@ export function InventoryResultsSection({
           No vehicles match the current result filters.
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="relative">
+          <div className={`grid gap-4 sm:grid-cols-2 transition-all duration-500 ${isAnonymous ? "opacity-40 blur-[4px] pointer-events-none select-none" : ""}`}>
           {filteredListings.map((v, idx) => (
             (() => {
               const listingKey = listingIdentityKey(v, `${idx}`);
@@ -464,6 +469,25 @@ export function InventoryResultsSection({
               );
             })()
           ))}
+          </div>
+          {isAnonymous && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 text-center">
+              <div className="rounded-2xl border border-zinc-200 bg-white/95 p-6 shadow-xl backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/95 max-w-md">
+                <h3 className="mb-2 text-lg font-bold text-zinc-900 dark:text-zinc-50">
+                  Sign up to see results
+                </h3>
+                <p className="mb-5 text-sm text-zinc-600 dark:text-zinc-400">
+                  Create a free account to get 15 free searches and 5 premium vehicle reports.
+                </p>
+                <button
+                  onClick={onSignupClick}
+                  className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500"
+                >
+                  Create Free Account
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

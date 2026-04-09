@@ -100,6 +100,15 @@ export function SearchExperience({
   });
   const applySavedSearchCriteria = search.applySavedSearchCriteria;
 
+  const isAnonymous = access ? !access.authenticated : false;
+  const [signupModalOpen, setSignupModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (isAnonymous && search.running && !signupModalOpen) {
+      setSignupModalOpen(true);
+    }
+  }, [isAnonymous, search.running, signupModalOpen]);
+
   useEffect(() => {
     const hits = search.errorEvents.find(
       (error) =>
@@ -114,6 +123,15 @@ export function SearchExperience({
       setUpgradeError(null);
     }
   }, [dismissedQuotaCode, search.errorEvents, upgradeModalOpen]);
+
+  useEffect(() => {
+    const anonQuotaHit = search.errorEvents.find(
+      (error) => error.code === "quota.anonymous_limit_reached"
+    );
+    if (anonQuotaHit && !signupModalOpen) {
+      setSignupModalOpen(true);
+    }
+  }, [search.errorEvents, signupModalOpen]);
 
   useEffect(() => {
     const qs = searchParams.toString();
@@ -435,6 +453,8 @@ export function SearchExperience({
             activeDealerCount={dealers.activeDealerCount}
             queuedDealerCount={dealers.queuedDealerCount}
             savedResultsNotice={savedResultsNotice}
+            isAnonymous={isAnonymous}
+            onSignupClick={() => router.push("/signup")}
             className={hasInventoryResults ? "order-1 lg:order-none" : undefined}
           />
         </div>
@@ -464,6 +484,36 @@ export function SearchExperience({
               >
                 Stop
               </button>
+            </div>
+          </div>
+        )}
+
+        {signupModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-900/60 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 text-center">
+              <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-50 mb-3">
+                Create a free account to see results
+              </h2>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6">
+                Sign up now to get <strong>15 free searches</strong> and <strong>5 premium vehicle reports</strong>. 
+                It takes less than 30 seconds.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => router.push("/signup")}
+                  className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500"
+                >
+                  Create Free Account
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push("/login")}
+                  className="w-full rounded-lg bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-50 dark:hover:bg-zinc-800"
+                >
+                  Log in
+                </button>
+              </div>
             </div>
           </div>
         )}
