@@ -1203,6 +1203,17 @@ async def find_dealerships(
         detail_sem = asyncio.Semaphore(max(1, settings.places_details_max_concurrency))
         metrics.detail_candidates_considered = len(candidates)
         detail_budget = int(getattr(settings, "places_details_budget_per_search", 0) or 0)
+
+        # Pre-populate websites from the place-website SQLite cache so those
+        # candidates don't consume a live-API detail budget slot.
+        for c in candidates:
+            if not c.get("website") and c.get("place_resource"):
+                cached_website = get_cached_place_website(str(c["place_resource"]))
+                if cached_website is not None:
+                    metrics.detail_cache_hits += 1
+                    c["website"] = cached_website
+
+        # Only candidates that still lack a website after the cache check need a live call.
         detail_candidates = [c for c in candidates if not c.get("website") and c.get("place_resource")]
         if detail_budget > 0 and len(detail_candidates) > detail_budget:
             metrics.detail_candidates_skipped = len(detail_candidates) - detail_budget
@@ -1211,11 +1222,6 @@ async def find_dealerships(
 
         async def _ensure_website(c: dict[str, Any]) -> None:
             if c.get("website") or not c.get("place_resource"):
-                return
-            cached_website = get_cached_place_website(str(c["place_resource"]))
-            if cached_website is not None:
-                metrics.detail_cache_hits += 1
-                c["website"] = cached_website
                 return
             async with detail_sem:
                 w = await _place_details_website(client, str(c["place_resource"]), key, metrics=metrics)
@@ -1273,9 +1279,15 @@ async def find_dealerships(
             )
 
         def _finalize(found: list[DealershipFound]) -> list[DealershipFound]:
-            if use_search_cache and search_cache_complete:
-                set_cached_places_search(search_cache_key, found)
-                if location_center is not None and not prefer_small_dealers and found:
+            if use_search_cache and found:
+                # Only write the in-memory SQLite cache when the search was
+                # complete (no candidates skipped due to the detail budget).
+                if search_cache_complete:
+                    set_cached_places_search(search_cache_key, found)
+                # Always persist to Supabase — the found list only contains
+                # dealers whose websites were resolved, so it is accurate even
+                # when the detail budget trimmed some candidates.
+                if location_center is not None and not prefer_small_dealers:
                     from app.services.places_supabase import save_to_supabase_cache
                     center_lat, center_lng = location_center
                     save_to_supabase_cache(
