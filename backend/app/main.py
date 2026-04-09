@@ -288,9 +288,13 @@ async def get_premium_report(
 ) -> dict:
     from app.services.marketcheck import fetch_premium_report
     
-    # TODO: Add subscription/billing check here when premium plans are finalized
-    # if not ctx.limits.inventory_scope_premium:
-    #     raise HTTPException(status_code=403, detail="Premium report requires a Pro subscription.")
+    if ctx.limits.included_premium_reports_per_month <= 0:
+        raise HTTPException(
+            status_code=403, 
+            detail="Premium reports require a paid subscription. Please upgrade to Starter, Pro, or Max Pro."
+        )
+        
+    # TODO: Add strict metered counting against included_premium_reports_per_month
         
     report = await fetch_premium_report(vin)
     if report is None:
