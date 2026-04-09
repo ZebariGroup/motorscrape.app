@@ -12,8 +12,8 @@ from datetime import date, datetime, timezone
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
-from bs4 import BeautifulSoup
 import httpx
+from bs4 import BeautifulSoup
 from openai import AsyncOpenAI
 
 from app.config import settings
@@ -170,7 +170,8 @@ Extraction rules:
 - Data may be provided as structured JSON extracted from the page. Parse it the same way.
 
 European pages (EN/FR/DE and similar):
-- Always populate `make` with the brand when the listing is for a single-brand dealer, even if the visible title only shows model lines (e.g. "320d M Sport" → make BMW).
+- Always populate `make` with the brand when the listing is for a single-brand dealer, even if the
+  visible title only shows model lines (e.g. "320d M Sport" → make BMW).
 - Map condition words: e.g. French *occasion/neuf*, German *Gebrauchtwagen/Neuwagen* to `used`/`new`.
 """
 

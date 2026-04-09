@@ -175,14 +175,12 @@ export function SearchFormSection({
   }, [marketRegion, radiusKmOptions, radiusMiles, setRadiusMiles]);
 
   const handleSearch = () => {
-    if (typeof window !== "undefined" && window.innerWidth < 1024) {
-      setIsFormExpanded(false);
-    }
     onSearch();
   };
 
   const isCollapsedSummary = !isGameActive && !isFormExpanded;
-  const showWaitFactsRotator = running && isFormExpanded;
+  /** Status, active dealers, and wait facts live inside the primary scrape panel while expanded. */
+  const scrapeProgressInline = running && isFormExpanded;
 
   return (
     <section
@@ -468,75 +466,108 @@ export function SearchFormSection({
               {showAdvanced ? "Hide advanced options" : "Show advanced options"}
             </button>
           </div>
-          <div className="mt-4 flex flex-col justify-end gap-2 sm:flex-row sm:items-stretch">
-            <button
-              type="button"
-              className={`relative inline-flex min-h-[2.75rem] flex-1 flex-col items-center justify-center overflow-hidden rounded-lg bg-emerald-600 px-4 py-2.5 text-base font-bold text-white shadow-sm transition hover:bg-emerald-500 hover:text-white ${
-                !running && !canSearch ? "cursor-not-allowed opacity-50" : ""
-              }`}
-              disabled={!running && !canSearch}
-              onClick={running ? undefined : handleSearch}
-              onDoubleClick={() => {
-                if (running) setIsGameActive(true);
-              }}
-            >
-              {running ? (
-                <>
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-px" aria-hidden>
-                    <div className="h-0.5 w-full bg-black/15 dark:bg-black/30">
-                      <div
-                        className="h-full bg-gradient-to-r from-emerald-300 via-emerald-200 to-teal-300 transition-[width] duration-700 ease-out"
-                        style={{ width: `${discoveredDealerPercent}%` }}
-                      />
-                    </div>
-                    <div className="h-0.5 w-full bg-black/15 dark:bg-black/30">
-                      <div
-                        className="h-full bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-200 transition-[width] duration-700 ease-out"
-                        style={{ width: `${completedDealerPercent}%` }}
-                      />
-                    </div>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
+            {running ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className="relative flex min-h-[10.5rem] flex-1 flex-col overflow-hidden rounded-xl border border-emerald-500/30 bg-gradient-to-b from-emerald-500 to-emerald-700 text-white shadow-md ring-1 ring-emerald-400/25 dark:from-emerald-600 dark:to-emerald-900 dark:ring-emerald-500/20"
+                onDoubleClick={() => setIsGameActive(true)}
+              >
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-px" aria-hidden>
+                  <div className="h-0.5 w-full bg-black/20 dark:bg-black/35">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-200 via-white/90 to-teal-200 transition-[width] duration-700 ease-out"
+                      style={{ width: `${discoveredDealerPercent}%` }}
+                    />
                   </div>
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 px-2" aria-hidden>
-                    <div className="scrape-truck-track">
-                      <div className="scrape-truck-floor" />
-                      <div className="scrape-truck-ruts" />
-                      <span className="scrape-truck">
-                        <PlowTruck />
-                      </span>
-                    </div>
+                  <div className="h-0.5 w-full bg-black/20 dark:bg-black/35">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-300 via-amber-200 to-yellow-100 transition-[width] duration-700 ease-out"
+                      style={{ width: `${completedDealerPercent}%` }}
+                    />
                   </div>
-                  <span className="relative z-10 flex flex-col items-center gap-0.5 pb-1.5 leading-tight">
-                    <span>{reconnecting ? "Reconnecting…" : "Scraping…"}</span>
-                    <span className="max-w-full truncate px-1 text-center text-xs font-medium text-white/95">
-                      {`${dealerListLength}/${targetDealerCount} found · ${doneDealerCount}/${targetDealerCount} done · ${listingsCount} vehicles`}
+                </div>
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-11 px-2" aria-hidden>
+                  <div className="scrape-truck-track">
+                    <div className="scrape-truck-floor" />
+                    <div className="scrape-truck-ruts" />
+                    <span className="scrape-truck">
+                      <PlowTruck />
                     </span>
-                    {!isGameActive && (
-                      <span className="mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-white/80 animate-pulse">
-                        {preferTapPlayHint ? "Tap Play to pass time" : "Double-click to play"}
+                  </div>
+                </div>
+                <div className="relative z-10 flex flex-1 flex-col gap-2 px-3 pb-12 pt-3 sm:px-4 sm:pb-14">
+                  <div className="text-center">
+                    <p className="text-[13px] font-bold tracking-tight sm:text-sm">
+                      {reconnecting ? "Reconnecting…" : "Scraping inventory"}
+                    </p>
+                    <p className="mt-1 font-mono text-[11px] font-semibold tabular-nums text-white/95 sm:text-xs">
+                      <span className="text-white">{dealerListLength}</span>
+                      <span className="text-white/75">/{targetDealerCount} found</span>
+                      <span className="mx-1.5 text-white/40">·</span>
+                      <span className="text-white">{doneDealerCount}</span>
+                      <span className="text-white/75">/{targetDealerCount} done</span>
+                      <span className="mx-1.5 text-white/40">·</span>
+                      <span className="text-white">{listingsCount}</span>
+                      <span className="text-white/75"> vehicles</span>
+                    </p>
+                  </div>
+                  {scrapeProgressInline && status ? (
+                    <p className="line-clamp-2 text-left text-[11px] leading-snug text-white/90 sm:text-xs">{status}</p>
+                  ) : null}
+                  {scrapeProgressInline && activeDealerSummary ? (
+                    <p className="line-clamp-2 text-left text-[11px] leading-snug text-emerald-50/95 sm:text-xs">
+                      {activeDealerSummary}
+                    </p>
+                  ) : null}
+                  {scrapeProgressInline ? (
+                    <div className="rounded-lg border border-white/10 bg-black/10 px-2.5 py-2 backdrop-blur-[2px]">
+                      <SearchWaitFactsRotator
+                        key={`${running}-${make}-${model}-${vehicleCategory}-${vehicleCondition}`}
+                        running={running}
+                        make={make}
+                        model={model}
+                        vehicleCategory={vehicleCategory}
+                        vehicleCondition={vehicleCondition}
+                        variant="embedded"
+                      />
+                    </div>
+                  ) : null}
+                  {!isGameActive ? (
+                    <div className="flex flex-wrap items-center justify-center gap-2 border-t border-white/10 pt-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                        {preferTapPlayHint ? "Tap play for a mini-game" : "Double-click for mini-game"}
                       </span>
-                    )}
-                    {!isGameActive && preferTapPlayHint && running ? (
-                      <button
-                        type="button"
-                        className="relative z-20 mt-1 rounded-md bg-white/20 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-white backdrop-blur-sm transition hover:bg-white/30"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsGameActive(true);
-                        }}
-                      >
-                        Play
-                      </button>
-                    ) : null}
-                  </span>
-                </>
-              ) : (
-                "Scrape inventory"
-              )}
-            </button>
-            <div className="flex flex-1 gap-2 sm:max-w-none sm:flex-initial sm:shrink-0">
+                      {preferTapPlayHint ? (
+                        <button
+                          type="button"
+                          className="rounded-md bg-white/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white backdrop-blur-sm transition hover:bg-white/30"
+                          onClick={() => setIsGameActive(true)}
+                        >
+                          Play
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
               <button
                 type="button"
-                className="inline-flex min-h-[2.75rem] flex-1 items-center justify-center rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900 sm:flex-initial sm:min-w-[4.5rem]"
+                className={`relative inline-flex min-h-[2.75rem] flex-1 flex-col items-center justify-center overflow-hidden rounded-xl bg-emerald-600 px-4 py-2.5 text-base font-bold text-white shadow-sm ring-1 ring-emerald-500/30 transition hover:bg-emerald-500 hover:text-white dark:ring-emerald-400/20 ${
+                  !canSearch ? "cursor-not-allowed opacity-50" : ""
+                }`}
+                disabled={!canSearch}
+                onClick={handleSearch}
+              >
+                Scrape inventory
+              </button>
+            )}
+            <div className="flex shrink-0 gap-2 sm:w-[5.5rem] sm:flex-col sm:justify-stretch">
+              <button
+                type="button"
+                className="inline-flex min-h-[2.75rem] flex-1 items-center justify-center rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 sm:flex-1"
                 disabled={!running}
                 onClick={onStop}
               >
@@ -545,7 +576,7 @@ export function SearchFormSection({
               <button
                 type="button"
                 onClick={() => setHistoryModalOpen(true)}
-                className="inline-flex min-h-[2.75rem] min-w-[2.75rem] shrink-0 items-center justify-center rounded-lg border border-zinc-300 text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+                className="inline-flex min-h-[2.75rem] min-w-[2.75rem] flex-1 items-center justify-center rounded-xl border border-zinc-300 bg-white text-zinc-700 shadow-sm transition hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800 sm:min-h-0 sm:flex-1"
                 aria-label="Recent searches"
                 title="Recent searches"
               >
@@ -572,7 +603,7 @@ export function SearchFormSection({
           ) : null}
         </>
       )}
-      {status || running ? (
+      {(status || running) && !scrapeProgressInline ? (
         <div
           className={`space-y-2 ${
             isFormExpanded
@@ -593,15 +624,6 @@ export function SearchFormSection({
           ) : null}
           {running && activeDealerSummary ? (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">{activeDealerSummary}</p>
-          ) : null}
-          {showWaitFactsRotator ? (
-            <SearchWaitFactsRotator
-              running={running}
-              make={make}
-              model={model}
-              vehicleCategory={vehicleCategory}
-              vehicleCondition={vehicleCondition}
-            />
           ) : null}
         </div>
       ) : null}

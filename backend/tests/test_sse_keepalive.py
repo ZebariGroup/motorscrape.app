@@ -3,7 +3,6 @@
 import asyncio
 
 import pytest
-
 from app.sse import sse_keepalive_ping, stream_with_keepalive
 
 

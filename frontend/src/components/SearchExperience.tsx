@@ -461,27 +461,30 @@ export function SearchExperience({
         </div>
 
         {search.running && (
-          <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/92 px-3 py-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-md sm:hidden dark:border-zinc-800 dark:bg-zinc-950/92 shadow-[0_-4px_18px_-12px_rgba(0,0,0,0.18)]">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex flex-1 flex-col gap-1.5">
-                <div className="flex items-center justify-between text-xs font-medium">
-                  <span className="text-zinc-900 dark:text-zinc-50">
-                    {search.reconnecting ? "Reconnecting..." : "Scraping..."}
-                  </span>
-                  <span className="text-zinc-500">
-                    {dealers.doneDealerCount} / {dealers.targetDealerCount}
-                  </span>
-                </div>
-                <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-                  <div
-                    className={`h-full transition-all duration-500 ${search.reconnecting ? "bg-amber-500" : "bg-emerald-500"}`}
-                    style={{ width: `${dealers.completedDealerPercent}%` }}
-                  />
-                </div>
+          <div className="fixed inset-x-0 bottom-0 z-50 border-t border-emerald-500/25 bg-gradient-to-r from-emerald-600 to-emerald-800 px-3 py-2.5 pb-[calc(0.65rem+env(safe-area-inset-bottom))] text-white shadow-[0_-8px_28px_-8px_rgba(6,78,59,0.45)] backdrop-blur-md sm:hidden dark:from-emerald-700 dark:to-emerald-950 dark:border-emerald-600/30">
+            <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-bold leading-tight">
+                  {search.reconnecting ? "Reconnecting…" : "Scraping inventory"}
+                </p>
+                <p className="mt-0.5 truncate font-mono text-[10px] font-semibold tabular-nums text-white/95">
+                  <span>{dealers.dealerList.length}</span>
+                  <span className="text-white/75">/{dealers.targetDealerCount} found</span>
+                  <span className="mx-1 text-white/35">·</span>
+                  <span>{dealers.doneDealerCount}</span>
+                  <span className="text-white/75">/{dealers.targetDealerCount} done</span>
+                  <span className="mx-1 text-white/35">·</span>
+                  <span>{listings.listings.length}</span>
+                  <span className="text-white/75"> vehicles</span>
+                </p>
+                {search.status ? (
+                  <p className="mt-1 line-clamp-1 text-[10px] leading-snug text-emerald-50/95">{search.status}</p>
+                ) : null}
               </div>
               <button
+                type="button"
                 onClick={search.stopStream}
-                className="rounded-lg bg-zinc-100 px-3 py-1.5 text-[11px] font-semibold text-zinc-900 transition hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-50 dark:hover:bg-zinc-700"
+                className="shrink-0 rounded-lg border border-white/25 bg-white/15 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-white transition hover:bg-white/25"
               >
                 Stop
               </button>

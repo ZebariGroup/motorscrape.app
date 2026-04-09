@@ -499,10 +499,14 @@ async def _resolve_location_center(
         logger.debug("Location geocode HTTP %s for %r: %s", r.status_code, normalized_location, r.text[:300])
         return None
     payload = r.json() if r.content else {}
-    
+
     if payload.get("status") == "REQUEST_DENIED":
-        logger.error(f"Geocoding API REQUEST_DENIED. Please enable the 'Geocoding API' in Google Cloud Console for your API key. Error: {payload.get('error_message')}")
-        
+        logger.error(
+            "Geocoding API REQUEST_DENIED. Please enable the 'Geocoding API' in Google Cloud "
+            "Console for your API key. Error: %s",
+            payload.get("error_message"),
+        )
+
     results = payload.get("results") if isinstance(payload, dict) else None
     if not results or not isinstance(results, list) or not isinstance(results[0], dict):
         return None
@@ -1026,7 +1030,7 @@ async def find_dealerships(
     requested_radius = max(5, min(int(radius_miles or 25), 250))
     metrics = metrics or PlacesSearchMetrics()
     use_search_cache = query_variant_limit is None and location_center_override is None
-    
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         location_center = location_center_override
         if location_center is None and requested_radius >= max(1, int(settings.places_geocode_min_radius_miles or 0)):
@@ -1045,7 +1049,7 @@ async def find_dealerships(
             market_region=market_region,
             prefer_small_dealers=prefer_small_dealers,
         )
-            
+
         if use_search_cache and location_center is not None and not prefer_small_dealers:
             from app.services.places_supabase import check_supabase_cache
             center_lat, center_lng = location_center
@@ -1180,11 +1184,11 @@ async def find_dealerships(
             name = _display_name(place)
             address = place.get("formattedAddress") or ""
             website = place.get("websiteUri")
-            
+
             location_obj = place.get("location") or {}
             lat = location_obj.get("latitude")
             lng = location_obj.get("longitude")
-            
+
             candidates.append(
                 {
                     "name": name,

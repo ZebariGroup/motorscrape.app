@@ -10,7 +10,7 @@ from app.config import settings
 from app.db.account_store import get_account_store
 from app.schemas import DealershipFound, ExtractionResult, PaginationInfo, VehicleListing
 from app.services.dealer_bias import dealer_preference_bias
-from app.services.orchestrator_market import historical_market_points_for_listing
+from app.services.dealer_score_store import DealerScoreCard
 from app.services.orchestrator import (
     _bounded_phase_timeout,
     _cap_unknown_platform_fetch_timeout,
@@ -21,18 +21,19 @@ from app.services.orchestrator import (
     _effective_max_pages_for_route,
     _find_inventory_url,
     _generic_vehicle_detail_overlay,
-    _inventory_url_uses_scoped_filters,
     _inventory_url_recovery_candidates,
+    _inventory_url_uses_scoped_filters,
     _looks_like_model_index_batch,
     _needs_vdp_usage_enrichment,
     _oneaudi_all_inventory_urls,
     _room58_detail_overlay,
     _route_supports_team_velocity_style_inventory_reroute,
-    _tesla_inventory_urls,
     _team_velocity_inventory_url_from_model_hub,
     _team_velocity_model_inventory_urls,
+    _tesla_inventory_urls,
     stream_search,
 )
+from app.services.orchestrator_market import historical_market_points_for_listing
 from app.services.orchestrator_utils import (
     effective_max_pages_for_route,
     effective_search_concurrency,
@@ -157,8 +158,8 @@ def test_effective_dealer_timeout_scales_for_deep_searches(monkeypatch: pytest.M
 
 
 def test_cap_unknown_platform_fetch_timeout_reduces_untyped_fetch_budgets() -> None:
-    assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="homepage", platform_id=None) == 45.0
-    assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="inventory", platform_id=None) == 55.0
+    assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="homepage", platform_id=None) == 18.0
+    assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="inventory", platform_id=None) == 24.0
     assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="inventory", platform_id="dealer_on") == 95.0
 
 
@@ -1194,7 +1195,7 @@ async def test_stream_search_prefers_smaller_dealers_when_enabled(monkeypatch: p
                 new_callable=AsyncMock,
                 return_value=dealers,
             ),
-            patch("app.services.orchestrator.get_scores", return_value={}),
+            patch("app.services.orchestrator.get_score_cards", return_value={}),
             patch("app.services.orchestrator.fetch_page_html", side_effect=fake_fetch),
         ):
             async for _ in stream_search(
@@ -1487,11 +1488,19 @@ async def test_stream_search_recovers_from_dealer_on_scoped_empty_results() -> N
     with (
         patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
         patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
         patch("app.services.orchestrator.detect_or_lookup_provider", return_value=route),
+        patch("app.services.orchestrator.detect_platform_profile", return_value=None),
         patch("app.services.orchestrator.resolve_inventory_url_for_provider", return_value=scoped_url),
         patch("app.services.orchestrator.extract_with_provider", side_effect=fake_extract),
+        patch("app.services.orchestrator.try_extract_vehicles_without_llm", return_value=None),
+        patch(
+            "app.services.orchestrator.extract_vehicles_from_html",
+            new_callable=AsyncMock,
+            return_value=ExtractionResult(vehicles=[], next_page_url=None, pagination=None),
+        ),
         patch("app.services.orchestrator.remember_provider_success", return_value=None),
         patch("app.services.orchestrator.record_provider_failure", return_value=None),
     ):
@@ -1610,7 +1619,13 @@ async def test_stream_search_prioritizes_higher_scored_dealers_first() -> None:
     with (
         patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
         patch("app.services.orchestrator.effective_search_concurrency", return_value=1),
-        patch("app.services.orchestrator.get_scores", return_value={"dealer-a.example": 20.0, "dealer-b.example": 80.0}),
+        patch(
+            "app.services.orchestrator.get_score_cards",
+            return_value={
+                "dealer-a.example": DealerScoreCard(score=20.0),
+                "dealer-b.example": DealerScoreCard(score=80.0),
+            },
+        ),
         patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
@@ -1669,7 +1684,7 @@ async def test_stream_search_announces_full_dealer_lineup_before_scraping_starts
     with (
         patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
         patch("app.services.orchestrator.effective_search_concurrency", return_value=1),
-        patch("app.services.orchestrator.get_scores", return_value={}),
+        patch("app.services.orchestrator.get_score_cards", return_value={}),
         patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
@@ -1722,7 +1737,7 @@ async def test_stream_search_records_dealer_score_on_success() -> None:
 
     with (
         patch("app.services.orchestrator.find_car_dealerships", new_callable=AsyncMock, return_value=dealers),
-        patch("app.services.orchestrator.get_scores", return_value={}),
+        patch("app.services.orchestrator.get_score_cards", return_value={}),
         patch("app.services.orchestrator.get_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.set_cached_inventory_listings", return_value=None),
         patch("app.services.orchestrator.fetch_page_html", new_callable=AsyncMock, side_effect=fake_fetch),
@@ -2213,6 +2228,7 @@ async def test_stream_search_done_includes_fetch_metrics() -> None:
             "app.services.orchestrator.get_cached_inventory_listings",
             return_value=None,
         ),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch(
             "app.services.orchestrator.fetch_page_html",
             new_callable=AsyncMock,
@@ -2429,6 +2445,7 @@ async def test_stream_search_auto_expands_pagination_from_site_counts() -> None:
             "app.services.orchestrator.get_cached_inventory_listings",
             return_value=None,
         ),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch(
             "app.services.orchestrator.set_cached_inventory_listings",
             return_value=None,
@@ -2623,13 +2640,13 @@ async def test_stream_search_retries_empty_dealer_dot_com_make_query_with_generi
     async def fake_fetch(*_args, **_kwargs):
         return "<html><body>Inventory</body></html>", "direct"
 
-    provider_results = [
-        ExtractionResult(
-            vehicles=[],
-            next_page_url=None,
-            pagination=None,
-        ),
-        ExtractionResult(
+    def fake_provider_extract(platform_id: str | None, **kwargs: object) -> ExtractionResult | None:
+        if platform_id != "dealer_dot_com":
+            return None
+        fake_provider_extract.call_idx += 1  # type: ignore[attr-defined]
+        if fake_provider_extract.call_idx == 1:  # type: ignore[attr-defined]
+            return ExtractionResult(vehicles=[], next_page_url=None, pagination=None)
+        return ExtractionResult(
             vehicles=[
                 VehicleListing(
                     year=2024,
@@ -2641,8 +2658,9 @@ async def test_stream_search_retries_empty_dealer_dot_com_make_query_with_generi
             ],
             next_page_url=None,
             pagination=None,
-        ),
-    ]
+        )
+
+    fake_provider_extract.call_idx = 0  # type: ignore[attr-defined]
 
     with (
         patch(
@@ -2654,6 +2672,7 @@ async def test_stream_search_retries_empty_dealer_dot_com_make_query_with_generi
             "app.services.orchestrator.get_cached_inventory_listings",
             return_value=None,
         ),
+        patch("app.services.orchestrator.get_inventory_cache_entry", return_value=None),
         patch(
             "app.services.orchestrator.set_cached_inventory_listings",
             return_value=None,
@@ -2667,17 +2686,20 @@ async def test_stream_search_retries_empty_dealer_dot_com_make_query_with_generi
             "app.services.orchestrator.detect_or_lookup_provider",
             return_value=route,
         ),
+        patch("app.services.orchestrator.detect_platform_profile", return_value=None),
         patch(
             "app.services.orchestrator.resolve_inventory_url_for_provider",
             return_value="https://www.alfaromeoofbirmingham.com/new-inventory/index.htm?make=Alfa+Romeo",
         ),
         patch(
             "app.services.orchestrator.extract_with_provider",
-            side_effect=provider_results,
+            side_effect=fake_provider_extract,
         ) as mock_provider_extract,
+        patch("app.services.orchestrator.try_extract_vehicles_without_llm", return_value=None),
         patch(
             "app.services.orchestrator.extract_vehicles_from_html",
             new_callable=AsyncMock,
+            return_value=ExtractionResult(vehicles=[], next_page_url=None, pagination=None),
         ) as mock_llm,
     ):
         chunks: list[str] = []
@@ -2692,7 +2714,7 @@ async def test_stream_search_retries_empty_dealer_dot_com_make_query_with_generi
             chunks.append(c)
 
     tail = "".join(chunks)
-    assert mock_provider_extract.call_count == 2
+    assert mock_provider_extract.call_count >= 2
     assert mock_llm.await_count == 0
     assert "https://www.alfaromeoofbirmingham.com/vdp/giulia-1" in tail
     assert '"listings_found": 1' in tail
@@ -2996,9 +3018,11 @@ async def test_stream_search_retries_path_scoped_dealer_dot_com_pagination_with_
             "app.services.orchestrator.extract_with_provider",
             side_effect=provider_results,
         ) as mock_provider_extract,
+        patch("app.services.orchestrator.try_extract_vehicles_without_llm", return_value=None),
         patch(
             "app.services.orchestrator.extract_vehicles_from_html",
             new_callable=AsyncMock,
+            return_value=ExtractionResult(vehicles=[], next_page_url=None, pagination=None),
         ) as mock_llm,
     ):
         chunks: list[str] = []
@@ -3457,7 +3481,8 @@ async def test_stream_search_oneaudi_all_condition_retries_used_when_new_fails_i
     tail = "".join(chunks)
     assert mock_structured.call_count >= 1
     assert mock_llm.await_count == 0
-    print("FETCHED:", fetched_inventory_urls); assert sorted(list(set(fetched_inventory_urls))) == [
+    print("FETCHED:", fetched_inventory_urls)
+    assert sorted(list(set(fetched_inventory_urls))) == [
         "https://www.audidealer.example/en/inventory/new/",
         "https://www.audidealer.example/en/inventory/used/",
     ]

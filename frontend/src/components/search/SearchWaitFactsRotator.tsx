@@ -10,6 +10,8 @@ type Props = {
   model: string;
   vehicleCategory: VehicleCategory;
   vehicleCondition: string;
+  /** Inline copy for embedding inside the primary scrape control (dark background). */
+  variant?: "card" | "embedded";
 };
 
 const ROTATE_MS = 6500;
@@ -20,6 +22,7 @@ export function SearchWaitFactsRotator({
   model,
   vehicleCategory,
   vehicleCondition,
+  variant = "card",
 }: Props) {
   const facts = useMemo(
     () =>
@@ -35,11 +38,6 @@ export function SearchWaitFactsRotator({
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
-    if (!running) return;
-    setIndex(0);
-  }, [running, make, model, vehicleCategory, vehicleCondition]);
-
-  useEffect(() => {
     if (!running || facts.length <= 1) return;
     const id = window.setInterval(() => {
       setIndex((i) => (i + 1) % facts.length);
@@ -50,6 +48,15 @@ export function SearchWaitFactsRotator({
   if (!running || facts.length === 0) return null;
 
   const line = facts[index] ?? facts[0];
+
+  if (variant === "embedded") {
+    return (
+      <div aria-live="polite" aria-atomic="true" className="space-y-1">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-100/90">While you wait</p>
+        <p className="text-xs leading-snug text-white/90">{line}</p>
+      </div>
+    );
+  }
 
   return (
     <div

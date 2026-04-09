@@ -119,6 +119,11 @@ async def zenrows_try_once(
     if not needs_premium or settings.zenrows_premium_proxy:
         return None
 
+    # Inventory pages use a single rendered wait in production; skip the premium-proxy
+    # duplicate attempt when premium is not enabled so thin pages do not double-fetch.
+    if page_kind == "inventory" and js_render and not settings.zenrows_premium_proxy:
+        return None
+
     try:
         premium_html = await _zenrows_fetch(
             url,

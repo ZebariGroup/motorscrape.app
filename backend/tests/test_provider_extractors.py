@@ -12,8 +12,8 @@ from app.services.providers.jazel import extract_inventory as extract_jazel
 from app.services.providers.purecars import extract_inventory as extract_purecars
 from app.services.providers.shift_digital import extract_inventory as extract_shift_digital
 from app.services.providers.sincro_digital import extract_inventory as extract_sincro_digital
-from app.services.providers.tesla_inventory import extract_inventory as extract_tesla_inventory
 from app.services.providers.team_velocity import extract_inventory as extract_team_velocity
+from app.services.providers.tesla_inventory import extract_inventory as extract_tesla_inventory
 
 
 class _FakeResponse:

@@ -5,13 +5,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.config import settings
-from app.db.account_store import AlertSubscriptionRecord
-from app.db.account_store import _row_to_alert_subscription, get_account_store
+from app.db.account_store import AlertSubscriptionRecord, _row_to_alert_subscription, get_account_store
 from app.main import app
 from app.schemas import SearchRequest
 from app.services.alerts import _render_email
-from app.services.search_runner import SearchRunResult
-from app.services.search_runner import run_search_once
+from app.services.search_runner import SearchRunResult, run_search_once
 from fastapi.testclient import TestClient
 
 

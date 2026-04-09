@@ -32,6 +32,7 @@ from app.services.inventory_filters import (
     normalize_vehicle_condition,
 )
 from app.services.inventory_result_cache import (
+    get_cached_inventory_listings,  # noqa: F401 — re-export for tests that patch `app.services.orchestrator.get_cached_inventory_listings`
     get_inventory_cache_entry,
     inventory_listings_cache_key,
     set_cached_inventory_listings,
@@ -1270,10 +1271,12 @@ def _inventory_url_recovery_candidates(
     if route and route.platform_id == "dealer_on":
         path = "/searchused.aspx" if condition == "used" else "/searchnew.aspx"
         canonical = urlunsplit((parsed_base.scheme, parsed_base.netloc, path, "", ""))
+        # Broad make-only SRP first: scoped model+trim URLs often legitimately return 0 rows while
+        # the broader inventory SRP still has stock (tests and production both rely on this order).
+        add(_with_query_params(canonical, {"Make": make}))
         if model_values:
             for m in model_values[:2]:
                 add(_with_query_params(canonical, {"Make": make, "Model": m, "ModelAndTrim": m}))
-        add(_with_query_params(canonical, {"Make": make}))
     elif route and route.platform_id == "dealer_inspire":
         path = "/used-vehicles/" if condition == "used" else "/new-vehicles/"
         canonical = urlunsplit((parsed_base.scheme, parsed_base.netloc, path, "", ""))
@@ -3889,6 +3892,15 @@ async def stream_search(
                     and not vdicts
                     and current_url_scoped
                 )
+                dealer_dot_com_scoped_empty_results = bool(
+                    route
+                    and route.platform_id == "dealer_dot_com"
+                    and current_url
+                    and current_url_scoped
+                    and make.strip()
+                    and ext_result is not None
+                    and not ext_result.vehicles
+                )
                 tesla_zero_results = bool(
                     route
                     and route.platform_id == "tesla_inventory"
@@ -3906,6 +3918,7 @@ async def stream_search(
                 if (
                     ford_scoped_zero_results
                     or dealer_on_scoped_empty_results
+                    or dealer_dot_com_scoped_empty_results
                     or tesla_zero_results
                     or tesla_unscoped_retry
                 ):
@@ -3919,13 +3932,19 @@ async def stream_search(
                         fallback_zip=dealer_zip,
                         fallback_range_miles=radius_miles,
                     )
+                    recovery_urls_added = 0
                     for retry_url in recovery_candidates:
                         if retry_url.rstrip("/") == current_url.rstrip("/") or retry_url in queued_urls:
                             continue
                         queued_urls.add(retry_url)
                         pending_urls.append(retry_url)
+                        recovery_urls_added += 1
                         if route and route.platform_id == "ford_family_inventory":
                             ford_recovery_urls.append(retry_url)
+                    if recovery_urls_added > 0:
+                        # Allow at least one follow-up page when recovery URLs were queued; otherwise
+                        # page_budget==1 exits the loop before the broader SRP fetch runs.
+                        page_budget = min(page_budget + recovery_urls_added, absolute_page_cap)
                     next_url = None
                 if (
                     route

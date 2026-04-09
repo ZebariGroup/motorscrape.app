@@ -605,7 +605,9 @@ function mergeEuCarCatalog(): { make: string; models: readonly string[]; discont
   for (const row of CAR_CATALOG) {
     byMake.set(row.make, {
       models: new Set([...row.models]),
-      discontinuedModels: new Set([...((row as any).discontinuedModels ?? [])]),
+      discontinuedModels: new Set([
+        ...("discontinuedModels" in row && row.discontinuedModels ? row.discontinuedModels : []),
+      ]),
     });
   }
   for (const [make, models] of Object.entries(EU_EXTRA_MODELS_BY_MAKE)) {
@@ -659,7 +661,7 @@ export function getMakeGroupsForCategory(
   const discontinued: string[] = [];
 
   for (const row of rows) {
-    const isDiscontinued = row.models.length === 0 && ((row as any).discontinuedModels?.length ?? 0) > 0;
+    const isDiscontinued = row.models.length === 0 && (row.discontinuedModels?.length ?? 0) > 0;
     if (isDiscontinued) {
       discontinued.push(row.make);
     } else {
@@ -678,7 +680,7 @@ export function getModelsForMake(
   const row = vehicleCatalogRows(category, marketRegion).find((entry) => entry.make === make);
   if (!row) return [];
   const current = row.models ?? [];
-  const discontinued = (row as any).discontinuedModels ?? [];
+  const discontinued = row.discontinuedModels ?? [];
   return [...current, ...discontinued];
 }
 
@@ -691,7 +693,7 @@ export function getModelGroupsForMake(
   if (!row) return { current: [], discontinued: [] };
   return {
     current: row.models ?? [],
-    discontinued: (row as any).discontinuedModels ?? [],
+    discontinued: row.discontinuedModels ?? [],
   };
 }
 
