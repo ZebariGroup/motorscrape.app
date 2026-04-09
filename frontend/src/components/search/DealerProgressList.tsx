@@ -343,7 +343,17 @@ export function DealerProgressList({
 
                         <div className="flex min-w-0 items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="truncate font-medium text-zinc-900 dark:text-zinc-50">{d.name}</p>
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <p className="truncate font-medium text-zinc-900 dark:text-zinc-50">{d.name}</p>
+                              {d.discovery_source === "google" ? (
+                                <span
+                                  title="Discovered via Google Places API — not yet in our dealership database"
+                                  className="shrink-0 rounded px-1 py-px text-[10px] font-semibold leading-tight bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
+                                >
+                                  G
+                                </span>
+                              ) : null}
+                            </div>
                             {d.address ? (
                               <p className="mt-0.5 truncate text-[12px] text-zinc-400 dark:text-zinc-500">{d.address}</p>
                             ) : null}

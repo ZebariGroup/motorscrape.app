@@ -2056,6 +2056,7 @@ async def stream_search(
             "info": queued_info,
             "platform_id": platform_entry.platform_id if platform_entry is not None else None,
             "strategy_used": platform_entry.extraction_mode if platform_entry is not None else None,
+            "discovery_source": dealer.discovery_source,
         }
 
     seed_query_limit = min(3, max(1, int(settings.places_text_query_variant_cap or 1)))

@@ -84,6 +84,8 @@ export type DealershipProgress = {
   reported_page_size?: number;
   pagination_source?: string;
   from_cache?: boolean;
+  /** Where the dealership was discovered: live Google Places API, Supabase regional cache, or process-local memory cache. */
+  discovery_source?: "google" | "supabase_cache" | "memory_cache";
   /** Client-only: when the current status phase started (ms since epoch). */
   phaseSince?: number;
 };

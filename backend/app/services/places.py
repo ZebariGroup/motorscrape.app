@@ -1064,6 +1064,9 @@ async def find_dealerships(
             cached_results = get_cached_places_search(search_cache_key)
             if cached_results is not None:
                 metrics.search_cache_hits += 1
+                for r in cached_results:
+                    if r.discovery_source is None:
+                        r.discovery_source = "memory_cache"
                 return cached_results
 
         location_restriction = None
@@ -1265,6 +1268,7 @@ async def find_dealerships(
                     website=website,
                     lat=c.get("lat"),
                     lng=c.get("lng"),
+                    discovery_source="google",
                 )
             )
 
