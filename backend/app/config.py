@@ -168,6 +168,12 @@ class Settings(BaseSettings):
     vin_decoder_timeout: float = 8.0
     vin_decoder_max_concurrency: int = 8
     vin_decoder_cache_ttl_seconds: int = 60 * 60 * 24 * 14
+    
+    marketcheck_api_key: str = ""
+    marketcheck_timeout: float = 12.0
+    marketcheck_max_concurrency: int = 4
+    marketcheck_cache_ttl_seconds: int = 60 * 60 * 24 * 14
+
     # Platform detection cache. Override PLATFORM_CACHE_PATH on Vercel if using persistent storage.
     platform_cache_enabled: bool = True
     platform_cache_path: str = Field(default_factory=_default_platform_cache_path)

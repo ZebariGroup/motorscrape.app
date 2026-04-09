@@ -78,6 +78,7 @@ from app.services.search_errors import SearchErrorInfo, with_search_error
 from app.services.scrape_logging import ScrapeRunRecorder
 from app.services.scraper import PageKind, _looks_like_block_page, _sanitize_inventory_query_url, fetch_page_html
 from app.services.vin_decoder import enrich_vehicle_listings_with_vin_data
+from app.services.marketcheck import enrich_with_marketcheck
 from app.sse import sse_pack
 
 logger = logging.getLogger(__name__)
@@ -3706,6 +3707,7 @@ async def stream_search(
                             deduped_filtered[idx] = enriched_listing
                 if deduped_filtered:
                     deduped_filtered = await enrich_vehicle_listings_with_vin_data(deduped_filtered)
+                    deduped_filtered = await enrich_with_marketcheck(deduped_filtered)
                 if deduped_filtered and recorder is not None and recorder.user_id is not None:
                     try:
                         history_map = recorder.store.get_inventory_history_map(recorder.user_id, deduped_filtered)

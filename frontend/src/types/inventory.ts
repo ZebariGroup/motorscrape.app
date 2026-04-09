@@ -17,6 +17,10 @@ export type VehicleListing = {
   vehicle_condition?: "new" | "used";
   vin?: string;
   vehicle_identifier?: string;
+  marketcheck_trim?: string;
+  marketcheck_features?: string[];
+  estimated_market_value?: number;
+  marketcheck_days_to_sell?: number;
   image_url?: string;
   listing_url?: string;
   raw_title?: string;

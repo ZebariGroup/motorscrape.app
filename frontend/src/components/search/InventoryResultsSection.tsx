@@ -345,8 +345,28 @@ export function InventoryResultsSection({
               <div className="flex flex-1 flex-col p-3 sm:p-4">
                 <h3 className="text-sm sm:text-base font-semibold text-zinc-900 dark:text-zinc-50 line-clamp-2 sm:line-clamp-none">
                   {v.raw_title ??
-                    ([v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") || "Vehicle")}
+                    ([v.year, v.make, v.model, v.marketcheck_trim || v.trim].filter(Boolean).join(" ") || "Vehicle")}
                 </h3>
+                {v.estimated_market_value != null && v.price != null && (
+                  <div className="mt-1 flex items-center gap-1.5 text-xs font-medium">
+                    <span className="text-zinc-500 dark:text-zinc-400">Market Value:</span>
+                    <span className="text-zinc-700 dark:text-zinc-300">{formatMoney(v.estimated_market_value)}</span>
+                    {v.price < v.estimated_market_value ? (
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        ({formatMoney(v.estimated_market_value - v.price)} below)
+                      </span>
+                    ) : (
+                      <span className="text-rose-600 dark:text-rose-400">
+                        ({formatMoney(v.price - v.estimated_market_value)} above)
+                      </span>
+                    )}
+                  </div>
+                )}
+                {v.marketcheck_days_to_sell != null && (
+                  <div className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Est. {v.marketcheck_days_to_sell} days to sell
+                  </div>
+                )}
                 <dl className="mt-2 flex flex-col gap-1 text-[12px] sm:grid sm:grid-cols-2 sm:gap-x-2 sm:text-xs text-zinc-600 dark:text-zinc-400">
                   {!v.image_url ? (
                     <div className="flex justify-between sm:contents">
@@ -526,6 +546,22 @@ export function InventoryResultsSection({
                     <div className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
                       {formatMoney(selectedListing.price, "Visit site for price")}
                     </div>
+                    {selectedListing.estimated_market_value != null && selectedListing.price != null && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
+                        <span className="text-zinc-500 dark:text-zinc-400">
+                          Market Value: {formatMoney(selectedListing.estimated_market_value)}
+                        </span>
+                        {selectedListing.price < selectedListing.estimated_market_value ? (
+                          <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                            ({formatMoney(selectedListing.estimated_market_value - selectedListing.price)} below)
+                          </span>
+                        ) : (
+                          <span className="font-medium text-rose-600 dark:text-rose-400">
+                            ({formatMoney(selectedListing.price - selectedListing.estimated_market_value)} above)
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {selectedListing.msrp != null &&
                     selectedListing.price != null &&
                     selectedListing.msrp > selectedListing.price + 1 ? (
@@ -755,13 +791,24 @@ export function InventoryResultsSection({
                   </div>
                 ) : null}
 
-                {(selectedListing.feature_highlights?.length ?? 0) > 0 ? (
+                {(selectedListing.feature_highlights?.length ?? 0) > 0 || (selectedListing.marketcheck_features?.length ?? 0) > 0 ? (
                   <div className="space-y-2">
                     <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                       Packages &amp; features
                     </h3>
                     <ul className="grid gap-2 sm:grid-cols-2">
-                      {selectedListing.feature_highlights!.map((line, i) => (
+                      {selectedListing.marketcheck_features?.map((feat, i) => (
+                        <li
+                          key={`mc-feat-${i}`}
+                          className="flex items-start gap-2 rounded-lg border border-emerald-200/50 bg-emerald-50/30 px-3 py-2 text-xs text-zinc-800 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-zinc-200"
+                        >
+                          <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          {feat}
+                        </li>
+                      ))}
+                      {selectedListing.feature_highlights?.map((line, i) => (
                         <li
                           key={`feat-${i}`}
                           className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
@@ -805,7 +852,7 @@ export function InventoryResultsSection({
                   </div>
                   <div className="space-y-1">
                     <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Trim</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.trim ?? "—"}</dd>
+                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.marketcheck_trim || selectedListing.trim || "—"}</dd>
                   </div>
                   <div className="space-y-1">
                     <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Drivetrain</dt>
