@@ -13,7 +13,8 @@ from app.schemas import VehicleListing
 
 logger = logging.getLogger(__name__)
 
-MARKETCHECK_BASE_URL = "https://marketcheck-prod.apigee.net/v2/search/car/active"
+MARKETCHECK_DECODE_URL = "https://api.marketcheck.com/v2/decode/car/{vin}/specs"
+MARKETCHECK_PREDICT_URL = "https://api.marketcheck.com/v2/predict/car/price"
 
 _marketcheck_lock = asyncio.Lock()
 _marketcheck_client: httpx.AsyncClient | None = None
@@ -53,41 +54,19 @@ async def close_marketcheck_http_client() -> None:
             await _marketcheck_client.aclose()
             _marketcheck_client = None
 
-def _parse_marketcheck_response(vin: str, payload: dict[str, Any]) -> dict[str, Any] | None:
-    listings = payload.get("listings")
-    if not listings or not isinstance(listings, list):
-        return None
-    
-    # We just need the first match for the VIN to extract specs and market value
-    first_match = listings[0]
-    
-    build = first_match.get("build", {})
-    trim = build.get("trim")
-    
-    # Marketcheck often provides an estimated market value or price
-    estimated_market_value = first_match.get("price")
-    
-    # Extract features/packages if available
+def _parse_marketcheck_decode(payload: dict[str, Any]) -> dict[str, Any]:
+    trim = payload.get("trim")
     features = []
-    extra = first_match.get("extra", {})
-    if extra and isinstance(extra.get("features"), list):
-        features = extra["features"]
+    # Marketcheck decode endpoint might return installed options/features
+    if "installed_options" in payload and isinstance(payload["installed_options"], list):
+        features = payload["installed_options"]
         
-    days_to_sell = first_match.get("dom") # Days on market
-    
-    decoded = {
+    return {
         "marketcheck_trim": trim,
-        "estimated_market_value": float(estimated_market_value) if estimated_market_value else None,
         "marketcheck_features": features,
-        "marketcheck_days_to_sell": int(days_to_sell) if days_to_sell is not None else None,
     }
-    
-    if not any(value for value in decoded.values() if value is not None and value != []):
-        return None
-        
-    return decoded
 
-async def _fetch_marketcheck_data(vin: str) -> dict[str, Any] | None:
+async def _fetch_marketcheck_data(vin: str, miles: int | None) -> dict[str, Any] | None:
     if not settings.marketcheck_api_key:
         return None
         
@@ -99,30 +78,49 @@ async def _fetch_marketcheck_data(vin: str) -> dict[str, Any] | None:
 
     client = await _get_client()
     semaphore = await _get_semaphore()
-    decoded: dict[str, Any] | None = None
+    decoded: dict[str, Any] = {}
     
     try:
         async with semaphore:
-            response = await client.get(
-                MARKETCHECK_BASE_URL,
-                params={
-                    "api_key": settings.marketcheck_api_key,
-                    "vins": vin,
-                    "rows": 1,
-                }
+            # 1. Decode VIN for exact trim
+            decode_resp = await client.get(
+                MARKETCHECK_DECODE_URL.format(vin=vin),
+                params={"api_key": settings.marketcheck_api_key}
             )
-            response.raise_for_status()
-            payload = response.json()
-            decoded = _parse_marketcheck_response(vin, payload)
+            if decode_resp.status_code == 200:
+                decoded.update(_parse_marketcheck_decode(decode_resp.json()))
+                
+            # 2. Predict Price (Estimated Market Value) if we have miles
+            if miles is not None and miles > 0:
+                predict_resp = await client.get(
+                    MARKETCHECK_PREDICT_URL,
+                    params={
+                        "api_key": settings.marketcheck_api_key,
+                        "vin": vin,
+                        "miles": miles,
+                        "car_type": "used"
+                    }
+                )
+                if predict_resp.status_code == 200:
+                    predict_data = predict_resp.json()
+                    predicted_price = predict_data.get("predicted_price")
+                    if predicted_price:
+                        decoded["estimated_market_value"] = float(predicted_price)
+                        
     except Exception as exc:
         logger.debug("Marketcheck fetch failed for %s: %s", vin, exc)
+
+    if not any(value for value in decoded.values() if value is not None and value != []):
+        decoded_result = None
+    else:
+        decoded_result = decoded
 
     async with _cache_lock:
         _decode_cache[vin] = _CachedMarketcheck(
             expires_at=now + max(60, int(settings.marketcheck_cache_ttl_seconds or 0)),
-            decoded=decoded,
+            decoded=decoded_result,
         )
-    return decoded
+    return decoded_result
 
 def _merge_marketcheck_fields(listing: VehicleListing, decoded: dict[str, Any]) -> VehicleListing:
     update: dict[str, Any] = {}
@@ -144,16 +142,24 @@ async def enrich_with_marketcheck(listings: list[VehicleListing]) -> list[Vehicl
         return listings
 
     vin_to_indexes: dict[str, list[int]] = {}
+    vin_to_miles: dict[str, int | None] = {}
     for idx, listing in enumerate(listings):
         vin = listing.vin or listing.vehicle_identifier
         if not vin or len(vin) != 17:
             continue
         vin_to_indexes.setdefault(vin, []).append(idx)
+        # Grab miles if available (usage_value if unit is miles, or fallback to mileage)
+        miles = None
+        if listing.usage_unit == "miles" and listing.usage_value:
+            miles = listing.usage_value
+        elif listing.mileage:
+            miles = listing.mileage
+        vin_to_miles[vin] = miles
 
     if not vin_to_indexes:
         return listings
 
-    decoded_rows = await asyncio.gather(*[_fetch_marketcheck_data(vin) for vin in vin_to_indexes])
+    decoded_rows = await asyncio.gather(*[_fetch_marketcheck_data(vin, vin_to_miles[vin]) for vin in vin_to_indexes])
     out = list(listings)
     for vin, decoded in zip(vin_to_indexes, decoded_rows, strict=False):
         if not decoded:
