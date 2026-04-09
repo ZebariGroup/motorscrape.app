@@ -91,3 +91,26 @@ export type DealershipProgress = {
   /** Client-only: when the current status phase started (ms since epoch). */
   phaseSince?: number;
 };
+
+export type PremiumReportHistoryEntry = {
+  id: string;
+  price?: number;
+  miles?: number;
+  data_source?: string;
+  vdp_url?: string;
+  seller_type?: string;
+  inventory_type?: string;
+  last_seen_at_date?: string;
+  first_seen_at_date?: string;
+  source?: string;
+  seller_name?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+};
+
+export type PremiumReport = {
+  ok: boolean;
+  vin: string;
+  history: PremiumReportHistoryEntry[];
+};

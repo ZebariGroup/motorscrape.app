@@ -16,6 +16,7 @@ import { buildMarketValuationMap } from "@/lib/marketValuation";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { ListingSortOrder } from "@/hooks/useSearchStream";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
+import type { PremiumReport } from "@/types/inventory";
 
 function featureChip(text: string, key: string) {
   const short =
@@ -99,6 +100,7 @@ export function InventoryResultsSection({
   savedResultsNotice = null,
 }: Props) {
   const [selectedListingIndex, setSelectedListingIndex] = useState<number | null>(null);
+  const [premiumReports, setPremiumReports] = useState<Record<string, PremiumReport | "loading" | "error">>({});
   const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
   const effectiveSelectedListingIndex =
     selectedListingIndex == null || filteredListings.length === 0
@@ -121,6 +123,18 @@ export function InventoryResultsSection({
       current != null && current < filteredListings.length - 1 ? current + 1 : current,
     );
   }, [filteredListings.length]);
+
+  const handleUnlockPremiumReport = async (vin: string) => {
+    setPremiumReports((prev) => ({ ...prev, [vin]: "loading" }));
+    try {
+      const res = await fetch(`/server/vehicles/premium-report?vin=${encodeURIComponent(vin)}`);
+      if (!res.ok) throw new Error("Failed to fetch report");
+      const data = await res.json();
+      setPremiumReports((prev) => ({ ...prev, [vin]: data }));
+    } catch (err) {
+      setPremiumReports((prev) => ({ ...prev, [vin]: "error" }));
+    }
+  };
 
   const listingModalTouchRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -888,6 +902,92 @@ export function InventoryResultsSection({
                     Visit dealer website &rarr;
                   </a>
                 </div>
+
+                {/* Premium Report Section */}
+                {selectedListing.vin && (
+                  <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950 shadow-sm relative overflow-hidden">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                        <svg className="h-5 w-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                        Premium Vehicle Report
+                      </h3>
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-amber-600 bg-amber-100 dark:text-amber-400 dark:bg-amber-900/30 px-2 py-0.5 rounded-full">Pro Feature</span>
+                    </div>
+
+                    {premiumReports[selectedListing.vin] === "loading" ? (
+                      <div className="flex flex-col items-center justify-center py-6 text-zinc-500">
+                        <svg className="h-6 w-6 animate-spin text-amber-500 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <p className="text-sm">Fetching historical records...</p>
+                      </div>
+                    ) : premiumReports[selectedListing.vin] === "error" ? (
+                      <div className="py-4 text-center text-sm text-rose-600 dark:text-rose-400">
+                        Failed to load premium report. Please try again later.
+                      </div>
+                    ) : premiumReports[selectedListing.vin] ? (
+                      <div className="space-y-4">
+                        <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                          We found <strong>{(premiumReports[selectedListing.vin] as PremiumReport).history.length}</strong> historical listing records for this VIN across the internet.
+                        </p>
+                        <div className="relative border-l-2 border-zinc-200 dark:border-zinc-800 ml-3 space-y-6 pb-2">
+                          {(premiumReports[selectedListing.vin] as PremiumReport).history.map((entry, idx) => (
+                            <div key={idx} className="relative pl-5">
+                              <div className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full bg-amber-500 ring-4 ring-white dark:ring-zinc-950" />
+                              <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1 mb-1">
+                                <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                  {entry.seller_name || "Unknown Dealer"}
+                                </span>
+                                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                  {entry.price ? formatMoney(entry.price) : "Price not listed"}
+                                </span>
+                              </div>
+                              <div className="text-xs text-zinc-500 dark:text-zinc-400 flex flex-wrap gap-x-3 gap-y-1">
+                                {entry.first_seen_at_date && (
+                                  <span>Listed: {new Date(entry.first_seen_at_date).toLocaleDateString()}</span>
+                                )}
+                                {entry.miles && <span>{entry.miles.toLocaleString()} miles</span>}
+                                {entry.city && entry.state && <span>{entry.city}, {entry.state}</span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-white dark:to-zinc-950 z-10 pointer-events-none" />
+                        <div className="opacity-40 blur-[2px] select-none space-y-4">
+                          <div className="relative border-l-2 border-zinc-200 dark:border-zinc-800 ml-3 space-y-4">
+                            <div className="relative pl-5">
+                              <div className="absolute -left-[5px] top-1.5 h-2 w-2 rounded-full bg-zinc-400" />
+                              <div className="text-sm font-semibold">Example Dealership LLC</div>
+                              <div className="text-xs text-zinc-500">Listed: Oct 12, 2023 • 45,000 miles</div>
+                            </div>
+                            <div className="relative pl-5">
+                              <div className="absolute -left-[5px] top-1.5 h-2 w-2 rounded-full bg-zinc-400" />
+                              <div className="text-sm font-semibold">Another Auto Sales</div>
+                              <div className="text-xs text-zinc-500">Listed: Jan 05, 2021 • 12,000 miles</div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center">
+                          <p className="text-sm text-center text-zinc-800 dark:text-zinc-200 font-medium mb-3 max-w-[250px]">
+                            See the complete listing history and price drops for this exact VIN.
+                          </p>
+                          <button
+                            onClick={() => handleUnlockPremiumReport(selectedListing.vin!)}
+                            className="rounded-full bg-amber-500 hover:bg-amber-600 text-white px-5 py-2 text-sm font-bold shadow-md transition-colors"
+                          >
+                            Unlock Report
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             

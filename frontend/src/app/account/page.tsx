@@ -191,7 +191,7 @@ export default function AccountPage() {
               {!me.stripe_customer_id && (
                 <div className="mt-4 grid gap-4 lg:grid-cols-3">
                   <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Standard — $20/mo</h3>
+                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Starter — $49/mo</h3>
                     <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
                       {STANDARD_BULLETS.map((line) => (
                         <li key={line}>• {line}</li>
@@ -199,7 +199,7 @@ export default function AccountPage() {
                     </ul>
                   </div>
                   <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Pro — $60/mo</h3>
+                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Pro — $199/mo</h3>
                     <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
                       {PRO_BULLETS.map((line) => (
                         <li key={line}>• {line}</li>
@@ -207,7 +207,7 @@ export default function AccountPage() {
                     </ul>
                   </div>
                   <div className="rounded-xl border border-emerald-200 p-4 dark:border-emerald-900">
-                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Max Pro — $200/mo</h3>
+                    <h3 className="font-medium text-zinc-900 dark:text-zinc-50">Max Pro — $499/mo</h3>
                     <ul className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
                       {MAX_PRO_BULLETS.map((line) => (
                         <li key={line}>• {line}</li>
@@ -236,7 +236,7 @@ export default function AccountPage() {
                       disabled={isManagingBilling}
                       className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isManagingBilling ? "Loading..." : "Standard ($20/mo)"}
+                      {isManagingBilling ? "Loading..." : "Starter ($49/mo)"}
                     </button>
                     <button
                       type="button"
@@ -244,7 +244,7 @@ export default function AccountPage() {
                       disabled={isManagingBilling}
                       className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isManagingBilling ? "Loading..." : "Pro ($60/mo)"}
+                      {isManagingBilling ? "Loading..." : "Pro ($199/mo)"}
                     </button>
                     <button
                       type="button"
@@ -252,7 +252,7 @@ export default function AccountPage() {
                       disabled={isManagingBilling}
                       className="rounded-lg border border-emerald-600/50 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-200 dark:hover:bg-emerald-950 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isManagingBilling ? "Loading..." : "Max Pro ($200/mo)"}
+                      {isManagingBilling ? "Loading..." : "Max Pro ($499/mo)"}
                     </button>
                   </>
                 )}
