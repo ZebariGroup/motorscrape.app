@@ -26,6 +26,37 @@ def test_health_server_prefix() -> None:
     assert r.json() == {"status": "ok"}
 
 
+def test_marketcheck_details_endpoint_is_public() -> None:
+    with patch(
+        "app.services.marketcheck.fetch_marketcheck_details",
+        new=AsyncMock(
+            return_value={
+                "vin": "3MW89CW07T8F92425",
+                "marketcheck_trim": "330i",
+                "marketcheck_features": ["Heated Seats"],
+                "estimated_market_value": 48172.0,
+            }
+        ),
+    ) as mocked_fetch:
+        response = client.get(
+            "/vehicles/marketcheck-details",
+            params={"vin": "3MW89CW07T8F92425", "miles": 4058},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "vin": "3MW89CW07T8F92425",
+        "details": {
+            "vin": "3MW89CW07T8F92425",
+            "marketcheck_trim": "330i",
+            "marketcheck_features": ["Heated Seats"],
+            "estimated_market_value": 48172.0,
+        },
+    }
+    mocked_fetch.assert_awaited_once_with("3MW89CW07T8F92425", 4058)
+
+
 def test_search_stream_requires_location() -> None:
     r = client.get("/search/stream")
     assert r.status_code == 422

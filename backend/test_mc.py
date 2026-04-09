@@ -1,10 +1,9 @@
 import asyncio
-from app.schemas import VehicleListing
-from app.services.marketcheck import enrich_with_marketcheck
+
+from app.services.marketcheck import fetch_marketcheck_details
 
 async def main():
-    listing = VehicleListing(vin="1G1AL58F877223009", mileage=136914, price=2995)
-    result = await enrich_with_marketcheck([listing])
-    print(result[0].model_dump(exclude_none=True))
+    result = await fetch_marketcheck_details("1G1AL58F877223009", 136914)
+    print(result)
 
 asyncio.run(main())

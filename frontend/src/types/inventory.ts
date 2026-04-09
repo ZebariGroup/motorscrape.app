@@ -114,3 +114,26 @@ export type PremiumReport = {
   vin: string;
   history: PremiumReportHistoryEntry[];
 };
+
+export type MarketcheckDetails = {
+  vin: string;
+  year?: number;
+  make?: string;
+  model?: string;
+  marketcheck_trim?: string;
+  body_style?: string;
+  vehicle_type?: string;
+  transmission?: string;
+  drivetrain?: string;
+  fuel_type?: string;
+  engine?: string;
+  marketcheck_features?: string[];
+  estimated_market_value?: number;
+  marketcheck_days_to_sell?: number;
+};
+
+export type MarketcheckDetailsResponse = {
+  ok: boolean;
+  vin: string;
+  details: MarketcheckDetails;
+};

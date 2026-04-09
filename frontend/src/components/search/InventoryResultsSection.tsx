@@ -16,7 +16,7 @@ import { buildMarketValuationMap } from "@/lib/marketValuation";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { ListingSortOrder } from "@/hooks/useSearchStream";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
-import type { PremiumReport } from "@/types/inventory";
+import type { MarketcheckDetails, MarketcheckDetailsResponse } from "@/types/inventory";
 
 function featureChip(text: string, key: string) {
   const short =
@@ -45,6 +45,27 @@ function historyPriceDeltaLabel(value: number | undefined) {
   if (value == null || Number.isNaN(value) || value === 0) return null;
   const prefix = value < 0 ? "Down" : "Up";
   return `${prefix} ${formatMoney(Math.abs(value))}`;
+}
+
+function listingMiles(listing: AggregatedListing) {
+  if (listing.usage_unit === "miles" && listing.usage_value != null && !Number.isNaN(listing.usage_value)) {
+    return listing.usage_value;
+  }
+  if (listing.mileage != null && !Number.isNaN(listing.mileage)) {
+    return listing.mileage;
+  }
+  return null;
+}
+
+function buildPremiumReportHref(listing: AggregatedListing) {
+  const vin = listing.vin ?? "";
+  const params = new URLSearchParams();
+  if (listing.raw_title) params.set("title", listing.raw_title);
+  if (listing.dealership) params.set("dealer", listing.dealership);
+  if (listing.price != null) params.set("price", String(listing.price));
+  const miles = listingMiles(listing);
+  if (miles != null) params.set("miles", String(miles));
+  return `/reports/vehicle/${encodeURIComponent(vin)}${params.size > 0 ? `?${params.toString()}` : ""}`;
 }
 
 function valuationBadgeClasses(label: string) {
@@ -104,7 +125,7 @@ export function InventoryResultsSection({
   savedResultsNotice = null,
 }: Props) {
   const [selectedListingIndex, setSelectedListingIndex] = useState<number | null>(null);
-  const [premiumReports, setPremiumReports] = useState<Record<string, PremiumReport | "loading" | "error">>({});
+  const [marketcheckDetails, setMarketcheckDetails] = useState<Record<string, MarketcheckDetails | "loading" | "error">>({});
   const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
   const effectiveSelectedListingIndex =
     selectedListingIndex == null || filteredListings.length === 0
@@ -114,14 +135,14 @@ export function InventoryResultsSection({
     effectiveSelectedListingIndex != null ? (filteredListings[effectiveSelectedListingIndex] ?? null) : null;
   const valuationMap = useMemo(() => buildMarketValuationMap(listings), [listings]);
   const selectedValuation = selectedListing ? valuationMap.get(listingIdentityKey(selectedListing)) : undefined;
-  const selectedPremiumReport = selectedListing?.vin ? premiumReports[selectedListing.vin] : undefined;
-  const selectedMarketcheckFeatureCount = selectedListing?.marketcheck_features?.length ?? 0;
-  const selectedHasMarketcheckData = Boolean(
-    selectedListing &&
-      (selectedListing.marketcheck_trim ||
-        selectedListing.estimated_market_value != null ||
-        selectedMarketcheckFeatureCount > 0),
-  );
+  const selectedMarketcheckDetails = selectedListing?.vin ? marketcheckDetails[selectedListing.vin] : undefined;
+  const selectedLoadedMarketcheckDetails =
+    selectedMarketcheckDetails &&
+    selectedMarketcheckDetails !== "loading" &&
+    selectedMarketcheckDetails !== "error"
+      ? selectedMarketcheckDetails
+      : null;
+  const selectedMarketcheckFeatureCount = selectedLoadedMarketcheckDetails?.marketcheck_features?.length ?? 0;
   const canViewPrevious = effectiveSelectedListingIndex != null && effectiveSelectedListingIndex > 0;
   const canViewNext =
     effectiveSelectedListingIndex != null && effectiveSelectedListingIndex < filteredListings.length - 1;
@@ -136,17 +157,45 @@ export function InventoryResultsSection({
     );
   }, [filteredListings.length]);
 
-  const handleUnlockPremiumReport = async (vin: string) => {
-    setPremiumReports((prev) => ({ ...prev, [vin]: "loading" }));
+  const handleLoadMarketcheckDetails = useCallback(async (listing: AggregatedListing, options?: { force?: boolean }) => {
+    const vin = listing.vin?.trim();
+    if (!vin) return;
+
+    let shouldFetch = false;
+    setMarketcheckDetails((prev) => {
+      const current = prev[vin];
+      if (!options?.force && current && current !== "error") return prev;
+      shouldFetch = true;
+      return { ...prev, [vin]: "loading" };
+    });
+    if (!shouldFetch) return;
+
     try {
-      const res = await fetch(`/server/vehicles/premium-report?vin=${encodeURIComponent(vin)}`);
-      if (!res.ok) throw new Error("Failed to fetch report");
-      const data = await res.json();
-      setPremiumReports((prev) => ({ ...prev, [vin]: data }));
+      const params = new URLSearchParams({ vin });
+      const miles = listingMiles(listing);
+      if (miles != null) {
+        params.set("miles", String(miles));
+      }
+      const res = await fetch(`/server/vehicles/marketcheck-details?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to fetch details");
+      const data = (await res.json()) as MarketcheckDetailsResponse;
+      setMarketcheckDetails((prev) => ({ ...prev, [vin]: data.details }));
     } catch {
-      setPremiumReports((prev) => ({ ...prev, [vin]: "error" }));
+      setMarketcheckDetails((prev) => ({ ...prev, [vin]: "error" }));
     }
-  };
+  }, []);
+
+  const openListingDetails = useCallback(
+    (idx: number, options?: { loadMarketcheck?: boolean }) => {
+      const listing = filteredListings[idx];
+      if (!listing) return;
+      setSelectedListingIndex(idx);
+      if (options?.loadMarketcheck) {
+        void handleLoadMarketcheckDetails(listing);
+      }
+    },
+    [filteredListings, handleLoadMarketcheckDetails],
+  );
 
   const listingModalTouchRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -290,7 +339,7 @@ export function InventoryResultsSection({
             <article
               key={`inventory-${listingKey}`}
               className="flex flex-row sm:flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 cursor-pointer hover:border-emerald-300 hover:ring-1 hover:ring-emerald-500/20 transition-all"
-              onClick={() => setSelectedListingIndex(idx)}
+              onClick={() => openListingDetails(idx)}
             >
               <div className="relative w-2/5 shrink-0 sm:w-full sm:aspect-[16/10] min-h-[128px] bg-zinc-100 dark:bg-zinc-900">
                 {v.image_url ? (
@@ -315,11 +364,6 @@ export function InventoryResultsSection({
                       aria-hidden
                     />
                     <div className="absolute left-1.5 top-1.5 sm:left-2 sm:top-2 flex flex-col items-start gap-1.5 sm:gap-2">
-                      {v.marketcheck_trim || v.estimated_market_value != null || (v.marketcheck_features?.length ?? 0) > 0 ? (
-                        <div className="rounded-full bg-indigo-600/90 px-2 py-0.5 text-[11px] font-semibold text-white shadow-md ring-1 ring-white/15 backdrop-blur-sm sm:text-xs">
-                          MarketCheck
-                        </div>
-                      ) : null}
                       {valuation ? (
                         <div
                           className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold shadow-md ring-1 backdrop-blur-sm sm:text-xs ${valuationBadgeClasses(valuation.label)}`}
@@ -377,28 +421,8 @@ export function InventoryResultsSection({
               <div className="flex flex-1 flex-col p-3 sm:p-4">
                 <h3 className="text-sm sm:text-base font-semibold text-zinc-900 dark:text-zinc-50 line-clamp-2 sm:line-clamp-none">
                   {v.raw_title ??
-                    ([v.year, v.make, v.model, v.marketcheck_trim || v.trim].filter(Boolean).join(" ") || "Vehicle")}
+                    ([v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") || "Vehicle")}
                 </h3>
-                {v.estimated_market_value != null && v.price != null && (
-                  <div className="mt-1 flex items-center gap-1.5 text-xs font-medium">
-                    <span className="text-zinc-500 dark:text-zinc-400">Market Value:</span>
-                    <span className="text-zinc-700 dark:text-zinc-300">{formatMoney(v.estimated_market_value)}</span>
-                    {v.price < v.estimated_market_value ? (
-                      <span className="text-emerald-600 dark:text-emerald-400">
-                        ({formatMoney(v.estimated_market_value - v.price)} below)
-                      </span>
-                    ) : (
-                      <span className="text-rose-600 dark:text-rose-400">
-                        ({formatMoney(v.price - v.estimated_market_value)} above)
-                      </span>
-                    )}
-                  </div>
-                )}
-                {v.marketcheck_days_to_sell != null && (
-                  <div className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-                    Est. {v.marketcheck_days_to_sell} days to sell
-                  </div>
-                )}
                 <dl className="mt-2 flex flex-col gap-1 text-[12px] sm:grid sm:grid-cols-2 sm:gap-x-2 sm:text-xs text-zinc-600 dark:text-zinc-400">
                   {!v.image_url ? (
                     <div className="flex justify-between sm:contents">
@@ -456,6 +480,16 @@ export function InventoryResultsSection({
                   </div>
                 </dl>
                 <div className="mt-auto flex flex-wrap gap-2 pt-3">
+                  <button
+                    type="button"
+                    className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900 transition hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openListingDetails(idx, { loadMarketcheck: Boolean(v.vin) });
+                    }}
+                  >
+                    More details
+                  </button>
                   {v.listing_url ? (
                     <a
                       href={v.listing_url}
@@ -558,7 +592,7 @@ export function InventoryResultsSection({
             <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
               <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 truncate pr-4">
                 {selectedListing.raw_title ??
-                  ([selectedListing.year, selectedListing.make, selectedListing.model, selectedListing.marketcheck_trim || selectedListing.trim].filter(Boolean).join(" ") || "Vehicle Details")}
+                  ([selectedListing.year, selectedListing.make, selectedListing.model, selectedListing.trim].filter(Boolean).join(" ") || "Vehicle Details")}
               </h2>
               <button
                 onClick={() => setSelectedListingIndex(null)}
@@ -597,22 +631,6 @@ export function InventoryResultsSection({
                     <div className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
                       {formatMoney(selectedListing.price, "Visit site for price")}
                     </div>
-                    {selectedListing.estimated_market_value != null && selectedListing.price != null && (
-                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
-                        <span className="text-zinc-500 dark:text-zinc-400">
-                          Market Value: {formatMoney(selectedListing.estimated_market_value)}
-                        </span>
-                        {selectedListing.price < selectedListing.estimated_market_value ? (
-                          <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                            ({formatMoney(selectedListing.estimated_market_value - selectedListing.price)} below)
-                          </span>
-                        ) : (
-                          <span className="font-medium text-rose-600 dark:text-rose-400">
-                            ({formatMoney(selectedListing.price - selectedListing.estimated_market_value)} above)
-                          </span>
-                        )}
-                      </div>
-                    )}
                     {selectedListing.msrp != null &&
                     selectedListing.price != null &&
                     selectedListing.msrp > selectedListing.price + 1 ? (
@@ -635,11 +653,6 @@ export function InventoryResultsSection({
                     ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {selectedHasMarketcheckData ? (
-                      <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-100">
-                        MarketCheck data
-                      </span>
-                    ) : null}
                     {selectedListing.vehicle_condition && (
                       <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200 capitalize">
                         {selectedListing.vehicle_condition}
@@ -670,120 +683,178 @@ export function InventoryResultsSection({
                   </div>
                 </div>
 
-                {(selectedHasMarketcheckData || selectedListing.vin) ? (
+                {selectedListing.vin ? (
                   <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900 dark:bg-indigo-950/30">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <h3 className="text-xs font-semibold uppercase tracking-wider text-indigo-800 dark:text-indigo-200">
-                          MarketCheck
+                          MarketCheck details
                         </h3>
                         <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
-                          VIN-based decode, valuation, and listing-history data from MarketCheck.
+                          Load VIN-based trim, specs, and pricing comparisons on demand after the scrape finishes.
                         </p>
                       </div>
-                      {selectedListing.vin ? (
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100">
-                          VIN report available
-                        </span>
-                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleLoadMarketcheckDetails(selectedListing, {
+                              force: Boolean(selectedLoadedMarketcheckDetails),
+                            })
+                          }
+                          className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500"
+                        >
+                          {selectedMarketcheckDetails === "loading"
+                            ? "Loading MarketCheck details..."
+                            : selectedLoadedMarketcheckDetails
+                              ? "Refresh MarketCheck details"
+                              : "Load MarketCheck details"}
+                        </button>
+                        <a
+                          href={buildPremiumReportHref(selectedListing)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 transition hover:border-amber-400 hover:bg-amber-50 dark:border-amber-800 dark:bg-zinc-950 dark:text-amber-100 dark:hover:bg-amber-950/40"
+                        >
+                          Open premium report
+                        </a>
+                      </div>
                     </div>
 
-                    {selectedHasMarketcheckData ? (
-                      <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-                        {selectedListing.marketcheck_trim ? (
-                          <p className="text-zinc-700 dark:text-zinc-300">
-                            Decoded trim <span className="font-semibold">{selectedListing.marketcheck_trim}</span>
-                          </p>
-                        ) : null}
-                        {selectedListing.estimated_market_value != null ? (
-                          <p className="text-zinc-700 dark:text-zinc-300">
-                            MarketCheck value <span className="font-semibold">{formatMoney(selectedListing.estimated_market_value)}</span>
-                          </p>
-                        ) : null}
-                        {selectedMarketcheckFeatureCount > 0 ? (
-                          <p className="text-zinc-700 dark:text-zinc-300">
-                            Decoded features <span className="font-semibold">{selectedMarketcheckFeatureCount}</span>
-                          </p>
-                        ) : null}
-                        {selectedListing.marketcheck_days_to_sell != null ? (
-                          <p className="text-zinc-700 dark:text-zinc-300">
-                            Estimated days to sell <span className="font-semibold">{selectedListing.marketcheck_days_to_sell}</span>
-                          </p>
-                        ) : null}
+                    {selectedMarketcheckDetails === "error" ? (
+                      <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
+                        MarketCheck details could not be loaded for this VIN right now. You can try again.
                       </div>
                     ) : null}
 
-                    {selectedListing.vin ? (
-                      <div className="mt-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                              MarketCheck VIN History Report
-                            </h4>
-                            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                              Pull historical internet listings and price changes for this exact VIN.
+                    {selectedLoadedMarketcheckDetails ? (
+                      <>
+                        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                          {selectedLoadedMarketcheckDetails.marketcheck_trim ? (
+                            <p className="text-zinc-700 dark:text-zinc-300">
+                              Decoded trim <span className="font-semibold">{selectedLoadedMarketcheckDetails.marketcheck_trim}</span>
                             </p>
-                          </div>
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                            Premium
-                          </span>
+                          ) : null}
+                          {selectedLoadedMarketcheckDetails.year != null ? (
+                            <p className="text-zinc-700 dark:text-zinc-300">
+                              Decoded year <span className="font-semibold">{selectedLoadedMarketcheckDetails.year}</span>
+                            </p>
+                          ) : null}
+                          {selectedLoadedMarketcheckDetails.make || selectedLoadedMarketcheckDetails.model ? (
+                            <p className="text-zinc-700 dark:text-zinc-300">
+                              Decoded vehicle{" "}
+                              <span className="font-semibold">
+                                {[selectedLoadedMarketcheckDetails.make, selectedLoadedMarketcheckDetails.model].filter(Boolean).join(" ")}
+                              </span>
+                            </p>
+                          ) : null}
+                          {selectedLoadedMarketcheckDetails.body_style ? (
+                            <p className="text-zinc-700 dark:text-zinc-300">
+                              Body style <span className="font-semibold">{selectedLoadedMarketcheckDetails.body_style}</span>
+                            </p>
+                          ) : null}
+                          {selectedLoadedMarketcheckDetails.drivetrain ? (
+                            <p className="text-zinc-700 dark:text-zinc-300">
+                              Drivetrain <span className="font-semibold">{selectedLoadedMarketcheckDetails.drivetrain}</span>
+                            </p>
+                          ) : null}
+                          {selectedLoadedMarketcheckDetails.transmission ? (
+                            <p className="text-zinc-700 dark:text-zinc-300">
+                              Transmission <span className="font-semibold">{selectedLoadedMarketcheckDetails.transmission}</span>
+                            </p>
+                          ) : null}
+                          {selectedLoadedMarketcheckDetails.fuel_type ? (
+                            <p className="text-zinc-700 dark:text-zinc-300">
+                              Fuel type <span className="font-semibold">{selectedLoadedMarketcheckDetails.fuel_type}</span>
+                            </p>
+                          ) : null}
+                          {selectedLoadedMarketcheckDetails.engine ? (
+                            <p className="text-zinc-700 dark:text-zinc-300">
+                              Engine <span className="font-semibold">{selectedLoadedMarketcheckDetails.engine}</span>
+                            </p>
+                          ) : null}
+                          {selectedLoadedMarketcheckDetails.estimated_market_value != null ? (
+                            <p className="text-zinc-700 dark:text-zinc-300">
+                              MarketCheck value{" "}
+                              <span className="font-semibold">{formatMoney(selectedLoadedMarketcheckDetails.estimated_market_value)}</span>
+                            </p>
+                          ) : null}
+                          {selectedMarketcheckFeatureCount > 0 ? (
+                            <p className="text-zinc-700 dark:text-zinc-300">
+                              Decoded features <span className="font-semibold">{selectedMarketcheckFeatureCount}</span>
+                            </p>
+                          ) : null}
                         </div>
 
-                        {selectedPremiumReport === "loading" ? (
-                          <div className="flex flex-col items-center justify-center py-6 text-zinc-500">
-                            <svg className="mb-2 h-6 w-6 animate-spin text-amber-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            <p className="text-sm">Fetching historical records...</p>
+                        {selectedLoadedMarketcheckDetails.estimated_market_value != null && selectedListing.price != null ? (
+                          <div className="mt-4 rounded-lg border border-indigo-200/70 bg-white/80 px-4 py-3 text-sm text-zinc-700 shadow-sm dark:border-indigo-900/40 dark:bg-zinc-950/60 dark:text-zinc-300">
+                            MarketCheck valuation:{" "}
+                            <span className="font-semibold">
+                              {selectedListing.price < selectedLoadedMarketcheckDetails.estimated_market_value
+                                ? `${formatMoney(selectedLoadedMarketcheckDetails.estimated_market_value - selectedListing.price)} below`
+                                : `${formatMoney(selectedListing.price - selectedLoadedMarketcheckDetails.estimated_market_value)} above`}
+                            </span>{" "}
+                            the estimated market value of{" "}
+                            <span className="font-semibold">
+                              {formatMoney(selectedLoadedMarketcheckDetails.estimated_market_value)}
+                            </span>
+                            .
                           </div>
-                        ) : selectedPremiumReport === "error" ? (
-                          <div className="py-4 text-center text-sm text-rose-600 dark:text-rose-400">
-                            Failed to load the MarketCheck VIN history report. Please try again later.
-                          </div>
-                        ) : selectedPremiumReport ? (
-                          <div className="mt-4 space-y-4">
-                            <p className="text-xs text-zinc-600 dark:text-zinc-400">
-                              We found <strong>{selectedPremiumReport.history.length}</strong> historical listing records for this VIN across the internet.
-                            </p>
-                            <div className="relative ml-3 space-y-6 border-l-2 border-zinc-200 pb-2 dark:border-zinc-800">
-                              {selectedPremiumReport.history.map((entry, idx) => (
-                                <div key={idx} className="relative pl-5">
-                                  <div className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full bg-amber-500 ring-4 ring-white dark:ring-zinc-950" />
-                                  <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-                                    <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                                      {entry.seller_name || "Unknown Dealer"}
-                                    </span>
-                                    <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                                      {entry.price ? formatMoney(entry.price) : "Price not listed"}
-                                    </span>
-                                  </div>
-                                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
-                                    {entry.first_seen_at_date ? (
-                                      <span>Listed: {new Date(entry.first_seen_at_date).toLocaleDateString()}</span>
-                                    ) : null}
-                                    {entry.miles ? <span>{entry.miles.toLocaleString()} miles</span> : null}
-                                    {entry.city && entry.state ? <span>{entry.city}, {entry.state}</span> : null}
-                                  </div>
-                                </div>
+                        ) : null}
+
+                        {selectedMarketcheckFeatureCount > 0 ? (
+                          <div className="mt-4">
+                            <h4 className="text-xs font-semibold uppercase tracking-wider text-indigo-800 dark:text-indigo-200">
+                              Decoded features
+                            </h4>
+                            <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                              {selectedLoadedMarketcheckDetails.marketcheck_features?.map((feat, i) => (
+                                <li
+                                  key={`marketcheck-detail-${i}`}
+                                  className="rounded-lg border border-indigo-200/70 bg-white/80 px-3 py-2 text-xs text-zinc-800 dark:border-indigo-900/40 dark:bg-zinc-950/60 dark:text-zinc-200"
+                                >
+                                  {feat}
+                                </li>
                               ))}
-                            </div>
+                            </ul>
                           </div>
-                        ) : (
-                          <div className="mt-4 flex flex-col gap-3 rounded-lg border border-dashed border-amber-300/80 bg-amber-50/70 p-4 text-sm text-zinc-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-zinc-300 sm:flex-row sm:items-center sm:justify-between">
-                            <p className="max-w-xl">
-                              Unlock the MarketCheck VIN report to see prior internet listings, historical prices, and where this exact vehicle has appeared before.
-                            </p>
-                            <button
-                              onClick={() => handleUnlockPremiumReport(selectedListing.vin!)}
-                              className="rounded-full bg-amber-500 px-5 py-2 text-sm font-bold text-white shadow-md transition-colors hover:bg-amber-600"
-                            >
-                              Unlock MarketCheck Report
-                            </button>
-                          </div>
-                        )}
+                        ) : null}
+                      </>
+                    ) : (
+                      <div className="mt-4 rounded-lg border border-dashed border-indigo-300/80 bg-white/70 px-4 py-3 text-sm text-zinc-700 dark:border-indigo-900 dark:bg-zinc-950/40 dark:text-zinc-300">
+                        Use <span className="font-semibold">Load MarketCheck details</span> to pull VIN-based trim, specs, features, and a pricing comparison for this vehicle.
                       </div>
-                    ) : null}
+                    )}
+
+                    <div className="mt-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                            Premium MarketCheck report
+                          </h4>
+                          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                            Open a printable report page with historical listings and a PDF-friendly layout.
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                          Premium
+                        </span>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <a
+                          href={buildPremiumReportHref(selectedListing)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full bg-amber-500 px-5 py-2 text-sm font-bold text-white shadow-md transition-colors hover:bg-amber-600"
+                        >
+                          Open premium report
+                        </a>
+                        <p className="self-center text-xs text-zinc-500 dark:text-zinc-400">
+                          The report page includes a Download PDF / Print action.
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 ) : null}
 
@@ -964,23 +1035,12 @@ export function InventoryResultsSection({
                   </div>
                 ) : null}
 
-                {(selectedListing.feature_highlights?.length ?? 0) > 0 || (selectedListing.marketcheck_features?.length ?? 0) > 0 ? (
+                {(selectedListing.feature_highlights?.length ?? 0) > 0 ? (
                   <div className="space-y-2">
                     <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                       Packages &amp; features
                     </h3>
                     <ul className="grid gap-2 sm:grid-cols-2">
-                      {selectedListing.marketcheck_features?.map((feat, i) => (
-                        <li
-                          key={`mc-feat-${i}`}
-                          className="flex items-start gap-2 rounded-lg border border-emerald-200/50 bg-emerald-50/30 px-3 py-2 text-xs text-zinc-800 dark:border-emerald-900/30 dark:bg-emerald-950/20 dark:text-zinc-200"
-                        >
-                          <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                          {feat}
-                        </li>
-                      ))}
                       {selectedListing.feature_highlights?.map((line, i) => (
                         <li
                           key={`feat-${i}`}
@@ -1025,7 +1085,7 @@ export function InventoryResultsSection({
                   </div>
                   <div className="space-y-1">
                     <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Trim</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.marketcheck_trim || selectedListing.trim || "—"}</dd>
+                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.trim || "—"}</dd>
                   </div>
                   <div className="space-y-1">
                     <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Drivetrain</dt>

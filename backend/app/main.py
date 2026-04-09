@@ -305,6 +305,20 @@ async def get_premium_report(
         
     return {"ok": True, "vin": vin, "history": report}
 
+
+@router.get("/vehicles/marketcheck-details")
+async def get_marketcheck_details(
+    vin: str = Query(..., min_length=17, max_length=17),
+    miles: int | None = Query(default=None, ge=1),
+) -> dict:
+    from app.services.marketcheck import fetch_marketcheck_details
+
+    details = await fetch_marketcheck_details(vin, miles)
+    if details is None:
+        raise HTTPException(status_code=404, detail="No MarketCheck details found for this VIN.")
+
+    return {"ok": True, "vin": details["vin"], "details": details}
+
 @router.post("/search/stop/{correlation_id}")
 async def stop_search(
     correlation_id: str,
@@ -355,6 +369,12 @@ async def lifespan(_app: FastAPI):
         from app.services.vin_decoder import close_vin_decoder_http_client
 
         await close_vin_decoder_http_client()
+    except Exception:
+        pass
+    try:
+        from app.services.marketcheck import close_marketcheck_http_client
+
+        await close_marketcheck_http_client()
     except Exception:
         pass
 app = FastAPI(title="Motorscrape API", version="0.1.0", lifespan=lifespan)

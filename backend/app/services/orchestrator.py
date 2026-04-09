@@ -37,7 +37,6 @@ from app.services.inventory_result_cache import (
     set_cached_inventory_listings,
 )
 from app.services.inventory_tracking import build_listing_history_fields, inventory_history_key
-from app.services.marketcheck import enrich_with_marketcheck
 from app.services.orchestrator_market import (
     historical_market_points_for_listing,
     market_valuation_enabled_for_listing,
@@ -3731,7 +3730,6 @@ async def stream_search(
                             deduped_filtered[idx] = enriched_listing
                 if deduped_filtered:
                     deduped_filtered = await enrich_vehicle_listings_with_vin_data(deduped_filtered)
-                    deduped_filtered = await enrich_with_marketcheck(deduped_filtered)
                 if deduped_filtered and recorder is not None and recorder.user_id is not None:
                     try:
                         history_map = recorder.store.get_inventory_history_map(recorder.user_id, deduped_filtered)
