@@ -16,15 +16,5 @@
   },
   "env": {
     "NEXT_PUBLIC_API_URL": "/server"
-  },
-  "builds": [
-    {
-      "src": "backend/main.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "frontend/package.json",
-      "use": "@vercel/next"
-    }
-  ]
+  }
 }
