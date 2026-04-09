@@ -36,8 +36,9 @@ export function MultiModelSelect({
   };
 
   const isGrouped = !Array.isArray(models);
-  const currentModels = isGrouped ? (models as any).current : (models as readonly string[]);
-  const discontinuedModels = isGrouped ? (models as any).discontinued : [];
+  const groupedModels = models as { current: readonly string[]; discontinued: readonly string[] };
+  const currentModels = isGrouped ? groupedModels.current : (models as readonly string[]);
+  const discontinuedModels = isGrouped ? groupedModels.discontinued : [];
   const hasAnyModels = currentModels.length > 0 || discontinuedModels.length > 0;
 
   const displayText =

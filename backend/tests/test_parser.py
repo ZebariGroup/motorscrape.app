@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import pytest
-
-from app.services.parser import monolith
 from app.services.parser import (
     extract_vehicles_from_html,
     find_next_page_url,
     infer_inventory_pagination,
+    monolith,
     try_extract_vehicles_without_llm,
 )
 

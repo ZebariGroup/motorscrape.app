@@ -10,7 +10,6 @@ from app.config import settings
 from app.db.account_store import get_account_store
 from app.schemas import DealershipFound, ExtractionResult, PaginationInfo, VehicleListing
 from app.services.dealer_bias import dealer_preference_bias
-from app.services.orchestrator_market import historical_market_points_for_listing
 from app.services.orchestrator import (
     _bounded_phase_timeout,
     _cap_unknown_platform_fetch_timeout,
@@ -21,18 +20,19 @@ from app.services.orchestrator import (
     _effective_max_pages_for_route,
     _find_inventory_url,
     _generic_vehicle_detail_overlay,
-    _inventory_url_uses_scoped_filters,
     _inventory_url_recovery_candidates,
+    _inventory_url_uses_scoped_filters,
     _looks_like_model_index_batch,
     _needs_vdp_usage_enrichment,
     _oneaudi_all_inventory_urls,
     _room58_detail_overlay,
     _route_supports_team_velocity_style_inventory_reroute,
-    _tesla_inventory_urls,
     _team_velocity_inventory_url_from_model_hub,
     _team_velocity_model_inventory_urls,
+    _tesla_inventory_urls,
     stream_search,
 )
+from app.services.orchestrator_market import historical_market_points_for_listing
 from app.services.orchestrator_utils import (
     effective_max_pages_for_route,
     effective_search_concurrency,
@@ -3457,7 +3457,8 @@ async def test_stream_search_oneaudi_all_condition_retries_used_when_new_fails_i
     tail = "".join(chunks)
     assert mock_structured.call_count >= 1
     assert mock_llm.await_count == 0
-    print("FETCHED:", fetched_inventory_urls); assert sorted(list(set(fetched_inventory_urls))) == [
+    print("FETCHED:", fetched_inventory_urls)
+    assert sorted(list(set(fetched_inventory_urls))) == [
         "https://www.audidealer.example/en/inventory/new/",
         "https://www.audidealer.example/en/inventory/used/",
     ]

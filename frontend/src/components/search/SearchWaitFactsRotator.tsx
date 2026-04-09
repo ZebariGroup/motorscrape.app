@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer } from "react";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import { buildSearchWaitFacts } from "@/lib/vehicleSearchFacts";
 
@@ -13,6 +13,13 @@ type Props = {
 };
 
 const ROTATE_MS = 6500;
+
+type Action = { type: "reset" } | { type: "tick"; count: number };
+
+function reducer(index: number, action: Action): number {
+  if (action.type === "reset") return 0;
+  return (index + 1) % action.count;
+}
 
 export function SearchWaitFactsRotator({
   running,
@@ -32,18 +39,16 @@ export function SearchWaitFactsRotator({
     [make, model, vehicleCategory, vehicleCondition],
   );
 
-  const [index, setIndex] = useState(0);
+  const [index, dispatch] = useReducer(reducer, 0);
 
   useEffect(() => {
     if (!running) return;
-    setIndex(0);
+    dispatch({ type: "reset" });
   }, [running, make, model, vehicleCategory, vehicleCondition]);
 
   useEffect(() => {
     if (!running || facts.length <= 1) return;
-    const id = window.setInterval(() => {
-      setIndex((i) => (i + 1) % facts.length);
-    }, ROTATE_MS);
+    const id = window.setInterval(() => dispatch({ type: "tick", count: facts.length }), ROTATE_MS);
     return () => window.clearInterval(id);
   }, [running, facts.length]);
 
