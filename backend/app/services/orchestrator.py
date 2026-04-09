@@ -1409,9 +1409,9 @@ def _cap_unknown_platform_fetch_timeout(
     if platform_id is not None:
         return float(base_timeout)
     if page_kind == "homepage":
-        return min(float(base_timeout), 45.0)
+        return min(float(base_timeout), 18.0)
     if page_kind == "inventory":
-        return min(float(base_timeout), 55.0)
+        return min(float(base_timeout), 24.0)
     return float(base_timeout)
 
 
@@ -2199,8 +2199,10 @@ async def stream_search(
             dealer_score=score_card.score,
             failure_streak=score_card.failure_streak,
         )
-        fetch_timeout = min(settings.scrape_timeout * 3 + 5.0, max(20.0, dealer_timeout * 0.5))
-        parse_timeout = min(settings.openai_timeout + 5.0, max(20.0, dealer_timeout * 0.35))
+        # Keep fetch/parse phases well below the full dealer budget so a single blocked
+        # website cannot hold the search open for 30-75 seconds before yielding the next event.
+        fetch_timeout = min(settings.scrape_timeout + 5.0, max(12.0, dealer_timeout * 0.15))
+        parse_timeout = min(settings.openai_timeout, max(12.0, dealer_timeout * 0.18))
 
         async def _fetch(
             url: str,
@@ -3827,7 +3829,7 @@ async def stream_search(
                     and route.platform_id == "dealer_dot_com"
                     and make.strip()
                     and not model.strip()
-                    and (not normalized_vehicles or suspicious_dealer_dot_com_pagination)
+                    and suspicious_dealer_dot_com_pagination
                     and not dealer_dot_com_make_retry_attempted
                     and current_url
                 ):
@@ -3849,9 +3851,8 @@ async def stream_search(
                         )
                     else:
                         # Current URL has no removable query filter (e.g. path-based /new-buick/…).
-                        # For suspicious under-counted scoped pages, fan back out to the broad SRP and
-                        # rely on downstream make filtering. For true zero-result scoped pages, keep the
-                        # make query param so the Dealer.com POST-body injection can recover inventory.
+                        # Only retry when the scoped page clearly under-counted results; zero-result
+                        # Dealer.com fallbacks often cost another 20-30s and still fail.
                         try:
                             if suspicious_dealer_dot_com_pagination:
                                 canonical = resolve_inventory_url_for_provider(
@@ -3863,15 +3864,6 @@ async def stream_search(
                                     model="",
                                     fallback_url=base_url,
                                 )
-                            else:
-                                parts = urlsplit(current_url)
-                                canonical = urlunsplit((
-                                    parts.scheme,
-                                    parts.netloc,
-                                    "/new-inventory/index.htm" if vehicle_condition != "used" else "/used-inventory/index.htm",
-                                    urlencode({"make": make}),
-                                    "",
-                                ))
                             if canonical not in queued_urls:
                                 queued_urls.add(canonical)
                                 pending_urls.insert(0, canonical)
