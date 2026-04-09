@@ -1681,6 +1681,7 @@ class AccountStore:
         user_id: int | str | None = None,
         anon_key: str | None = None,
         since_ts: float | None = None,
+        startup_stale_before_ts: float | None = None,
     ) -> int:
         if user_id is None and not anon_key:
             return 0
@@ -1695,6 +1696,9 @@ class AccountStore:
         if since_ts is not None:
             clauses.append("started_at >= ?")
             args.append(since_ts)
+        if startup_stale_before_ts is not None:
+            clauses.append("NOT (dealerships_attempted = 0 AND started_at <= ?)")
+            args.append(startup_stale_before_ts)
         with self._conn() as c:
             row = c.execute(
                 f"""
@@ -1705,70 +1709,6 @@ class AccountStore:
                 args,
             ).fetchone()
         return int(row["count"]) if row is not None else 0
-
-    def close_stale_running_scrape_runs(
-        self,
-        *,
-        user_id: int | str | None = None,
-        anon_key: str | None = None,
-        started_before_ts: float,
-    ) -> int:
-        if user_id is None and not anon_key:
-            return 0
-        clauses = ["status = ?", "started_at <= ?", "dealerships_attempted = 0"]
-        args: list[Any] = ["running", started_before_ts]
-        if user_id is not None:
-            clauses.append("user_id = ?")
-            args.append(user_id)
-        else:
-            clauses.append("anon_key = ?")
-            args.append(anon_key)
-        with self._conn() as c:
-            rows = c.execute(
-                f"""
-                SELECT *
-                FROM scrape_runs
-                WHERE {' AND '.join(clauses)}
-                ORDER BY started_at ASC
-                """,
-                args,
-            ).fetchall()
-        if not rows:
-            return 0
-        closed = 0
-        msg = "Search was left running before dealership processing started; closed as stale."
-        for row in rows:
-            run = _row_to_scrape_run(row)
-            summary = dict(run.summary) if isinstance(run.summary, dict) else {}
-            summary.update(
-                {
-                    "ok": False,
-                    "status": "failed",
-                    "correlation_id": run.correlation_id,
-                    "auto_closed_stale": True,
-                    "error_message": msg,
-                }
-            )
-            economics = dict(run.economics) if isinstance(run.economics, dict) else {}
-            self.finalize_scrape_run(
-                run.id,
-                status="failed",
-                result_count=run.result_count,
-                dealer_discovery_count=run.dealer_discovery_count,
-                dealer_deduped_count=run.dealer_deduped_count,
-                dealerships_attempted=run.dealerships_attempted,
-                dealerships_succeeded=run.dealerships_succeeded,
-                dealerships_failed=run.dealerships_failed,
-                error_count=run.error_count,
-                warning_count=run.warning_count,
-                error_message=msg,
-                summary=summary,
-                economics=economics,
-                completed_at=time.time(),
-                listings_snapshot=run.listings_snapshot,
-            )
-            closed += 1
-        return closed
 
     def get_scrape_run(
         self,

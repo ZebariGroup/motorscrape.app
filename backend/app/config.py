@@ -86,8 +86,8 @@ class Settings(BaseSettings):
     places_geocode_cache_ttl_seconds: int = 60 * 60 * 24 * 30  # 30 days
     places_supabase_region_cache_max_age_days: int = 30
     search_running_window_seconds: int = 60 * 20
-    # Auto-close orphaned runs that never progressed past startup so they do not
-    # consume the concurrent-search quota indefinitely after a dropped stream.
+    # Ignore orphaned runs that never progressed past startup when enforcing
+    # concurrent-search quota, without force-failing them on the next request.
     search_startup_stale_seconds: int = 60 * 2
     alerts_due_claim_ttl_seconds: int = 60 * 10
     openai_api_key: str = ""
