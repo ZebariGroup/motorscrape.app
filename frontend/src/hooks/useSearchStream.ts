@@ -57,11 +57,20 @@ const TERMINAL_SEARCH_LOG_STATUSES = new Set([
  */
 const STREAM_RECOVERY_POLL_SCHEDULE_MS = [0, 300, 300, 500, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000] as const;
 /**
- * If persisted logs confirm the run is still active, keep polling longer before
- * surfacing a terminal stream-connection failure. This avoids false negatives
- * when startup/finalization rows lag behind SSE lifecycle events.
+ * If persisted logs confirm the run is still active, keep polling long enough
+ * to cover a full search duration (searches can run 30-300+ seconds). The
+ * schedule ramps from 2s to 10s intervals, totalling ~5 minutes of extra
+ * polling so the UI almost never surfaces a false "connection lost" while the
+ * backend is still scraping.
  */
-const STREAM_RECOVERY_ACTIVE_RUN_POLL_SCHEDULE_MS = [2000, 3000, 4000, 5000] as const;
+const STREAM_RECOVERY_ACTIVE_RUN_POLL_SCHEDULE_MS = [
+  2000, 3000, 4000, 5000,
+  5000, 5000, 5000, 5000, 5000,
+  7000, 7000, 7000, 7000, 7000,
+  10000, 10000, 10000, 10000, 10000,
+  10000, 10000, 10000, 10000, 10000,
+  10000, 10000, 10000, 10000, 10000,
+] as const;
 
 function appendUniqueError(list: string[], message: string): string[] {
   return list.includes(message) ? list : [...list, message];
@@ -673,10 +682,19 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
         return false;
       }
 
+      setStatus("Reconnecting — search is still running…");
+      let activeRunPollCount = 0;
       for (const delayMs of STREAM_RECOVERY_ACTIVE_RUN_POLL_SCHEDULE_MS) {
         const state = await pollLogs(delayMs);
         if (state === "terminal") {
           return true;
+        }
+        activeRunPollCount++;
+        if (state === "running" && activeRunPollCount % 3 === 0) {
+          setStatus("Still reconnecting — search in progress…");
+        }
+        if (state !== "running" && state !== "unknown") {
+          break;
         }
       }
       return false;

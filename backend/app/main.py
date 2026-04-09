@@ -205,7 +205,7 @@ async def search_stream(
                     recorder=recorder,
                     market_region=market_region,
                 ),
-                interval_s=20.0,
+                interval_s=10.0,
             ):
                 yield chunk.encode("utf-8")
         except asyncio.CancelledError:

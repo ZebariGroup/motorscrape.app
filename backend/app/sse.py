@@ -21,7 +21,7 @@ def sse_keepalive_ping() -> str:
 async def stream_with_keepalive(
     source: AsyncIterator[str],
     *,
-    interval_s: float = 20.0,
+    interval_s: float = 10.0,
 ) -> AsyncIterator[str]:
     """Yield `source` chunks while emitting comment pings so long scrapes are not killed as idle."""
     it = source.__aiter__()
