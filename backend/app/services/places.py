@@ -1265,6 +1265,7 @@ async def find_dealerships(
                     website=website,
                     lat=c.get("lat"),
                     lng=c.get("lng"),
+                    discovery_source="google_places",
                 )
             )
 

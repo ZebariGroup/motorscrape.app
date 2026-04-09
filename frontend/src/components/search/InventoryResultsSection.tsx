@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { resolveApiUrl } from "@/lib/apiBase";
 import { downloadCsv, listingsToCsv } from "@/lib/csvExport";
 import {
   formatMoney,
@@ -17,8 +16,6 @@ import { buildMarketValuationMap } from "@/lib/marketValuation";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { ListingSortOrder } from "@/hooks/useSearchStream";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
-import type { VinDetails, VinDetailsResponse } from "@/types/inventory";
-
 function featureChip(text: string, key: string) {
   const short =
     text.length > 36 ? `${text.slice(0, 34)}…` : text;
@@ -105,7 +102,6 @@ export function InventoryResultsSection({
   savedResultsNotice = null,
 }: Props) {
   const [selectedListingIndex, setSelectedListingIndex] = useState<number | null>(null);
-  const [vinDetails, setVinDetails] = useState<Record<string, VinDetails | "loading" | "error">>({});
   const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
   const effectiveSelectedListingIndex =
     selectedListingIndex == null || filteredListings.length === 0
@@ -115,14 +111,6 @@ export function InventoryResultsSection({
     effectiveSelectedListingIndex != null ? (filteredListings[effectiveSelectedListingIndex] ?? null) : null;
   const valuationMap = useMemo(() => buildMarketValuationMap(listings), [listings]);
   const selectedValuation = selectedListing ? valuationMap.get(listingIdentityKey(selectedListing)) : undefined;
-  const selectedVinDetails = selectedListing?.vin ? vinDetails[selectedListing.vin] : undefined;
-  const selectedLoadedVinDetails =
-    selectedVinDetails &&
-    selectedVinDetails !== "loading" &&
-    selectedVinDetails !== "error"
-      ? selectedVinDetails
-      : null;
-  const selectedVinSource = selectedLoadedVinDetails?.source ?? null;
   const canViewPrevious = effectiveSelectedListingIndex != null && effectiveSelectedListingIndex > 0;
   const canViewNext =
     effectiveSelectedListingIndex != null && effectiveSelectedListingIndex < filteredListings.length - 1;
@@ -137,48 +125,13 @@ export function InventoryResultsSection({
     );
   }, [filteredListings.length]);
 
-  const handleLoadVinDetails = useCallback(async (listing: AggregatedListing, options?: { force?: boolean }) => {
-    const vin = listing.vin?.trim();
-    if (!vin) return;
-
-    let shouldFetch = false;
-    setVinDetails((prev) => {
-      const current = prev[vin];
-      if (!options?.force && current && current !== "error") return prev;
-      shouldFetch = true;
-      return { ...prev, [vin]: "loading" };
-    });
-    if (!shouldFetch) return;
-
-    try {
-      const res = await fetch(resolveApiUrl(`/vehicles/vin-details?vin=${encodeURIComponent(vin)}`), {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch details");
-      const data = (await res.json()) as VinDetailsResponse;
-      setVinDetails((prev) => ({
-        ...prev,
-        [vin]: {
-          ...data.details,
-          source: data.source ?? data.details.source ?? "vin_decoder",
-          message: data.message ?? data.details.message,
-        },
-      }));
-    } catch {
-      setVinDetails((prev) => ({ ...prev, [vin]: "error" }));
-    }
-  }, []);
-
   const openListingDetails = useCallback(
-    (idx: number, options?: { loadVinDetails?: boolean }) => {
+    (idx: number) => {
       const listing = filteredListings[idx];
       if (!listing) return;
       setSelectedListingIndex(idx);
-      if (options?.loadVinDetails) {
-        void handleLoadVinDetails(listing);
-      }
     },
-    [filteredListings, handleLoadVinDetails],
+    [filteredListings],
   );
 
   const listingModalTouchRef = useRef<{ x: number; y: number } | null>(null);
@@ -469,7 +422,7 @@ export function InventoryResultsSection({
                     className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900 transition hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
                     onClick={(e) => {
                       e.stopPropagation();
-                      openListingDetails(idx, { loadVinDetails: Boolean(v.vin) });
+                      openListingDetails(idx);
                     }}
                   >
                     More details
@@ -666,106 +619,6 @@ export function InventoryResultsSection({
                     ) : null}
                   </div>
                 </div>
-
-                {selectedListing.vin ? (
-                  <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900 dark:bg-indigo-950/30">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <h3 className="text-xs font-semibold uppercase tracking-wider text-indigo-800 dark:text-indigo-200">
-                          Vehicle details
-                        </h3>
-                        <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
-                          Load VIN-decoded trim and specs on demand after the scrape finishes.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleLoadVinDetails(selectedListing, {
-                              force: Boolean(selectedLoadedVinDetails),
-                            })
-                          }
-                          className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500"
-                        >
-                          {selectedVinDetails === "loading"
-                            ? "Loading VIN details..."
-                            : selectedLoadedVinDetails
-                              ? selectedVinSource === "vin_decoder"
-                                ? "Refresh VIN details"
-                                : "Refresh vehicle details"
-                              : "Load vehicle details"}
-                        </button>
-                      </div>
-                    </div>
-
-                    {selectedVinDetails === "error" ? (
-                      <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
-                        VIN details could not be loaded for this vehicle right now. You can try again.
-                      </div>
-                    ) : null}
-
-                    {selectedLoadedVinDetails ? (
-                      <>
-                        {selectedLoadedVinDetails.message && selectedVinSource !== "vin_decoder" ? (
-                          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-                            {selectedLoadedVinDetails.message}
-                          </div>
-                        ) : null}
-
-                        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                          {selectedLoadedVinDetails.trim ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Decoded trim <span className="font-semibold">{selectedLoadedVinDetails.trim}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.year != null ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Decoded year <span className="font-semibold">{selectedLoadedVinDetails.year}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.make || selectedLoadedVinDetails.model ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Decoded vehicle{" "}
-                              <span className="font-semibold">
-                                {[selectedLoadedVinDetails.make, selectedLoadedVinDetails.model].filter(Boolean).join(" ")}
-                              </span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.body_style ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Body style <span className="font-semibold">{selectedLoadedVinDetails.body_style}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.drivetrain ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Drivetrain <span className="font-semibold">{selectedLoadedVinDetails.drivetrain}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.transmission ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Transmission <span className="font-semibold">{selectedLoadedVinDetails.transmission}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.fuel_type ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Fuel type <span className="font-semibold">{selectedLoadedVinDetails.fuel_type}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.engine ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Engine <span className="font-semibold">{selectedLoadedVinDetails.engine}</span>
-                            </p>
-                          ) : null}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="mt-4 rounded-lg border border-dashed border-indigo-300/80 bg-white/70 px-4 py-3 text-sm text-zinc-700 dark:border-indigo-900 dark:bg-zinc-950/40 dark:text-zinc-300">
-                        Use <span className="font-semibold">Load vehicle details</span> to pull VIN-decoded trim and specs for this vehicle.
-                      </div>
-                    )}
-                  </div>
-                ) : null}
 
                 {selectedValuation ? (
                   <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">

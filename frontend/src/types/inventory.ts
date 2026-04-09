@@ -84,30 +84,8 @@ export type DealershipProgress = {
   reported_page_size?: number;
   pagination_source?: string;
   from_cache?: boolean;
+  /** Where the dealer row came from: Google Places vs system DB (Supabase). */
+  discovery_source?: "google_places" | "system_db";
   /** Client-only: when the current status phase started (ms since epoch). */
   phaseSince?: number;
-};
-
-export type VinDetails = {
-  vin: string;
-  year?: number;
-  make?: string;
-  model?: string;
-  trim?: string;
-  body_style?: string;
-  vehicle_type?: string;
-  transmission?: string;
-  drivetrain?: string;
-  fuel_type?: string;
-  engine?: string;
-  source?: "vin_decoder" | "none";
-  message?: string;
-};
-
-export type VinDetailsResponse = {
-  ok: boolean;
-  vin: string;
-  details: VinDetails;
-  source?: "vin_decoder" | "none";
-  message?: string;
 };
