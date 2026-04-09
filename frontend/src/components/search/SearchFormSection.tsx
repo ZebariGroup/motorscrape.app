@@ -11,7 +11,6 @@ import type { SearchHistoryRunRow } from "@/types/searchHistory";
 import { MultiModelSelect } from "./MultiModelSelect";
 import { PlowTruck } from "./PlowTruck";
 import { ScrapeMiniGame } from "./ScrapeMiniGame";
-import { SearchWaitFactsRotator } from "./SearchWaitFactsRotator";
 import { SearchHistoryModal } from "./SearchHistoryModal";
 
 const RADIUS_CHOICES = [10, 25, 30, 50, 75, 100, 150, 250] as const;
@@ -178,8 +177,6 @@ export function SearchFormSection({
   };
 
   const isCollapsedSummary = !isGameActive && !isFormExpanded;
-  const showWaitFactsRotator = running && isFormExpanded;
-
   return (
     <section
       className={`rounded-2xl border bg-white p-4 shadow-sm transition-all dark:bg-zinc-950 sm:p-6 ${
@@ -567,25 +564,6 @@ export function SearchFormSection({
           ) : null}
         </>
       )}
-      {running ? (
-        <div
-          className={`space-y-2 ${
-            isFormExpanded
-              ? "mt-4"
-              : "rounded-xl border border-zinc-200/80 bg-zinc-50/85 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/40"
-          }`}
-        >
-          {showWaitFactsRotator ? (
-            <SearchWaitFactsRotator
-              running={running}
-              make={make}
-              model={model}
-              vehicleCategory={vehicleCategory}
-              vehicleCondition={vehicleCondition}
-            />
-          ) : null}
-        </div>
-      ) : null}
       {errors.length > 0 ? (
         <ul className={`list-disc space-y-1 pl-5 text-sm text-red-600 dark:text-red-400 ${isFormExpanded ? "mt-4" : "mt-3"}`}>
           {errors.map((err, i) => (
