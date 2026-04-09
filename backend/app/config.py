@@ -180,6 +180,10 @@ class Settings(BaseSettings):
     marketcheck_api_key: str = ""
     marketcheck_timeout: float = 12.0
     marketcheck_max_concurrency: int = 4
+    # MarketCheck throttles quickly on bursty search traffic. Limit auto-enrichment
+    # to the first few VINs in each emitted batch so users reliably see some
+    # decoded trim/value data instead of rate-limiting the whole page to zero.
+    marketcheck_max_vins_per_batch: int = 3
     marketcheck_cache_ttl_seconds: int = 60 * 60 * 24 * 14
 
     # Platform detection cache. Override PLATFORM_CACHE_PATH on Vercel if using persistent storage.

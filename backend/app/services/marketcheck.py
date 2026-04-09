@@ -88,11 +88,15 @@ async def _fetch_marketcheck_data(vin: str, miles: int | None) -> dict[str, Any]
                 MARKETCHECK_DECODE_URL.format(vin=vin),
                 params={"api_key": settings.marketcheck_api_key}
             )
+            if decode_resp.status_code == 429:
+                logger.info("Marketcheck decode rate limited for %s", vin)
             if decode_resp.status_code == 200:
                 decoded.update(_parse_marketcheck_decode(decode_resp.json()))
-                
+            elif decode_resp.status_code >= 400 and decode_resp.status_code != 429:
+                logger.debug("Marketcheck decode HTTP %s for %s", decode_resp.status_code, vin)
+
             # 2. Predict Price (Estimated Market Value) if we have miles
-            if miles is not None and miles > 0:
+            if miles is not None and miles > 0 and decode_resp.status_code != 429:
                 predict_resp = await client.get(
                     MARKETCHECK_PREDICT_URL,
                     params={
@@ -102,11 +106,15 @@ async def _fetch_marketcheck_data(vin: str, miles: int | None) -> dict[str, Any]
                         "car_type": "used"
                     }
                 )
+                if predict_resp.status_code == 429:
+                    logger.info("Marketcheck predict rate limited for %s", vin)
                 if predict_resp.status_code == 200:
                     predict_data = predict_resp.json()
                     predicted_price = predict_data.get("predicted_price")
                     if predicted_price:
                         decoded["estimated_market_value"] = float(predicted_price)
+                elif predict_resp.status_code >= 400 and predict_resp.status_code != 429:
+                    logger.debug("Marketcheck predict HTTP %s for %s", predict_resp.status_code, vin)
                         
     except Exception as exc:
         logger.debug("Marketcheck fetch failed for %s: %s", vin, exc)
@@ -160,9 +168,13 @@ async def enrich_with_marketcheck(listings: list[VehicleListing]) -> list[Vehicl
     if not vin_to_indexes:
         return listings
 
-    decoded_rows = await asyncio.gather(*[_fetch_marketcheck_data(vin, vin_to_miles[vin]) for vin in vin_to_indexes])
+    ordered_vins = list(vin_to_indexes)
+    max_vins = max(1, int(settings.marketcheck_max_vins_per_batch or 0))
+    limited_vins = ordered_vins[:max_vins]
+
+    decoded_rows = await asyncio.gather(*[_fetch_marketcheck_data(vin, vin_to_miles[vin]) for vin in limited_vins])
     out = list(listings)
-    for vin, decoded in zip(vin_to_indexes, decoded_rows, strict=False):
+    for vin, decoded in zip(limited_vins, decoded_rows, strict=False):
         if not decoded:
             continue
         for idx in vin_to_indexes[vin]:
