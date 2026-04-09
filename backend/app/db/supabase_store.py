@@ -33,6 +33,7 @@ _ALERT_CHANGE_OPTION_FIELDS = frozenset(
     }
 )
 _SCRAPE_RUN_LEGACY_OPTION_FIELDS = frozenset({"prefer_small_dealers"})
+_SCRAPE_RUN_LEGACY_UPDATE_FIELDS = frozenset({"listings_snapshot_json"})
 
 
 class EmailNotVerifiedError(Exception):
@@ -76,6 +77,18 @@ def _missing_scrape_run_legacy_columns_error(exc: Exception) -> bool:
     message = (getattr(exc, "message", None) or str(exc)).lower()
     return (
         any(field in message for field in _SCRAPE_RUN_LEGACY_OPTION_FIELDS)
+        and ("column" in message or "schema cache" in message)
+    )
+
+
+def _strip_scrape_run_legacy_update_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if key not in _SCRAPE_RUN_LEGACY_UPDATE_FIELDS}
+
+
+def _missing_scrape_run_legacy_update_columns_error(exc: Exception) -> bool:
+    message = (getattr(exc, "message", None) or str(exc)).lower()
+    return (
+        any(field in message for field in _SCRAPE_RUN_LEGACY_UPDATE_FIELDS)
         and ("column" in message or "schema cache" in message)
     )
 
@@ -867,7 +880,17 @@ class SupabaseAccountStore:
             "listings_snapshot_json": listings_snapshot if listings_snapshot else None,
             "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(completed_at)),
         }
-        self.client.table("scrape_runs").update(updates).eq("id", scrape_run_id).execute()
+        try:
+            self.client.table("scrape_runs").update(updates).eq("id", scrape_run_id).execute()
+        except Exception as exc:
+            if not _missing_scrape_run_legacy_update_columns_error(exc):
+                raise
+            logger.warning(
+                "Supabase scrape_runs schema is missing listings_snapshot_json; retrying finalize without it."
+            )
+            self.client.table("scrape_runs").update(
+                _strip_scrape_run_legacy_update_fields(updates)
+            ).eq("id", scrape_run_id).execute()
         res = self.client.table("scrape_runs").select("*").eq("id", scrape_run_id).limit(1).execute()
         return _row_to_scrape_run(res.data[0])
 

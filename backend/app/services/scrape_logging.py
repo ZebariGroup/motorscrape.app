@@ -118,35 +118,51 @@ class ScrapeRunRecorder:
             extra={"scrape_event": event_record},
         )
         if self.sequence_no <= self.max_events:
-            self.store.add_scrape_event(
-                scrape_run_id=self.run_id,
-                correlation_id=self.correlation_id,
-                sequence_no=self.sequence_no,
-                event_type=event_type,
-                phase=phase,
-                level=level,
-                message=message,
-                dealership_name=dealership_name,
-                dealership_website=dealership_website,
-                payload=event_payload,
-                created_at=created_at,
-            )
+            try:
+                self.store.add_scrape_event(
+                    scrape_run_id=self.run_id,
+                    correlation_id=self.correlation_id,
+                    sequence_no=self.sequence_no,
+                    event_type=event_type,
+                    phase=phase,
+                    level=level,
+                    message=message,
+                    dealership_name=dealership_name,
+                    dealership_website=dealership_website,
+                    payload=event_payload,
+                    created_at=created_at,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to persist scrape event run_id=%s cid=%s type=%s sequence_no=%s",
+                    self.run_id,
+                    self.correlation_id,
+                    event_type,
+                    self.sequence_no,
+                )
             return
         if not self._overflow_logged:
             self._overflow_logged = True
-            self.store.add_scrape_event(
-                scrape_run_id=self.run_id,
-                correlation_id=self.correlation_id,
-                sequence_no=self.max_events,
-                event_type="event_overflow",
-                phase="logging",
-                level="warning",
-                message="Additional scrape events were dropped after reaching the cap.",
-                dealership_name=None,
-                dealership_website=None,
-                payload={"max_events": self.max_events},
-                created_at=created_at,
-            )
+            try:
+                self.store.add_scrape_event(
+                    scrape_run_id=self.run_id,
+                    correlation_id=self.correlation_id,
+                    sequence_no=self.max_events,
+                    event_type="event_overflow",
+                    phase="logging",
+                    level="warning",
+                    message="Additional scrape events were dropped after reaching the cap.",
+                    dealership_name=None,
+                    dealership_website=None,
+                    payload={"max_events": self.max_events},
+                    created_at=created_at,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to persist scrape overflow marker run_id=%s cid=%s",
+                    self.run_id,
+                    self.correlation_id,
+                )
 
     def note_dealer_started(self, *, dealership_name: str, dealership_website: str | None = None) -> None:
         dealer_key = dealership_website or dealership_name
@@ -233,7 +249,6 @@ class ScrapeRunRecorder:
     ) -> None:
         if self.finalized:
             return
-        self.finalized = True
         final_status = status or derive_run_status(
             ok=ok,
             dealerships_failed=self.dealerships_failed,
@@ -248,23 +263,33 @@ class ScrapeRunRecorder:
                 else None
             )
         completed_at = time.time()
-        self.store.finalize_scrape_run(
-            self.run_id,
-            status=final_status,
-            result_count=self.result_count,
-            dealer_discovery_count=summary.get("dealer_discovery_count"),
-            dealer_deduped_count=summary.get("dealer_deduped_count"),
-            dealerships_attempted=self.dealerships_attempted,
-            dealerships_succeeded=self.dealerships_succeeded,
-            dealerships_failed=self.dealerships_failed,
-            error_count=self.error_count,
-            warning_count=self.warning_count,
-            error_message=self.latest_error_message,
-            summary=summary,
-            economics=economics,
-            completed_at=completed_at,
-            listings_snapshot=listings_snapshot,
-        )
+        try:
+            self.store.finalize_scrape_run(
+                self.run_id,
+                status=final_status,
+                result_count=self.result_count,
+                dealer_discovery_count=summary.get("dealer_discovery_count"),
+                dealer_deduped_count=summary.get("dealer_deduped_count"),
+                dealerships_attempted=self.dealerships_attempted,
+                dealerships_succeeded=self.dealerships_succeeded,
+                dealerships_failed=self.dealerships_failed,
+                error_count=self.error_count,
+                warning_count=self.warning_count,
+                error_message=self.latest_error_message,
+                summary=summary,
+                economics=economics,
+                completed_at=completed_at,
+                listings_snapshot=listings_snapshot,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to finalize scrape run run_id=%s cid=%s status=%s",
+                self.run_id,
+                self.correlation_id,
+                final_status,
+            )
+            return
+        self.finalized = True
         if self.user_id is not None and listings_snapshot:
             try:
                 self.store.record_inventory_history(

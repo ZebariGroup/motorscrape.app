@@ -54,7 +54,7 @@ describe("useSearchStream", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   const streamGraceWaitMs = 2150; // 2000ms grace + 150ms buffer
   /** Grace + extended /search/logs polling while the terminal row catches up. */
-  const streamFullErrorPathWaitMs = 20_000;
+  const streamFullErrorPathWaitMs = 35_000;
 
   beforeEach(() => {
     vi.stubGlobal("EventSource", MockEventSource);
@@ -355,7 +355,7 @@ describe("useSearchStream", () => {
       const url = String(input);
       if (url.includes("/search/logs/")) {
         logPollCount += 1;
-        if (logPollCount < 10) {
+        if (logPollCount < 16) {
           return {
             ok: true,
             json: async () => ({
@@ -416,7 +416,7 @@ describe("useSearchStream", () => {
         await vi.advanceTimersByTimeAsync(streamFullErrorPathWaitMs);
       });
 
-      expect(logPollCount).toBeGreaterThanOrEqual(10);
+      expect(logPollCount).toBeGreaterThanOrEqual(16);
       expect(es.readyState).toBe(MockEventSource.CLOSED);
       expect(result.current.search.running).toBe(false);
       expect(result.current.search.errors).toHaveLength(0);

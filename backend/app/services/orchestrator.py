@@ -19,7 +19,7 @@ from app.config import settings
 from app.schemas import DealershipFound, ExtractionResult, PaginationInfo, VehicleListing
 from app.services.dealer_bias import dealer_preference_bias
 from app.services.dealer_platforms import detect_platform_profile
-from app.services.dealer_score_store import DealerScoreCard, NO_SCORE_DEFAULT, get_score_cards, record_scrape_outcome
+from app.services.dealer_score_store import NO_SCORE_DEFAULT, DealerScoreCard, get_score_cards, record_scrape_outcome
 from app.services.economics import build_search_economics, log_economics_line
 from app.services.inventory_discovery import discover_sitemap_inventory_urls
 from app.services.inventory_filters import (
@@ -37,6 +37,7 @@ from app.services.inventory_result_cache import (
     set_cached_inventory_listings,
 )
 from app.services.inventory_tracking import build_listing_history_fields, inventory_history_key
+from app.services.marketcheck import enrich_with_marketcheck
 from app.services.orchestrator_market import (
     historical_market_points_for_listing,
     market_valuation_enabled_for_listing,
@@ -51,8 +52,8 @@ from app.services.orchestrator_utils import (
     html_mentions_model,
     prefer_https_website_url,
 )
-from app.services.parser import monolith as parser_monolith
 from app.services.parser import enrich_team_velocity_srp_pricing, extract_vehicles_from_html, try_extract_vehicles_without_llm
+from app.services.parser import monolith as parser_monolith
 from app.services.places import (
     PlacesSearchMetrics,
     expand_large_radius_search_locations,
@@ -74,11 +75,10 @@ from app.services.provider_router import (
     speculative_inventory_urls_for_unknown_site,
 )
 from app.services.providers import extract_with_provider
-from app.services.search_errors import SearchErrorInfo, with_search_error
 from app.services.scrape_logging import ScrapeRunRecorder
 from app.services.scraper import PageKind, _looks_like_block_page, _sanitize_inventory_query_url, fetch_page_html
+from app.services.search_errors import SearchErrorInfo, with_search_error
 from app.services.vin_decoder import enrich_vehicle_listings_with_vin_data
-from app.services.marketcheck import enrich_with_marketcheck
 from app.sse import sse_pack
 
 logger = logging.getLogger(__name__)
@@ -1576,6 +1576,23 @@ async def stream_search(
     )
     if recorder is not None:
         recorder.event(
+            event_type="startup_initialized",
+            phase="startup",
+            level="info",
+            message="Search startup initialized.",
+            payload={
+                "location": location,
+                "make": make,
+                "model": model,
+                "vehicle_category": vehicle_category,
+                "vehicle_condition": vehicle_condition,
+                "inventory_scope": inventory_scope,
+                "prefer_small_dealers": prefer_small_dealers,
+                "radius_miles": radius_miles,
+                "market_region": market_region,
+            },
+        )
+        recorder.event(
             event_type="search_started",
             phase="search",
             level="info",
@@ -1810,6 +1827,13 @@ async def stream_search(
         )
         return
 
+    if recorder is not None:
+        recorder.event(
+            event_type="startup_status_emitted",
+            phase="startup",
+            level="info",
+            message="Startup finished. Beginning dealership discovery.",
+        )
     yield sse_pack("status", {"message": "Finding local dealerships…", "phase": "places"})
 
     async def _discover_dealers(*, query_variant_limit: int | None = None) -> list[DealershipFound]:

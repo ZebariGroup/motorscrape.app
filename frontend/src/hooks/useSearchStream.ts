@@ -56,6 +56,12 @@ const TERMINAL_SEARCH_LOG_STATUSES = new Set([
  * generic failure banner to the user.
  */
 const STREAM_RECOVERY_POLL_SCHEDULE_MS = [0, 300, 300, 500, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000] as const;
+/**
+ * If persisted logs confirm the run is still active, keep polling longer before
+ * surfacing a terminal stream-connection failure. This avoids false negatives
+ * when startup/finalization rows lag behind SSE lifecycle events.
+ */
+const STREAM_RECOVERY_ACTIVE_RUN_POLL_SCHEDULE_MS = [2000, 3000, 4000, 5000] as const;
 
 function appendUniqueError(list: string[], message: string): string[] {
   return list.includes(message) ? list : [...list, message];
@@ -596,20 +602,21 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const recoverCompletedStream = useCallback(
     async (correlationId: string, isStaleSession: () => boolean): Promise<boolean> => {
       const logsUrl = resolveApiUrl(`/search/logs/${encodeURIComponent(correlationId)}?include_events=false`);
+      let sawRunningRun = false;
 
-      for (const delayMs of STREAM_RECOVERY_POLL_SCHEDULE_MS) {
-        if (isStaleSession()) return false;
+      const pollLogs = async (delayMs: number): Promise<"terminal" | "running" | "unknown"> => {
+        if (isStaleSession()) return "unknown";
         if (delayMs > 0) {
           await new Promise((resolve) => window.setTimeout(resolve, delayMs));
         }
-        if (isStaleSession()) return false;
+        if (isStaleSession()) return "unknown";
         try {
           const response = await fetch(logsUrl, {
             credentials: "include",
           });
           const payload = (await response.json()) as { run?: SearchLogRun };
           const run = payload.run;
-          if (isStaleSession()) return false;
+          if (isStaleSession()) return "unknown";
 
           if (response.ok && run && TERMINAL_SEARCH_LOG_STATUSES.has(run.status)) {
             setStatus(buildRecoveredSearchStatus(run));
@@ -629,7 +636,16 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
             }
             closeStream();
             onFinishedRef.current?.();
-            return true;
+            return "terminal";
+          }
+
+          if (
+            response.ok &&
+            run &&
+            run.status === "running"
+          ) {
+            sawRunningRun = true;
+            return "running";
           }
 
           if (
@@ -638,10 +654,29 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
             run.status !== "running" &&
             !TERMINAL_SEARCH_LOG_STATUSES.has(run.status)
           ) {
-            return false;
+            return "unknown";
           }
         } catch {
           /* retry until the poll schedule is exhausted */
+        }
+        return "unknown";
+      };
+
+      for (const delayMs of STREAM_RECOVERY_POLL_SCHEDULE_MS) {
+        const state = await pollLogs(delayMs);
+        if (state === "terminal") {
+          return true;
+        }
+      }
+
+      if (!sawRunningRun) {
+        return false;
+      }
+
+      for (const delayMs of STREAM_RECOVERY_ACTIVE_RUN_POLL_SCHEDULE_MS) {
+        const state = await pollLogs(delayMs);
+        if (state === "terminal") {
+          return true;
         }
       }
       return false;

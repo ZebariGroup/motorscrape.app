@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from app.db.supabase_store import (
     SupabaseAccountStore,
     _missing_alert_change_columns_error,
     _missing_scrape_run_legacy_columns_error,
+    _missing_scrape_run_legacy_update_columns_error,
     _strip_alert_change_option_fields,
     _strip_scrape_run_legacy_option_fields,
+    _strip_scrape_run_legacy_update_fields,
 )
 
 
@@ -162,6 +165,25 @@ def test_missing_scrape_run_legacy_columns_error_detects_schema_cache_failures()
     assert _missing_scrape_run_legacy_columns_error(RuntimeError("some other database failure")) is False
 
 
+def test_strip_scrape_run_legacy_update_fields_removes_listings_snapshot() -> None:
+    payload = {
+        "status": "success",
+        "listings_snapshot_json": [{"vin": "123"}],
+        "completed_at": "2026-04-09T00:00:00Z",
+    }
+
+    stripped = _strip_scrape_run_legacy_update_fields(payload)
+
+    assert stripped == {"status": "success", "completed_at": "2026-04-09T00:00:00Z"}
+
+
+def test_missing_scrape_run_legacy_update_columns_error_detects_schema_cache_failures() -> None:
+    exc = RuntimeError("Could not find the 'listings_snapshot_json' column of 'scrape_runs' in the schema cache")
+
+    assert _missing_scrape_run_legacy_update_columns_error(exc) is True
+    assert _missing_scrape_run_legacy_update_columns_error(RuntimeError("some other database failure")) is False
+
+
 def test_create_alert_subscription_retries_without_new_fields_on_legacy_schema() -> None:
     payloads: list[dict] = []
     store = object.__new__(SupabaseAccountStore)
@@ -220,6 +242,81 @@ def test_create_scrape_run_retries_without_legacy_fields_on_legacy_schema() -> N
     assert "prefer_small_dealers" in payloads[0]
     assert "prefer_small_dealers" not in payloads[1]
     assert run.prefer_small_dealers is False
+
+
+def test_finalize_scrape_run_retries_without_legacy_update_fields_on_legacy_schema() -> None:
+    store = object.__new__(SupabaseAccountStore)
+    query = MagicMock()
+    query.update.return_value = query
+    query.eq.return_value = query
+    query.select.return_value = query
+    query.limit.return_value = query
+
+    final_row = {
+        "id": "run_123",
+        "correlation_id": "srch-legacy-safe",
+        "user_id": None,
+        "anon_key": "anon-key",
+        "trigger_source": "interactive",
+        "status": "failed",
+        "location": "48220",
+        "make": "Smart",
+        "model": "",
+        "vehicle_category": "car",
+        "vehicle_condition": "all",
+        "inventory_scope": "all",
+        "prefer_small_dealers": False,
+        "radius_miles": 100,
+        "requested_max_dealerships": 8,
+        "requested_max_pages_per_dealer": 10,
+        "result_count": 0,
+        "dealer_discovery_count": None,
+        "dealer_deduped_count": None,
+        "dealerships_attempted": 0,
+        "dealerships_succeeded": 0,
+        "dealerships_failed": 0,
+        "error_count": 0,
+        "warning_count": 0,
+        "error_message": "failed",
+        "summary_json": {"ok": False},
+        "economics_json": {},
+        "started_at": "2026-04-09T00:00:00Z",
+        "completed_at": "2026-04-09T00:01:00Z",
+    }
+    query.execute.side_effect = [
+        RuntimeError("Could not find the 'listings_snapshot_json' column of 'scrape_runs' in the schema cache"),
+        SimpleNamespace(data=[]),
+        SimpleNamespace(data=[final_row]),
+    ]
+
+    client = MagicMock()
+    client.table.return_value = query
+    store.client = client
+
+    run = store.finalize_scrape_run(
+        "run_123",
+        status="failed",
+        result_count=0,
+        dealer_discovery_count=None,
+        dealer_deduped_count=None,
+        dealerships_attempted=0,
+        dealerships_succeeded=0,
+        dealerships_failed=0,
+        error_count=0,
+        warning_count=0,
+        error_message="failed",
+        summary={"ok": False},
+        economics={},
+        completed_at=1.0,
+        listings_snapshot=[{"vin": "123"}],
+    )
+
+    assert query.update.call_count == 2
+    first_update_payload = query.update.call_args_list[0].args[0]
+    second_update_payload = query.update.call_args_list[1].args[0]
+    assert "listings_snapshot_json" in first_update_payload
+    assert "listings_snapshot_json" not in second_update_payload
+    assert run.id == "run_123"
 
 
 def test_get_user_by_id_skips_legacy_non_uuid_session_ids() -> None:
