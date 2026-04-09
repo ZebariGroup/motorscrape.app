@@ -17,5 +17,14 @@
   "env": {
     "NEXT_PUBLIC_API_URL": "/server"
   },
-  "installCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=\"$HOME/.cargo/bin:$HOME/.local/bin:$PATH\" && npm install"
+  "builds": [
+    {
+      "src": "backend/main.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/next"
+    }
+  ]
 }
