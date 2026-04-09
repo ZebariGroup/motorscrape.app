@@ -62,7 +62,7 @@ export default function VehicleReportPage() {
       }
 
       const [detailsResult, reportResult] = await Promise.allSettled([
-        fetch(`/server/vehicles/marketcheck-details?${detailParams.toString()}`, {
+        fetch(resolveApiUrl(`/vehicles/marketcheck-details?${detailParams.toString()}`), {
           credentials: "include",
         }),
         fetch(`${resolveApiUrl(`/vehicles/premium-report?vin=${encodeURIComponent(vin)}`)}`, {
@@ -254,49 +254,57 @@ export default function VehicleReportPage() {
             <p className="mt-4 text-sm text-rose-600 dark:text-rose-400">{reportState.error}</p>
           ) : reportState.data ? (
             <>
-              <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
-                Found <span className="font-semibold text-zinc-900 dark:text-zinc-100">{reportState.data.history.length}</span> historical listing records for this VIN.
-              </p>
-              <div className="mt-6 space-y-4">
-                {reportState.data.history.map((entry, index) => (
-                  <article
-                    key={`${entry.id}-${index}`}
-                    className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-950/50"
-                  >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">
-                          {entry.seller_name || "Unknown dealer"}
-                        </h3>
-                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-                          {entry.first_seen_at_date ? <span>First seen: {new Date(entry.first_seen_at_date).toLocaleDateString()}</span> : null}
-                          {entry.last_seen_at_date ? <span>Last seen: {new Date(entry.last_seen_at_date).toLocaleDateString()}</span> : null}
-                          {entry.miles ? <span>Mileage: {entry.miles.toLocaleString()} mi</span> : null}
-                          {entry.city && entry.state ? <span>Location: {entry.city}, {entry.state}</span> : null}
-                        </div>
-                      </div>
-                      <div className="text-left sm:text-right">
-                        <p className="text-lg font-bold text-emerald-700 dark:text-emerald-400">
-                          {entry.price ? formatMoney(entry.price) : "Price not listed"}
-                        </p>
-                        {entry.inventory_type ? (
-                          <p className="text-sm text-zinc-500 dark:text-zinc-400">{entry.inventory_type}</p>
-                        ) : null}
-                      </div>
-                    </div>
-                    {entry.vdp_url ? (
-                      <a
-                        href={entry.vdp_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-3 inline-block text-sm font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400 print:hidden"
+              {reportState.data.history.length === 0 ? (
+                <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
+                  No historical MarketCheck listing records were available for this VIN.
+                </p>
+              ) : (
+                <>
+                  <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
+                    Found <span className="font-semibold text-zinc-900 dark:text-zinc-100">{reportState.data.history.length}</span> historical listing records for this VIN.
+                  </p>
+                  <div className="mt-6 space-y-4">
+                    {reportState.data.history.map((entry, index) => (
+                      <article
+                        key={`${entry.id}-${index}`}
+                        className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 dark:border-zinc-700 dark:bg-zinc-950/50"
                       >
-                        Open historical listing
-                      </a>
-                    ) : null}
-                  </article>
-                ))}
-              </div>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">
+                              {entry.seller_name || "Unknown dealer"}
+                            </h3>
+                            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+                              {entry.first_seen_at_date ? <span>First seen: {new Date(entry.first_seen_at_date).toLocaleDateString()}</span> : null}
+                              {entry.last_seen_at_date ? <span>Last seen: {new Date(entry.last_seen_at_date).toLocaleDateString()}</span> : null}
+                              {entry.miles ? <span>Mileage: {entry.miles.toLocaleString()} mi</span> : null}
+                              {entry.city && entry.state ? <span>Location: {entry.city}, {entry.state}</span> : null}
+                            </div>
+                          </div>
+                          <div className="text-left sm:text-right">
+                            <p className="text-lg font-bold text-emerald-700 dark:text-emerald-400">
+                              {entry.price ? formatMoney(entry.price) : "Price not listed"}
+                            </p>
+                            {entry.inventory_type ? (
+                              <p className="text-sm text-zinc-500 dark:text-zinc-400">{entry.inventory_type}</p>
+                            ) : null}
+                          </div>
+                        </div>
+                        {entry.vdp_url ? (
+                          <a
+                            href={entry.vdp_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-3 inline-block text-sm font-medium text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400 print:hidden"
+                          >
+                            Open historical listing
+                          </a>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           ) : null}
         </section>

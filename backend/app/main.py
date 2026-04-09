@@ -301,8 +301,13 @@ async def get_premium_report(
         
     report = await fetch_premium_report(vin)
     if report is None:
-        raise HTTPException(status_code=404, detail="No premium history found for this VIN.")
-        
+        return {
+            "ok": True,
+            "vin": vin,
+            "history": [],
+            "message": "No premium history found for this VIN.",
+        }
+
     return {"ok": True, "vin": vin, "history": report}
 
 
@@ -312,10 +317,31 @@ async def get_marketcheck_details(
     miles: int | None = Query(default=None, ge=1),
 ) -> dict:
     from app.services.marketcheck import fetch_marketcheck_details
+    from app.services.vin_decoder import _decode_vin
 
     details = await fetch_marketcheck_details(vin, miles)
     if details is None:
-        raise HTTPException(status_code=404, detail="No MarketCheck details found for this VIN.")
+        decoded = await _decode_vin(vin)
+        if decoded is None:
+            return {
+                "ok": True,
+                "vin": vin,
+                "details": {"vin": vin, "marketcheck_features": []},
+                "message": "No MarketCheck details found for this VIN.",
+            }
+        details = {
+            "vin": decoded.get("vin", vin),
+            "year": decoded.get("year"),
+            "make": decoded.get("make"),
+            "model": decoded.get("model"),
+            "marketcheck_trim": decoded.get("trim"),
+            "body_style": decoded.get("body_style"),
+            "transmission": decoded.get("transmission"),
+            "drivetrain": decoded.get("drivetrain"),
+            "fuel_type": decoded.get("fuel_type"),
+            "engine": decoded.get("engine"),
+            "marketcheck_features": [],
+        }
 
     return {"ok": True, "vin": details["vin"], "details": details}
 

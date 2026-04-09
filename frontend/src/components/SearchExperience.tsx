@@ -433,6 +433,7 @@ export function SearchExperience({
               dealerList={dealers.dealerList}
               running={search.running}
               loadingDealerCards={dealers.loadingDealerCards}
+              targetDealerCount={dealers.targetDealerCount}
               listingCountsByDealerKey={dealers.listingCountsByDealerKey}
               nowMs={dealers.nowMs}
               pinnedDealerWebsite={dealers.pinnedDealerWebsite}

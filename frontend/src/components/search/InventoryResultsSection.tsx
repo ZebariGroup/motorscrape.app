@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { resolveApiUrl } from "@/lib/apiBase";
 import { downloadCsv, listingsToCsv } from "@/lib/csvExport";
 import {
   formatMoney,
@@ -176,7 +177,9 @@ export function InventoryResultsSection({
       if (miles != null) {
         params.set("miles", String(miles));
       }
-      const res = await fetch(`/server/vehicles/marketcheck-details?${params.toString()}`);
+      const res = await fetch(resolveApiUrl(`/vehicles/marketcheck-details?${params.toString()}`), {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("Failed to fetch details");
       const data = (await res.json()) as MarketcheckDetailsResponse;
       setMarketcheckDetails((prev) => ({ ...prev, [vin]: data.details }));
@@ -285,8 +288,8 @@ export function InventoryResultsSection({
         running ? (
           <div className="space-y-4">
             <p className="text-sm text-zinc-500">
-              Still scanning dealers… New cards appear as each site is contacted. Matches show here
-              as soon as AI finishes a page.
+              Still scanning dealers... The full lineup stays visible while vehicle cards appear
+              here as soon as each site yields a page of matches.
             </p>
             {activeDealerSummary ? (
               <p className="text-xs text-zinc-500 dark:text-zinc-400">

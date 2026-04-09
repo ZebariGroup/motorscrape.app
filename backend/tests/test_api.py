@@ -6,9 +6,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.config import settings
+from app.api.deps import AccessContext, get_access_context
 from app.main import app
 from app.services.search_errors import SearchErrorInfo
 from app.api.search_quota import SearchQuotaDecision
+from app.tiers import limits_for_tier
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
@@ -55,6 +57,74 @@ def test_marketcheck_details_endpoint_is_public() -> None:
         },
     }
     mocked_fetch.assert_awaited_once_with("3MW89CW07T8F92425", 4058)
+
+
+def test_marketcheck_details_endpoint_falls_back_to_vin_decoder() -> None:
+    with (
+        patch("app.services.marketcheck.fetch_marketcheck_details", new=AsyncMock(return_value=None)),
+        patch(
+            "app.services.vin_decoder._decode_vin",
+            new=AsyncMock(
+                return_value={
+                    "vin": "1FMDE6BH1TLA86328",
+                    "year": 2026,
+                    "make": "Ford",
+                    "model": "Bronco",
+                    "trim": "Base",
+                    "body_style": "Utility",
+                    "drivetrain": "4WD",
+                    "engine": "2.3L 4-cyl",
+                    "transmission": "Automatic",
+                    "fuel_type": "Gasoline",
+                }
+            ),
+        ) as mocked_decode,
+    ):
+        response = client.get("/vehicles/marketcheck-details", params={"vin": "1FMDE6BH1TLA86328"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "vin": "1FMDE6BH1TLA86328",
+        "details": {
+            "vin": "1FMDE6BH1TLA86328",
+            "year": 2026,
+            "make": "Ford",
+            "model": "Bronco",
+            "marketcheck_trim": "Base",
+            "body_style": "Utility",
+            "transmission": "Automatic",
+            "drivetrain": "4WD",
+            "fuel_type": "Gasoline",
+            "engine": "2.3L 4-cyl",
+            "marketcheck_features": [],
+        },
+    }
+    mocked_decode.assert_awaited_once_with("1FMDE6BH1TLA86328")
+
+
+def test_premium_report_returns_empty_history_when_marketcheck_has_none() -> None:
+    app.dependency_overrides[get_access_context] = lambda: AccessContext(
+        tier="premium",
+        limits=limits_for_tier("premium"),
+        user_id="user-1",
+        email="user@example.com",
+        anon_key=None,
+        is_admin=False,
+    )
+    try:
+        with patch("app.services.marketcheck.fetch_premium_report", new=AsyncMock(return_value=None)):
+            response = client.get("/vehicles/premium-report", params={"vin": "1FMDE6BH1TLA86328"})
+    finally:
+        app.dependency_overrides.pop(get_access_context, None)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "vin": "1FMDE6BH1TLA86328",
+        "history": [],
+        "message": "No premium history found for this VIN.",
+    }
 
 
 def test_search_stream_requires_location() -> None:
