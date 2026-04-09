@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from typing import Any
@@ -14,8 +15,8 @@ def sse_pack(event_type: str, data: dict[str, Any]) -> str:
 
 
 def sse_keepalive_ping() -> str:
-    """SSE comment line — ignored by EventSource, but resets idle timers on proxies and CDNs."""
-    return ": ping\n\n"
+    """Send a real SSE event so proxy layers flush it during long scrape gaps."""
+    return sse_pack("ping", {"ts": int(time.time())})
 
 
 async def stream_with_keepalive(

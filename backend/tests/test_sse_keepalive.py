@@ -8,7 +8,7 @@ from app.sse import sse_keepalive_ping, stream_with_keepalive
 
 
 def test_sse_keepalive_ping_format() -> None:
-    assert sse_keepalive_ping() == ": ping\n\n"
+    assert sse_keepalive_ping().startswith("event: ping\ndata: ")
 
 
 @pytest.mark.asyncio
@@ -23,7 +23,7 @@ async def test_stream_with_keepalive_inserts_pings_between_slow_chunks() -> None
         out.append(chunk)
 
     assert "event: a" in "".join(out)
-    assert ": ping\n\n" in "".join(out)
+    assert "event: ping\ndata: " in "".join(out)
     assert "event: b" in "".join(out)
 
 
