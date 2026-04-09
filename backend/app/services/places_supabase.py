@@ -74,7 +74,8 @@ def check_supabase_cache(
                     address=row["address"],
                     website=row["website"] or "",
                     lat=row.get("lat"),
-                    lng=row.get("lng")
+                    lng=row.get("lng"),
+                    discovery_source="system_db",
                 )
             )
         return results or None

@@ -84,6 +84,8 @@ export type DealershipProgress = {
   reported_page_size?: number;
   pagination_source?: string;
   from_cache?: boolean;
+  /** Where the dealer row came from: Google Places vs system DB (Supabase). */
+  discovery_source?: "google_places" | "system_db";
   /** Client-only: when the current status phase started (ms since epoch). */
   phaseSince?: number;
 };

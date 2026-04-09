@@ -2056,6 +2056,7 @@ async def stream_search(
             "info": queued_info,
             "platform_id": platform_entry.platform_id if platform_entry is not None else None,
             "strategy_used": platform_entry.extraction_mode if platform_entry is not None else None,
+            "discovery_source": dealer.discovery_source,
         }
 
     seed_query_limit = min(3, max(1, int(settings.places_text_query_variant_cap or 1)))
@@ -2159,6 +2160,15 @@ async def stream_search(
         async def _emit(raw: str) -> None:
             await sse_stream_queue.put(raw)
 
+        discovery_src = d.discovery_source
+
+        def _dealer_discovery_fields() -> dict[str, Any]:
+            return {"discovery_source": discovery_src}
+
+        async def _emit_dealership(payload: dict[str, Any]) -> None:
+            merged = {**_dealer_discovery_fields(), **payload}
+            await _emit(sse_pack("dealership", merged))
+
         dealer_started_at = time.perf_counter()
         website = prefer_https_website_url((d.website or "").strip())
         dealer_zip = _extract_us_zip(d.address or "") or _extract_us_zip(location)
@@ -2247,18 +2257,15 @@ async def stream_search(
             for retry_url in _oneaudi_all_inventory_urls(primary_url):
                 if retry_url.rstrip("/") == primary_url.rstrip("/"):
                     continue
-                await _emit(
-                    sse_pack(
-                        "dealership",
-                        {
-                            "index": index,
-                            "total": len(dealers),
-                            "name": d.name,
-                            "website": website,
-                            "current_url": retry_url,
-                            "status": "scraping",
-                        },
-                    )
+                await _emit_dealership(
+                    {
+                        "index": index,
+                        "total": len(dealers),
+                        "name": d.name,
+                        "website": website,
+                        "current_url": retry_url,
+                        "status": "scraping",
+                    },
                 )
                 try:
                     retry_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
@@ -2347,19 +2354,16 @@ async def stream_search(
                         "error_code": error_code,
                     },
                 )
-            await _emit(
-                sse_pack(
-                    "dealership",
-                    {
-                        "index": index,
-                        "total": len(dealers),
-                        "name": d.name,
-                        "website": website,
-                        **({"current_url": current_url} if current_url else {}),
-                        "status": "error",
-                        "error": message,
-                    },
-                )
+            await _emit_dealership(
+                {
+                    "index": index,
+                    "total": len(dealers),
+                    "name": d.name,
+                    "website": website,
+                    **({"current_url": current_url} if current_url else {}),
+                    "status": "error",
+                    "error": message,
+                },
             )
 
         async def _record_dealer_score(*, used_cache: bool = False) -> None:
@@ -2379,19 +2383,16 @@ async def stream_search(
             )
             score_recorded = True
 
-        await _emit(
-            sse_pack(
-                "dealership",
-                {
-                    "index": index,
-                    "total": len(dealers),
-                    "name": d.name,
-                    "website": website,
-                    "address": d.address,
-                    "status": "scraping",
-                    "info": "Contacting the dealership website…",
-                },
-            )
+        await _emit_dealership(
+            {
+                "index": index,
+                "total": len(dealers),
+                "name": d.name,
+                "website": website,
+                "address": d.address,
+                "status": "scraping",
+                "info": "Contacting the dealership website…",
+            },
         )
         if True:
             if inv_cache_key in warmed_inventory_cache:
@@ -2423,24 +2424,21 @@ async def stream_search(
                         )
                     )
                 if not cached_is_stale:
-                    await _emit(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "status": "done",
-                                "listings_found": total_cached,
-                                "fetch_methods": fetch_methods_used,
-                                "platform_id": cached_inv.get("platform_id"),
-                                "platform_source": "cache",
-                                "strategy_used": "inventory_cache",
-                                "from_cache": True,
-                                "info": "Loaded from warm inventory cache.",
-                            },
-                        )
+                    await _emit_dealership(
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": d.name,
+                            "website": website,
+                            "status": "done",
+                            "listings_found": total_cached,
+                            "fetch_methods": fetch_methods_used,
+                            "platform_id": cached_inv.get("platform_id"),
+                            "platform_source": "cache",
+                            "strategy_used": "inventory_cache",
+                            "from_cache": True,
+                            "info": "Loaded from warm inventory cache.",
+                        },
                     )
                     async with metrics_lock:
                         completed_dealer_count += 1
@@ -2468,24 +2466,21 @@ async def stream_search(
                     dict(item) for item in cached_listings if isinstance(item, dict)
                 ]
                 total_vehicles = total_cached
-                await _emit(
-                    sse_pack(
-                        "dealership",
-                        {
-                            "index": index,
-                            "total": len(dealers),
-                            "name": d.name,
-                            "website": website,
-                            "status": "scraping",
-                            "listings_found": total_cached,
-                            "fetch_methods": fetch_methods_used,
-                            "platform_id": cached_inv.get("platform_id"),
-                            "platform_source": "cache",
-                            "strategy_used": "inventory_cache",
-                            "from_cache": True,
-                            "info": "Loaded from stale inventory cache while refreshing dealership data.",
-                        },
-                    )
+                await _emit_dealership(
+                    {
+                        "index": index,
+                        "total": len(dealers),
+                        "name": d.name,
+                        "website": website,
+                        "status": "scraping",
+                        "listings_found": total_cached,
+                        "fetch_methods": fetch_methods_used,
+                        "platform_id": cached_inv.get("platform_id"),
+                        "platform_source": "cache",
+                        "strategy_used": "inventory_cache",
+                        "from_cache": True,
+                        "info": "Loaded from stale inventory cache while refreshing dealership data.",
+                    },
                 )
 
             # 1. Try a known inventory route first when platform cache already has a usable hint.
@@ -2543,23 +2538,20 @@ async def stream_search(
                 for candidate_inventory_url in candidate_inventory_urls:
                     if candidate_inventory_url.rstrip("/") == base_url.rstrip("/"):
                         continue
-                    await _emit(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "current_url": candidate_inventory_url,
-                                "status": "scraping",
-                                "info": (
-                                    "Using a known inventory route."
-                                    if platform_entry is not None and platform_entry.inventory_url_hint
-                                    else "Trying a platform-specific inventory route."
-                                ),
-                            },
-                        )
+                    await _emit_dealership(
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": d.name,
+                            "website": website,
+                            "current_url": candidate_inventory_url,
+                            "status": "scraping",
+                            "info": (
+                                "Using a known inventory route."
+                                if platform_entry is not None and platform_entry.inventory_url_hint
+                                else "Trying a platform-specific inventory route."
+                            ),
+                        },
                     )
                     try:
                         prefetched_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
@@ -2642,18 +2634,15 @@ async def stream_search(
                     for guess_inv in guess_candidates:
                         if guess_inv.rstrip("/") == homepage_norm:
                             continue
-                        await _emit(
-                            sse_pack(
-                                "dealership",
-                                {
-                                    "index": index,
-                                    "total": len(dealers),
-                                    "name": d.name,
-                                    "website": website,
-                                    "current_url": guess_inv,
-                                    "status": "scraping",
-                                },
-                            )
+                        await _emit_dealership(
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "current_url": guess_inv,
+                                "status": "scraping",
+                            },
                         )
                         try:
                             rescue_timeout = _phase_timeout(
@@ -2707,18 +2696,15 @@ async def stream_search(
                     for guess_inv in guess_candidates:
                         if guess_inv.rstrip("/") == homepage_norm:
                             continue
-                        await _emit(
-                            sse_pack(
-                                "dealership",
-                                {
-                                    "index": index,
-                                    "total": len(dealers),
-                                    "name": d.name,
-                                    "website": website,
-                                    "current_url": guess_inv,
-                                    "status": "scraping",
-                                },
-                            )
+                        await _emit_dealership(
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "current_url": guess_inv,
+                                "status": "scraping",
+                            },
                         )
                         try:
                             rescue_timeout = _phase_timeout(
@@ -2835,19 +2821,16 @@ async def stream_search(
                 ):
                     if speculative_url.rstrip("/") == prefer_https_website_url(base_url).rstrip("/"):
                         continue
-                    await _emit(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "current_url": speculative_url,
-                                "status": "scraping",
-                                "info": "Trying a likely inventory path for a smaller dealer site.",
-                            },
-                        )
+                    await _emit_dealership(
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": d.name,
+                            "website": website,
+                            "current_url": speculative_url,
+                            "status": "scraping",
+                            "info": "Trying a likely inventory path for a smaller dealer site.",
+                        },
                     )
                     try:
                         speculative_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
@@ -2885,18 +2868,15 @@ async def stream_search(
 
             # If inventory is on a different URL, fetch it before first parse.
             if seed_inventory_url is None and inv_url and inv_url != base_url:
-                await _emit(
-                    sse_pack(
-                        "dealership",
-                        {
-                            "index": index,
-                            "total": len(dealers),
-                            "name": d.name,
-                            "website": website,
-                            "current_url": inv_url,
-                            "status": "scraping",
-                        },
-                    )
+                await _emit_dealership(
+                    {
+                        "index": index,
+                        "total": len(dealers),
+                        "name": d.name,
+                        "website": website,
+                        "current_url": inv_url,
+                        "status": "scraping",
+                    },
                 )
                 try:
                     inv_timeout = _phase_timeout(
@@ -2933,18 +2913,15 @@ async def stream_search(
                         and inventory_retry_url
                         and inventory_retry_url.rstrip("/") != (inv_url or "").rstrip("/")
                     ):
-                        await _emit(
-                            sse_pack(
-                                "dealership",
-                                {
-                                    "index": index,
-                                    "total": len(dealers),
-                                    "name": d.name,
-                                    "website": website,
-                                    "current_url": inventory_retry_url,
-                                    "status": "scraping",
-                                },
-                            )
+                        await _emit_dealership(
+                            {
+                                "index": index,
+                                "total": len(dealers),
+                                "name": d.name,
+                                "website": website,
+                                "current_url": inventory_retry_url,
+                                "status": "scraping",
+                            },
                         )
                         try:
                             retry_timeout = _phase_timeout(
@@ -3001,18 +2978,15 @@ async def stream_search(
                             fallback_zip=dealer_zip,
                             fallback_range_miles=radius_miles,
                         ):
-                            await _emit(
-                                sse_pack(
-                                    "dealership",
-                                    {
-                                        "index": index,
-                                        "total": len(dealers),
-                                        "name": d.name,
-                                        "website": website,
-                                        "current_url": retry_url,
-                                        "status": "scraping",
-                                    },
-                                )
+                            await _emit_dealership(
+                                {
+                                    "index": index,
+                                    "total": len(dealers),
+                                    "name": d.name,
+                                    "website": website,
+                                    "current_url": retry_url,
+                                    "status": "scraping",
+                                },
                             )
                             try:
                                 retry_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
@@ -3079,18 +3053,15 @@ async def stream_search(
                 if guess_inv and guess_inv.rstrip("/") != prefer_https_website_url(base_url).rstrip(
                     "/"
                 ):
-                    await _emit(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "current_url": guess_inv,
-                                "status": "scraping",
-                            },
-                        )
+                    await _emit_dealership(
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": d.name,
+                            "website": website,
+                            "current_url": guess_inv,
+                            "status": "scraping",
+                        },
                     )
                     try:
                         rescue_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
@@ -3157,18 +3128,15 @@ async def stream_search(
                             vehicle_condition=vehicle_condition,
                         )
                         if rendered_inv_url.rstrip("/") != prefer_https_website_url(base_url).rstrip("/"):
-                            await _emit(
-                                sse_pack(
-                                    "dealership",
-                                    {
-                                        "index": index,
-                                        "total": len(dealers),
-                                        "name": d.name,
-                                        "website": website,
-                                        "current_url": rendered_inv_url,
-                                        "status": "scraping",
-                                    },
-                                )
+                            await _emit_dealership(
+                                {
+                                    "index": index,
+                                    "total": len(dealers),
+                                    "name": d.name,
+                                    "website": website,
+                                    "current_url": rendered_inv_url,
+                                    "status": "scraping",
+                                },
                             )
                             current_html, current_method = await asyncio.wait_for(
                                 _fetch(
@@ -3377,18 +3345,15 @@ async def stream_search(
                 if current_url_scoped:
                     scoped_inventory_url = True
                 if pages_scraped > 0:
-                    await _emit(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "current_url": current_url,
-                                "status": "scraping",
-                            },
-                        )
+                    await _emit_dealership(
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": d.name,
+                            "website": website,
+                            "current_url": current_url,
+                            "status": "scraping",
+                        },
                     )
                     try:
                         page_timeout = _phase_timeout(fetch_timeout)
@@ -3502,23 +3467,20 @@ async def stream_search(
                     # detection — keep subsequent pages on cheap direct fetch when it already worked.
                     route.requires_render = False
 
-                await _emit(
-                    sse_pack(
-                        "dealership",
-                        {
-                            "index": index,
-                            "total": len(dealers),
-                            "name": d.name,
-                            "website": website,
-                            "current_url": current_url,
-                            "status": "parsing",
-                            "fetch_method": current_method,
-                            "platform_id": route.platform_id if route else None,
-                            "platform_source": route.cache_status if route else "none",
-                            "strategy_used": route.extraction_mode if route else "generic",
-                            "extraction": extraction_mode or "llm",
-                        },
-                    )
+                await _emit_dealership(
+                    {
+                        "index": index,
+                        "total": len(dealers),
+                        "name": d.name,
+                        "website": website,
+                        "current_url": current_url,
+                        "status": "parsing",
+                        "fetch_method": current_method,
+                        "platform_id": route.platform_id if route else None,
+                        "platform_source": route.cache_status if route else "none",
+                        "strategy_used": route.extraction_mode if route else "generic",
+                        "extraction": extraction_mode or "llm",
+                    },
                 )
                 if ext_result is None:
                     if _dealer_budget_relief_active(score_card):
@@ -3530,19 +3492,16 @@ async def stream_search(
                         llm_timeout = _phase_timeout(parse_timeout)
                         if llm_timeout is None:
                             if pages_scraped == 0:
-                                await _emit(
-                                    sse_pack(
-                                        "dealership",
-                                        {
-                                            "index": index,
-                                            "total": len(dealers),
-                                            "name": d.name,
-                                            "website": website,
-                                            "current_url": current_url,
-                                            "status": "error",
-                                            "error": "Timed out while processing this dealership. Skipping to keep search moving.",
-                                        },
-                                    )
+                                await _emit_dealership(
+                                    {
+                                        "index": index,
+                                        "total": len(dealers),
+                                        "name": d.name,
+                                        "website": website,
+                                        "current_url": current_url,
+                                        "status": "error",
+                                        "error": "Timed out while processing this dealership. Skipping to keep search moving.",
+                                    },
                                 )
                             break
                         ext_result = await asyncio.wait_for(
@@ -3797,20 +3756,17 @@ async def stream_search(
                     current_method,
                 )
                 if page_progress_payload:
-                    await _emit(
-                        sse_pack(
-                            "dealership",
-                            {
-                                "index": index,
-                                "total": len(dealers),
-                                "name": d.name,
-                                "website": website,
-                                "current_url": current_url,
-                                "status": "parsing",
-                                "listings_found": total_vehicles + len(deduped_filtered),
-                                **page_progress_payload,
-                            },
-                        )
+                    await _emit_dealership(
+                        {
+                            "index": index,
+                            "total": len(dealers),
+                            "name": d.name,
+                            "website": website,
+                            "current_url": current_url,
+                            "status": "parsing",
+                            "listings_found": total_vehicles + len(deduped_filtered),
+                            **page_progress_payload,
+                        },
                     )
                 suspicious_dealer_dot_com_pagination = bool(
                     route
@@ -4079,7 +4035,7 @@ async def stream_search(
                         "platform_id": route.platform_id if route else None,
                     },
                 )
-            await _emit(sse_pack("dealership", done_payload))
+            await _emit_dealership(done_payload)
             async with metrics_lock:
                 completed_dealer_count += 1
                 if total_vehicles > 0:
@@ -4158,6 +4114,7 @@ async def stream_search(
                                     "Timed out while processing this dealership. "
                                     "Skipping to keep search moving."
                                 ),
+                                "discovery_source": d.discovery_source,
                             },
                         )
                     )
@@ -4234,6 +4191,7 @@ async def stream_search(
                             "status": "done",
                             "listings_found": 0,
                             "info": "Skipped low-priority dealership after search reached budget targets.",
+                            "discovery_source": dealer.discovery_source,
                         },
                     )
                 )
