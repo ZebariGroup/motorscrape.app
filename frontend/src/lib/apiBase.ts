@@ -8,7 +8,7 @@ export function getApiBaseUrl(): string {
   if (url) {
     return url.replace(/\/$/, "");
   }
-  return "http://localhost:8000";
+  return "/server";
 }
 
 /** Full URL for client-side requests (fetch / EventSource). */

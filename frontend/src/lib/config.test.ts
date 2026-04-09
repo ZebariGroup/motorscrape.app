@@ -13,9 +13,9 @@ describe("getApiBaseUrl", () => {
     }
   });
 
-  it("uses localhost when NEXT_PUBLIC_API_URL is unset", () => {
+  it("uses same-origin server prefix when NEXT_PUBLIC_API_URL is unset", () => {
     delete process.env.NEXT_PUBLIC_API_URL;
-    expect(getApiBaseUrl()).toBe("http://localhost:8000");
+    expect(getApiBaseUrl()).toBe("/server");
   });
 
   it("strips trailing slash from configured base", () => {

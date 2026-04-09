@@ -10,9 +10,9 @@ describe("apiBase", () => {
     else process.env.NEXT_PUBLIC_API_URL = prev;
   });
 
-  it("getApiBaseUrl falls back to localhost when unset", () => {
+  it("getApiBaseUrl falls back to same-origin server prefix when unset", () => {
     delete process.env.NEXT_PUBLIC_API_URL;
-    expect(getApiBaseUrl()).toBe("http://localhost:8000");
+    expect(getApiBaseUrl()).toBe("/server");
   });
 
   it("resolveApiUrl joins absolute base", () => {
