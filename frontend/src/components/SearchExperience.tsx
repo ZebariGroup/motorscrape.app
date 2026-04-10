@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useSearchStream } from "@/hooks/useSearchStream";
 import { useAccessSummary } from "@/hooks/useAccessSummary";
+import { AppSidebar } from "@/components/AppSidebar";
 import { DealerProgressList } from "@/components/search/DealerProgressList";
 import { InventoryResultsSection } from "@/components/search/InventoryResultsSection";
 import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
@@ -318,145 +319,226 @@ export function SearchExperience({
 
   return (
     <>
+      {/* Mobile-only top bar */}
       <SiteHeader
         access={access}
         marketRegion={form.marketRegion}
         onMarketRegionChange={form.setMarketRegion}
+        className="lg:hidden"
       />
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-4 pb-20 sm:gap-6 sm:px-6 sm:py-6 sm:pb-10">
-        <header>
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl lg:text-4xl dark:text-zinc-50">
-              Local motor vehicle inventory, one place
-            </h1>
-            <div className="flex max-w-full flex-wrap items-center justify-center gap-1 self-start rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm sm:justify-start sm:gap-2 dark:border-zinc-800 dark:bg-zinc-950">
-              {CATEGORY_BUTTONS.map((category) => {
-                const selected = form.vehicleCategory === category.value;
-                return (
-                  <button
-                    key={category.value}
-                    type="button"
-                    onClick={() => handleVehicleCategoryChange(category.value)}
-                    className={`inline-flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-xs font-medium transition sm:gap-2 sm:px-3 sm:py-2 sm:text-sm ${
-                      selected
-                        ? "bg-emerald-600 text-white shadow-sm"
-                        : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
-                    }`}
-                    aria-pressed={selected}
-                    title={vehicleCategoryLabel(category.value)}
-                  >
-                    {category.icon}
-                    <span>{category.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </header>
+
+      <div className="flex min-h-screen w-full">
+        {/* Desktop sidebar */}
+        <AppSidebar
+          access={access}
+          marketRegion={form.marketRegion}
+          onMarketRegionChange={form.setMarketRegion}
+          vehicleCategory={form.vehicleCategory}
+          onVehicleCategoryChange={handleVehicleCategoryChange}
+          applySavedSearchFromHistory={search.applySavedSearchFromHistory}
+          applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
+          filters={{
+            filtersExpanded: filters.filtersExpanded,
+            setFiltersExpanded: filters.setFiltersExpanded,
+            activeResultFilterCount: filters.activeResultFilterCount,
+            yearFilter: filters.yearFilter,
+            setYearFilter: filters.setYearFilter,
+            yearOptions: filters.yearOptions,
+            bodyStyleFilter: filters.bodyStyleFilter,
+            setBodyStyleFilter: filters.setBodyStyleFilter,
+            bodyStyleOptions: filters.bodyStyleOptions,
+            colorFilter: filters.colorFilter,
+            setColorFilter: filters.setColorFilter,
+            colorOptions: filters.colorOptions,
+            priceBounds: filters.priceBounds,
+            effectivePriceMin: filters.effectivePriceMin,
+            effectivePriceMax: filters.effectivePriceMax,
+            isPriceFilterActive: filters.isPriceFilterActive,
+            setPriceFilterMin: filters.setPriceFilterMin,
+            setPriceFilterMax: filters.setPriceFilterMax,
+            mileageBounds: filters.mileageBounds,
+            effectiveMileageMin: filters.effectiveMileageMin,
+            effectiveMileageMax: filters.effectiveMileageMax,
+            isMileageFilterActive: filters.isMileageFilterActive,
+            setMileageFilterMin: filters.setMileageFilterMin,
+            setMileageFilterMax: filters.setMileageFilterMax,
+            transmissionFilter: filters.transmissionFilter,
+            setTransmissionFilter: filters.setTransmissionFilter,
+            transmissionOptions: filters.transmissionOptions,
+            drivetrainFilter: filters.drivetrainFilter,
+            setDrivetrainFilter: filters.setDrivetrainFilter,
+            drivetrainOptions: filters.drivetrainOptions,
+            fuelTypeFilter: filters.fuelTypeFilter,
+            setFuelTypeFilter: filters.setFuelTypeFilter,
+            fuelTypeOptions: filters.fuelTypeOptions,
+            clearFilters: filters.clearFilters,
+          }}
+          alertCriteria={alertCriteria}
+          canSearch={canSearch}
+          onApplySavedSearch={applySavedSearchCriteria}
+          dealers={{
+            dealerList: dealers.dealerList,
+            running: search.running,
+            loadingDealerCards: dealers.loadingDealerCards,
+            targetDealerCount: dealers.targetDealerCount,
+            listingCountsByDealerKey: dealers.listingCountsByDealerKey,
+            nowMs: dealers.nowMs,
+            pinnedDealerWebsite: dealers.pinnedDealerWebsite,
+            onTogglePinnedDealer: dealers.togglePinnedDealer,
+          }}
+        />
+
+        {/* Main content */}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-col gap-4 px-4 py-4 pb-20 sm:gap-6 sm:px-6 sm:py-6 sm:pb-10">
+            {/* Page header (mobile shows category chips; desktop hides them since sidebar has them) */}
+            <header>
+              <div className="flex flex-col gap-3">
+                <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl dark:text-zinc-50">
+                  Local motor vehicle inventory, one place
+                </h1>
+                {/* Category chips — mobile only (sidebar handles desktop) */}
+                <div className="flex max-w-full flex-wrap items-center gap-1 self-start rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm sm:gap-2 lg:hidden dark:border-zinc-800 dark:bg-zinc-950">
+                  {CATEGORY_BUTTONS.map((category) => {
+                    const selected = form.vehicleCategory === category.value;
+                    return (
+                      <button
+                        key={category.value}
+                        type="button"
+                        onClick={() => handleVehicleCategoryChange(category.value)}
+                        className={`inline-flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-xs font-medium transition sm:gap-2 sm:px-3 sm:py-2 sm:text-sm ${
+                          selected
+                            ? "bg-emerald-600 text-white shadow-sm"
+                            : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+                        }`}
+                        aria-pressed={selected}
+                        title={vehicleCategoryLabel(category.value)}
+                      >
+                        {category.icon}
+                        <span>{category.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </header>
 
             <SearchFormSection
               running={search.running}
               reconnecting={search.reconnecting}
               location={form.location}
-          setLocation={form.setLocation}
-          vehicleCategory={form.vehicleCategory}
-          make={form.make}
-          setMake={form.setMake}
-          model={form.model}
-          setModel={form.setModel}
-          modelOptions={form.modelOptions}
-          usesCatalog={form.usesCatalog}
-          vehicleCondition={form.vehicleCondition}
-          setVehicleCondition={form.setVehicleCondition}
-          radiusMiles={form.radiusMiles}
-          setRadiusMiles={form.setRadiusMiles}
-          inventoryScope={form.inventoryScope}
-          setInventoryScope={form.setInventoryScope}
-          preferSmallDealers={form.preferSmallDealers}
-          setPreferSmallDealers={form.setPreferSmallDealers}
-          maxDealerships={form.maxDealerships}
-          setMaxDealerships={form.setMaxDealerships}
-          onSearch={search.startSearch}
-          onStop={search.stopStream}
-          canSearch={canSearch}
-          searchReadinessHint={searchReadinessHint}
-          errors={visibleErrors}
-          discoveredDealerPercent={dealers.discoveredDealerPercent}
-          completedDealerPercent={dealers.completedDealerPercent}
-          dealerListLength={dealers.dealerList.length}
-          targetDealerCount={dealers.targetDealerCount}
-          doneDealerCount={dealers.doneDealerCount}
-          listingsCount={listings.listings.length}
-          maxDealersCap={maxDealersCap}
-          maxRadiusMilesCap={maxRadiusCap}
-          inventoryScopePremium={scopePremium}
-          allowAnyModel={allowAnyModel}
-          applySavedSearchFromHistory={search.applySavedSearchFromHistory}
-          applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
-          marketRegion={form.marketRegion}
-        />
-        <div className="grid gap-8 lg:grid-cols-3">
-          <section
-            className={`lg:col-span-1${hasInventoryResults ? " order-2 lg:order-none" : ""}`}
-          >
-            <ResultFiltersPanel
-              filtersExpanded={filters.filtersExpanded}
-              setFiltersExpanded={filters.setFiltersExpanded}
-              activeResultFilterCount={filters.activeResultFilterCount}
-              yearFilter={filters.yearFilter}
-              setYearFilter={filters.setYearFilter}
-              yearOptions={filters.yearOptions}
-              bodyStyleFilter={filters.bodyStyleFilter}
-              setBodyStyleFilter={filters.setBodyStyleFilter}
-              bodyStyleOptions={filters.bodyStyleOptions}
+              setLocation={form.setLocation}
               vehicleCategory={form.vehicleCategory}
-              colorFilter={filters.colorFilter}
-              setColorFilter={filters.setColorFilter}
-              colorOptions={filters.colorOptions}
-              priceBounds={filters.priceBounds}
-              effectivePriceMin={filters.effectivePriceMin}
-              effectivePriceMax={filters.effectivePriceMax}
-              isPriceFilterActive={filters.isPriceFilterActive}
-              setPriceFilterMin={filters.setPriceFilterMin}
-              setPriceFilterMax={filters.setPriceFilterMax}
-              onClearFilters={filters.clearFilters}
-            />
-            <SavesAndAlertsPanel
-              access={access}
-              criteria={alertCriteria}
+              make={form.make}
+              setMake={form.setMake}
+              model={form.model}
+              setModel={form.setModel}
+              modelOptions={form.modelOptions}
+              usesCatalog={form.usesCatalog}
+              vehicleCondition={form.vehicleCondition}
+              setVehicleCondition={form.setVehicleCondition}
+              radiusMiles={form.radiusMiles}
+              setRadiusMiles={form.setRadiusMiles}
+              inventoryScope={form.inventoryScope}
+              setInventoryScope={form.setInventoryScope}
+              preferSmallDealers={form.preferSmallDealers}
+              setPreferSmallDealers={form.setPreferSmallDealers}
+              maxDealerships={form.maxDealerships}
+              setMaxDealerships={form.setMaxDealerships}
+              onSearch={search.startSearch}
+              onStop={search.stopStream}
               canSearch={canSearch}
-              onApplySavedSearch={applySavedSearchCriteria}
-            />
-            <DealerProgressList
-              dealerList={dealers.dealerList}
-              running={search.running}
-              loadingDealerCards={dealers.loadingDealerCards}
+              searchReadinessHint={searchReadinessHint}
+              errors={visibleErrors}
+              discoveredDealerPercent={dealers.discoveredDealerPercent}
+              completedDealerPercent={dealers.completedDealerPercent}
+              dealerListLength={dealers.dealerList.length}
               targetDealerCount={dealers.targetDealerCount}
-              listingCountsByDealerKey={dealers.listingCountsByDealerKey}
-              nowMs={dealers.nowMs}
-              pinnedDealerWebsite={dealers.pinnedDealerWebsite}
-              onTogglePinnedDealer={dealers.togglePinnedDealer}
+              doneDealerCount={dealers.doneDealerCount}
+              listingsCount={listings.listings.length}
+              maxDealersCap={maxDealersCap}
+              maxRadiusMilesCap={maxRadiusCap}
+              inventoryScopePremium={scopePremium}
+              allowAnyModel={allowAnyModel}
+              applySavedSearchFromHistory={search.applySavedSearchFromHistory}
+              applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
+              marketRegion={form.marketRegion}
             />
-          </section>
 
-          <InventoryResultsSection
-            listings={listings.listings}
-            filteredListings={listings.filteredListings}
-            running={search.running}
-            loadingInventoryCards={listings.loadingInventoryCards}
-            sortOrder={listings.sortOrder}
-            onSortOrderChange={listings.setSortOrder}
-            vehicleCategory={form.vehicleCategory}
-            allowCsvExport={csvOk}
-            activeDealerSummary={dealers.activeDealerSummary}
-            activeDealerCount={dealers.activeDealerCount}
-            queuedDealerCount={dealers.queuedDealerCount}
-            savedResultsNotice={savedResultsNotice}
-            isAnonymous={isAnonymous}
-            onSignupClick={() => router.push("/signup")}
-            className={hasInventoryResults ? "order-1 lg:order-none" : undefined}
-          />
-        </div>
+            {/* Mobile-only: filters, saves & alerts, dealer progress */}
+            <div className="lg:hidden">
+              <ResultFiltersPanel
+                filtersExpanded={filters.filtersExpanded}
+                setFiltersExpanded={filters.setFiltersExpanded}
+                activeResultFilterCount={filters.activeResultFilterCount}
+                yearFilter={filters.yearFilter}
+                setYearFilter={filters.setYearFilter}
+                yearOptions={filters.yearOptions}
+                bodyStyleFilter={filters.bodyStyleFilter}
+                setBodyStyleFilter={filters.setBodyStyleFilter}
+                bodyStyleOptions={filters.bodyStyleOptions}
+                vehicleCategory={form.vehicleCategory}
+                colorFilter={filters.colorFilter}
+                setColorFilter={filters.setColorFilter}
+                colorOptions={filters.colorOptions}
+                priceBounds={filters.priceBounds}
+                effectivePriceMin={filters.effectivePriceMin}
+                effectivePriceMax={filters.effectivePriceMax}
+                isPriceFilterActive={filters.isPriceFilterActive}
+                setPriceFilterMin={filters.setPriceFilterMin}
+                setPriceFilterMax={filters.setPriceFilterMax}
+                mileageBounds={filters.mileageBounds}
+                effectiveMileageMin={filters.effectiveMileageMin}
+                effectiveMileageMax={filters.effectiveMileageMax}
+                isMileageFilterActive={filters.isMileageFilterActive}
+                setMileageFilterMin={filters.setMileageFilterMin}
+                setMileageFilterMax={filters.setMileageFilterMax}
+                transmissionFilter={filters.transmissionFilter}
+                setTransmissionFilter={filters.setTransmissionFilter}
+                transmissionOptions={filters.transmissionOptions}
+                drivetrainFilter={filters.drivetrainFilter}
+                setDrivetrainFilter={filters.setDrivetrainFilter}
+                drivetrainOptions={filters.drivetrainOptions}
+                fuelTypeFilter={filters.fuelTypeFilter}
+                setFuelTypeFilter={filters.setFuelTypeFilter}
+                fuelTypeOptions={filters.fuelTypeOptions}
+                onClearFilters={filters.clearFilters}
+              />
+              <SavesAndAlertsPanel
+                access={access}
+                criteria={alertCriteria}
+                canSearch={canSearch}
+                onApplySavedSearch={applySavedSearchCriteria}
+              />
+              <DealerProgressList
+                dealerList={dealers.dealerList}
+                running={search.running}
+                loadingDealerCards={dealers.loadingDealerCards}
+                targetDealerCount={dealers.targetDealerCount}
+                listingCountsByDealerKey={dealers.listingCountsByDealerKey}
+                nowMs={dealers.nowMs}
+                pinnedDealerWebsite={dealers.pinnedDealerWebsite}
+                onTogglePinnedDealer={dealers.togglePinnedDealer}
+              />
+            </div>
+
+            <InventoryResultsSection
+              listings={listings.listings}
+              filteredListings={listings.filteredListings}
+              running={search.running}
+              loadingInventoryCards={listings.loadingInventoryCards}
+              sortOrder={listings.sortOrder}
+              onSortOrderChange={listings.setSortOrder}
+              vehicleCategory={form.vehicleCategory}
+              allowCsvExport={csvOk}
+              activeDealerSummary={dealers.activeDealerSummary}
+              activeDealerCount={dealers.activeDealerCount}
+              queuedDealerCount={dealers.queuedDealerCount}
+              savedResultsNotice={savedResultsNotice}
+              isAnonymous={isAnonymous}
+              onSignupClick={() => router.push("/signup")}
+            />
+          </div>
 
         {search.running && (
           <div className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/92 px-3 py-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-md sm:hidden dark:border-zinc-800 dark:bg-zinc-950/92 shadow-[0_-4px_18px_-12px_rgba(0,0,0,0.18)]">
@@ -604,7 +686,8 @@ export function SearchExperience({
             </div>
           </div>
         )}
-      </div>
+        </div>{/* closes min-w-0 flex-1 */}
+      </div>{/* closes flex min-h-screen w-full */}
     </>
   );
 }

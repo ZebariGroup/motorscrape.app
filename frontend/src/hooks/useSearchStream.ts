@@ -272,6 +272,11 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
   const [yearFilter, setYearFilter] = useState("");
   const [bodyStyleFilter, setBodyStyleFilter] = useState("");
   const [colorFilter, setColorFilter] = useState("");
+  const [mileageFilterMin, setMileageFilterMin] = useState<number | null>(null);
+  const [mileageFilterMax, setMileageFilterMax] = useState<number | null>(null);
+  const [transmissionFilter, setTransmissionFilter] = useState("");
+  const [drivetrainFilter, setDrivetrainFilter] = useState("");
+  const [fuelTypeFilter, setFuelTypeFilter] = useState("");
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [sortOrder, setSortOrder] = useState<ListingSortOrder>("year_desc");
   const [pinnedDealerWebsite, setPinnedDealerWebsite] = useState<string | null>(null);
@@ -449,6 +454,71 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     [listings],
   );
 
+  const transmissionOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          listings
+            .map((listing) => listing.transmission?.trim())
+            .filter((t): t is string => Boolean(t)),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [listings],
+  );
+
+  const drivetrainOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          listings
+            .map((listing) => listing.drivetrain?.trim())
+            .filter((d): d is string => Boolean(d)),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [listings],
+  );
+
+  const fuelTypeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          listings
+            .map((listing) => listing.fuel_type?.trim())
+            .filter((f): f is string => Boolean(f)),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [listings],
+  );
+
+  const mileageBounds = useMemo(() => {
+    const values = listings
+      .map((listing) => listing.mileage)
+      .filter((v): v is number => v != null && !Number.isNaN(v) && v >= 0);
+    if (values.length === 0) return null;
+    return { min: Math.min(...values), max: Math.max(...values) };
+  }, [listings]);
+
+  const isMileageFilterActive = useMemo(() => {
+    if (!mileageBounds) return false;
+    if (mileageFilterMin != null && mileageFilterMin > mileageBounds.min) return true;
+    if (mileageFilterMax != null && mileageFilterMax < mileageBounds.max) return true;
+    return false;
+  }, [mileageBounds, mileageFilterMin, mileageFilterMax]);
+
+  const effectiveMileageMin = useMemo(() => {
+    if (!mileageBounds || !isMileageFilterActive) return null;
+    return clampNumber(mileageFilterMin ?? mileageBounds.min, mileageBounds.min, mileageFilterMax ?? mileageBounds.max);
+  }, [isMileageFilterActive, mileageBounds, mileageFilterMax, mileageFilterMin]);
+
+  const effectiveMileageMax = useMemo(() => {
+    if (!mileageBounds || !isMileageFilterActive) return null;
+    return clampNumber(
+      mileageFilterMax ?? mileageBounds.max,
+      effectiveMileageMin ?? mileageBounds.min,
+      mileageBounds.max,
+    );
+  }, [effectiveMileageMin, isMileageFilterActive, mileageBounds, mileageFilterMax]);
+
   const isPriceFilterActive = useMemo(() => {
     if (!priceBounds) return false;
     if (priceFilterMin != null && priceFilterMin > priceBounds.min) return true;
@@ -485,6 +555,15 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       if (colorFilter && listing.exterior_color !== colorFilter) {
         return false;
       }
+      if (transmissionFilter && listing.transmission?.trim() !== transmissionFilter) {
+        return false;
+      }
+      if (drivetrainFilter && listing.drivetrain?.trim() !== drivetrainFilter) {
+        return false;
+      }
+      if (fuelTypeFilter && listing.fuel_type?.trim() !== fuelTypeFilter) {
+        return false;
+      }
       if (
         isPriceFilterActive &&
         effectivePriceMin != null &&
@@ -499,15 +578,35 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       ) {
         return false;
       }
+      if (
+        isMileageFilterActive &&
+        effectiveMileageMin != null &&
+        (listing.mileage == null || listing.mileage < effectiveMileageMin)
+      ) {
+        return false;
+      }
+      if (
+        isMileageFilterActive &&
+        effectiveMileageMax != null &&
+        (listing.mileage == null || listing.mileage > effectiveMileageMax)
+      ) {
+        return false;
+      }
       return true;
     });
     return listingsWithPinnedDealerFirst(sortAggregatedListings(filtered, sortOrder), pinnedDealerWebsite);
   }, [
     bodyStyleFilter,
     colorFilter,
+    transmissionFilter,
+    drivetrainFilter,
+    fuelTypeFilter,
     isPriceFilterActive,
     effectivePriceMax,
     effectivePriceMin,
+    isMileageFilterActive,
+    effectiveMileageMin,
+    effectiveMileageMax,
     listings,
     pinnedDealerWebsite,
     sortOrder,
@@ -530,23 +629,36 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
     ) {
       count += 1;
     }
-    if (yearFilter) {
+    if (
+      isMileageFilterActive &&
+      mileageBounds &&
+      effectiveMileageMin != null &&
+      effectiveMileageMax != null &&
+      (effectiveMileageMin > mileageBounds.min || effectiveMileageMax < mileageBounds.max)
+    ) {
       count += 1;
     }
-    if (bodyStyleFilter) {
-      count += 1;
-    }
-    if (colorFilter) {
-      count += 1;
-    }
+    if (yearFilter) count += 1;
+    if (bodyStyleFilter) count += 1;
+    if (colorFilter) count += 1;
+    if (transmissionFilter) count += 1;
+    if (drivetrainFilter) count += 1;
+    if (fuelTypeFilter) count += 1;
     return count;
   }, [
     bodyStyleFilter,
     colorFilter,
+    transmissionFilter,
+    drivetrainFilter,
+    fuelTypeFilter,
     effectivePriceMax,
     effectivePriceMin,
     isPriceFilterActive,
     priceBounds,
+    isMileageFilterActive,
+    mileageBounds,
+    effectiveMileageMin,
+    effectiveMileageMax,
     yearFilter,
   ]);
 
@@ -1185,6 +1297,23 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
       colorOptions,
       effectivePriceMin,
       effectivePriceMax,
+      mileageFilterMin,
+      setMileageFilterMin,
+      mileageFilterMax,
+      setMileageFilterMax,
+      isMileageFilterActive,
+      mileageBounds,
+      effectiveMileageMin,
+      effectiveMileageMax,
+      transmissionFilter,
+      setTransmissionFilter,
+      transmissionOptions,
+      drivetrainFilter,
+      setDrivetrainFilter,
+      drivetrainOptions,
+      fuelTypeFilter,
+      setFuelTypeFilter,
+      fuelTypeOptions,
       activeResultFilterCount,
       clearFilters: () => {
         setPriceFilterMin(null);
@@ -1192,6 +1321,11 @@ export function useSearchStream(options?: UseSearchStreamOptions) {
         setYearFilter("");
         setBodyStyleFilter("");
         setColorFilter("");
+        setMileageFilterMin(null);
+        setMileageFilterMax(null);
+        setTransmissionFilter("");
+        setDrivetrainFilter("");
+        setFuelTypeFilter("");
       },
     },
   };

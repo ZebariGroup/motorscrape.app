@@ -10,15 +10,16 @@ type Props = {
   access: AccessSummary | null;
   marketRegion?: MarketRegion;
   onMarketRegionChange?: (region: MarketRegion) => void;
+  className?: string;
 };
 
 const headerPad =
   "px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:px-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))]";
 
-export function SiteHeader({ access, marketRegion, onMarketRegionChange }: Props) {
+export function SiteHeader({ access, marketRegion, onMarketRegionChange, className = "" }: Props) {
   if (access === null) {
     return (
-      <header className="border-b border-zinc-200 bg-white/80 pt-[env(safe-area-inset-top,0px)] backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80">
+      <header className={`border-b border-zinc-200 bg-white/80 pt-[env(safe-area-inset-top,0px)] backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80 ${className}`}>
         <div
           className={`mx-auto flex max-w-6xl flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between ${headerPad}`}
         >
@@ -53,7 +54,7 @@ export function SiteHeader({ access, marketRegion, onMarketRegionChange }: Props
       : null;
 
   return (
-    <header className="border-b border-zinc-200 bg-white/80 pt-[env(safe-area-inset-top,0px)] backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80">
+    <header className={`border-b border-zinc-200 bg-white/80 pt-[env(safe-area-inset-top,0px)] backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/80 ${className}`}>
       <div
         className={`mx-auto flex max-w-6xl flex-col gap-2 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:py-3 ${headerPad}`}
       >

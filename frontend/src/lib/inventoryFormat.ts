@@ -14,6 +14,11 @@ export function formatMoney(n: number | null | undefined, emptyLabel = "—") {
   }).format(n);
 }
 
+export function formatMileage(n: number | null | undefined, emptyLabel = "—") {
+  if (n == null || Number.isNaN(n)) return emptyLabel;
+  return `${n.toLocaleString()} mi`;
+}
+
 /**
  * Format `observed_at` from the API for display. Backend stores Unix **seconds** (`time.time()`)
  * in `price_history`, but `new Date(n)` expects milliseconds — raw seconds look like dates in 1970.

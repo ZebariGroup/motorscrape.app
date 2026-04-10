@@ -106,6 +106,7 @@ export function InventoryResultsSection({
 }: Props) {
   const [selectedListingIndex, setSelectedListingIndex] = useState<number | null>(null);
   const [vinDetails, setVinDetails] = useState<Record<string, VinDetails | "loading" | "error">>({});
+  const [viewMode, setViewMode] = useState<"grid" | "list" | "compact">("grid");
   const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
   const effectiveSelectedListingIndex =
     selectedListingIndex == null || filteredListings.length === 0
@@ -262,6 +263,55 @@ export function InventoryResultsSection({
             >
               Download CSV
             </button>
+            {/* View mode toggle */}
+            <div className="flex items-center rounded-lg border border-zinc-300 bg-white shadow-sm dark:border-zinc-600 dark:bg-zinc-900" role="group" aria-label="View mode">
+              <button
+                type="button"
+                title="Grid view"
+                aria-pressed={viewMode === "grid"}
+                onClick={() => setViewMode("grid")}
+                className={`rounded-l-lg px-2.5 py-1.5 transition ${viewMode === "grid" ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"}`}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                  <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="9" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="1" y="9" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="9" y="9" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                title="List view"
+                aria-pressed={viewMode === "list"}
+                onClick={() => setViewMode("list")}
+                className={`border-x border-zinc-300 px-2.5 py-1.5 transition dark:border-zinc-600 ${viewMode === "list" ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"}`}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                  <rect x="1" y="2" width="14" height="3" rx="1" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="1" y="7" width="14" height="3" rx="1" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="1" y="12" width="14" height="3" rx="1" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                title="Compact view"
+                aria-pressed={viewMode === "compact"}
+                onClick={() => setViewMode("compact")}
+                className={`rounded-r-lg px-2.5 py-1.5 transition ${viewMode === "compact" ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"}`}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                  <rect x="1" y="1" width="4" height="4" rx="0.75" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="6" y="1" width="4" height="4" rx="0.75" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="11" y="1" width="4" height="4" rx="0.75" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="1" y="6" width="4" height="4" rx="0.75" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="6" y="6" width="4" height="4" rx="0.75" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="11" y="6" width="4" height="4" rx="0.75" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="1" y="11" width="4" height="4" rx="0.75" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="6" y="11" width="4" height="4" rx="0.75" stroke="currentColor" strokeWidth="1.5" />
+                  <rect x="11" y="11" width="4" height="4" rx="0.75" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              </button>
+            </div>
           </div>
         ) : null}
       </div>
@@ -314,7 +364,13 @@ export function InventoryResultsSection({
         </div>
       ) : (
         <div className="relative">
-          <div className={`grid gap-4 sm:grid-cols-2 transition-all duration-500 ${isAnonymous ? "opacity-40 blur-[4px] pointer-events-none select-none" : ""}`}>
+          <div className={`transition-all duration-300 ${
+            viewMode === "list"
+              ? "flex flex-col gap-3"
+              : viewMode === "compact"
+                ? "grid gap-3 grid-cols-2 sm:grid-cols-3 xl:grid-cols-4"
+                : "grid gap-4 sm:grid-cols-2"
+          } ${isAnonymous ? "opacity-40 blur-[4px] pointer-events-none select-none" : ""}`}>
           {filteredListings.map((v, idx) => (
             (() => {
               const listingKey = listingIdentityKey(v, `${idx}`);
@@ -322,10 +378,22 @@ export function InventoryResultsSection({
               return (
             <article
               key={`inventory-${listingKey}`}
-              className="flex flex-row sm:flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 cursor-pointer hover:border-emerald-300 hover:ring-1 hover:ring-emerald-500/20 transition-all"
+              className={`overflow-hidden border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 cursor-pointer hover:border-emerald-300 hover:ring-1 hover:ring-emerald-500/20 transition-all ${
+                viewMode === "list"
+                  ? "flex flex-row rounded-2xl"
+                  : viewMode === "compact"
+                    ? "flex flex-col rounded-xl"
+                    : "flex flex-row sm:flex-col rounded-2xl"
+              }`}
               onClick={() => openListingDetails(idx)}
             >
-              <div className="relative w-2/5 shrink-0 sm:w-full sm:aspect-[16/10] min-h-[128px] bg-zinc-100 dark:bg-zinc-900">
+              <div className={`relative shrink-0 bg-zinc-100 dark:bg-zinc-900 ${
+                viewMode === "list"
+                  ? "w-36 sm:w-52 self-stretch"
+                  : viewMode === "compact"
+                    ? "w-full aspect-[4/3]"
+                    : "w-2/5 sm:w-full sm:aspect-[16/10] min-h-[128px]"
+              }`}>
                 {v.image_url ? (
                   <Image
                     src={v.image_url}
@@ -402,12 +470,17 @@ export function InventoryResultsSection({
                   </>
                 ) : null}
               </div>
-              <div className="flex flex-1 flex-col p-3 sm:p-4">
-                <h3 className="text-sm sm:text-base font-semibold text-zinc-900 dark:text-zinc-50 line-clamp-2 sm:line-clamp-none">
+              <div className={`flex flex-1 flex-col ${viewMode === "compact" ? "p-2" : "p-3 sm:p-4"}`}>
+                <h3 className={`font-semibold text-zinc-900 dark:text-zinc-50 ${viewMode === "compact" ? "text-xs line-clamp-2" : "text-sm sm:text-base line-clamp-2 sm:line-clamp-none"}`}>
                   {v.raw_title ??
                     ([v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") || "Vehicle")}
                 </h3>
-                <dl className="mt-2 flex flex-col gap-1 text-[12px] sm:grid sm:grid-cols-2 sm:gap-x-2 sm:text-xs text-zinc-600 dark:text-zinc-400">
+                {viewMode === "compact" ? (
+                  <p className="mt-1 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    {v.price != null ? formatMoney(v.price) : "—"}
+                  </p>
+                ) : null}
+                <dl className={`mt-2 flex flex-col gap-1 text-[12px] sm:grid sm:grid-cols-2 sm:gap-x-2 sm:text-xs text-zinc-600 dark:text-zinc-400 ${viewMode === "compact" ? "hidden" : ""}`}>
                   {!v.image_url ? (
                     <div className="flex justify-between sm:contents">
                       <dt className="font-medium text-zinc-500">Price</dt>
