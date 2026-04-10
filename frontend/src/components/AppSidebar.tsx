@@ -202,7 +202,7 @@ export function AppSidebar({
       : null;
 
   return (
-    <aside className="hidden lg:flex lg:flex-col lg:w-64 xl:w-72 shrink-0 h-screen sticky top-0 overflow-y-auto border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+    <aside className="sidebar-scroll hidden lg:flex lg:flex-col lg:w-64 xl:w-72 shrink-0 h-screen sticky top-0 overflow-y-auto border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
       {/* Brand */}
       <div className="px-4 py-4">
         <div className="flex items-center justify-between gap-2">
