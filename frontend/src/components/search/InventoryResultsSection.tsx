@@ -212,11 +212,11 @@ export function InventoryResultsSection({
   }, []);
 
   const openListingDetails = useCallback(
-    (idx: number, options?: { loadVinDetails?: boolean }) => {
+    (idx: number) => {
       const listing = filteredListings[idx];
       if (!listing) return;
       setSelectedListingIndex(idx);
-      if (options?.loadVinDetails) {
+      if (listing.vin) {
         void handleLoadVinDetails(listing);
       }
     },
@@ -650,7 +650,7 @@ export function InventoryResultsSection({
                     className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900 transition hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
                     onClick={(e) => {
                       e.stopPropagation();
-                      openListingDetails(idx, { loadVinDetails: Boolean(v.vin) });
+                      openListingDetails(idx);
                     }}
                   >
                     More details
@@ -847,106 +847,6 @@ export function InventoryResultsSection({
                     ) : null}
                   </div>
                 </div>
-
-                {selectedListing.vin ? (
-                  <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900 dark:bg-indigo-950/30">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <h3 className="text-xs font-semibold uppercase tracking-wider text-indigo-800 dark:text-indigo-200">
-                          Vehicle details
-                        </h3>
-                        <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
-                          Load VIN-decoded trim and specs on demand after the scrape finishes.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void handleLoadVinDetails(selectedListing, {
-                              force: Boolean(selectedLoadedVinDetails),
-                            })
-                          }
-                          className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-500"
-                        >
-                          {selectedVinDetails === "loading"
-                            ? "Loading VIN details..."
-                            : selectedLoadedVinDetails
-                              ? selectedVinSource === "vin_decoder"
-                                ? "Refresh VIN details"
-                                : "Refresh vehicle details"
-                              : "Load vehicle details"}
-                        </button>
-                      </div>
-                    </div>
-
-                    {selectedVinDetails === "error" ? (
-                      <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
-                        VIN details could not be loaded for this vehicle right now. You can try again.
-                      </div>
-                    ) : null}
-
-                    {selectedLoadedVinDetails ? (
-                      <>
-                        {selectedLoadedVinDetails.message && selectedVinSource !== "vin_decoder" ? (
-                          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-                            {selectedLoadedVinDetails.message}
-                          </div>
-                        ) : null}
-
-                        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                          {selectedLoadedVinDetails.trim ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Decoded trim <span className="font-semibold">{selectedLoadedVinDetails.trim}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.year != null ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Decoded year <span className="font-semibold">{selectedLoadedVinDetails.year}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.make || selectedLoadedVinDetails.model ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Decoded vehicle{" "}
-                              <span className="font-semibold">
-                                {[selectedLoadedVinDetails.make, selectedLoadedVinDetails.model].filter(Boolean).join(" ")}
-                              </span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.body_style ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Body style <span className="font-semibold">{selectedLoadedVinDetails.body_style}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.drivetrain ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Drivetrain <span className="font-semibold">{selectedLoadedVinDetails.drivetrain}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.transmission ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Transmission <span className="font-semibold">{selectedLoadedVinDetails.transmission}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.fuel_type ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Fuel type <span className="font-semibold">{selectedLoadedVinDetails.fuel_type}</span>
-                            </p>
-                          ) : null}
-                          {selectedLoadedVinDetails.engine ? (
-                            <p className="text-zinc-700 dark:text-zinc-300">
-                              Engine <span className="font-semibold">{selectedLoadedVinDetails.engine}</span>
-                            </p>
-                          ) : null}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="mt-4 rounded-lg border border-dashed border-indigo-300/80 bg-white/70 px-4 py-3 text-sm text-zinc-700 dark:border-indigo-900 dark:bg-zinc-950/40 dark:text-zinc-300">
-                        Use <span className="font-semibold">Load vehicle details</span> to pull VIN-decoded trim and specs for this vehicle.
-                      </div>
-                    )}
-                  </div>
-                ) : null}
 
                 {selectedValuation ? (
                   <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
@@ -1153,50 +1053,68 @@ export function InventoryResultsSection({
                 ) : null}
 
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm sm:grid-cols-3">
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                      {identifierLabel(selectedListing)}
-                    </dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100 break-all">
-                      {selectedListing.vehicle_identifier ?? selectedListing.vin ?? "—"}
-                    </dd>
-                  </div>
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Body Style</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.body_style ?? "—"}</dd>
-                  </div>
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Exterior Color</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.exterior_color ?? "—"}</dd>
-                  </div>
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Engine</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.engine ?? "—"}</dd>
-                  </div>
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Trim</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.trim || "—"}</dd>
-                  </div>
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Drivetrain</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.drivetrain ?? "—"}</dd>
-                  </div>
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Transmission</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.transmission ?? "—"}</dd>
-                  </div>
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Fuel Type</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.fuel_type ?? "—"}</dd>
-                  </div>
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Availability</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{locationBadge(selectedListing) ?? "—"}</dd>
-                  </div>
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Location</dt>
-                    <dd className="font-medium text-zinc-900 dark:text-zinc-100">{selectedListing.inventory_location ?? "—"}</dd>
-                  </div>
+                  {/* Helper: VIN-decoded value shown with a subtle indicator when it fills a gap */}
+                  {(() => {
+                    const v = selectedListing;
+                    const d = selectedLoadedVinDetails;
+                    const val = (scraped: string | null | undefined, decoded: string | null | undefined) => {
+                      if (scraped) return { value: scraped, fromNhtsa: false };
+                      if (decoded) return { value: decoded, fromNhtsa: true };
+                      return { value: "—", fromNhtsa: false };
+                    };
+                    const trim = val(v.trim, d?.trim);
+                    const bodyStyle = val(v.body_style, d?.body_style);
+                    const engine = val(v.engine, d?.engine);
+                    const drivetrain = val(v.drivetrain, d?.drivetrain);
+                    const transmission = val(v.transmission, d?.transmission);
+                    const fuelType = val(v.fuel_type, d?.fuel_type);
+                    const ddClass = (fromNhtsa: boolean) =>
+                      `font-medium break-all ${fromNhtsa ? "text-zinc-600 dark:text-zinc-400 italic" : "text-zinc-900 dark:text-zinc-100"}`;
+                    return (
+                      <>
+                        <div className="space-y-1">
+                          <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{identifierLabel(v)}</dt>
+                          <dd className="font-medium text-zinc-900 dark:text-zinc-100 break-all">{v.vehicle_identifier ?? v.vin ?? "—"}</dd>
+                        </div>
+                        <div className="space-y-1">
+                          <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Trim</dt>
+                          <dd className={ddClass(trim.fromNhtsa)} title={trim.fromNhtsa ? "VIN-decoded" : undefined}>{trim.value}</dd>
+                        </div>
+                        <div className="space-y-1">
+                          <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Body Style</dt>
+                          <dd className={ddClass(bodyStyle.fromNhtsa)} title={bodyStyle.fromNhtsa ? "VIN-decoded" : undefined}>{bodyStyle.value}</dd>
+                        </div>
+                        <div className="space-y-1">
+                          <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Engine</dt>
+                          <dd className={ddClass(engine.fromNhtsa)} title={engine.fromNhtsa ? "VIN-decoded" : undefined}>{engine.value}</dd>
+                        </div>
+                        <div className="space-y-1">
+                          <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Drivetrain</dt>
+                          <dd className={ddClass(drivetrain.fromNhtsa)} title={drivetrain.fromNhtsa ? "VIN-decoded" : undefined}>{drivetrain.value}</dd>
+                        </div>
+                        <div className="space-y-1">
+                          <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Transmission</dt>
+                          <dd className={ddClass(transmission.fromNhtsa)} title={transmission.fromNhtsa ? "VIN-decoded" : undefined}>{transmission.value}</dd>
+                        </div>
+                        <div className="space-y-1">
+                          <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Fuel Type</dt>
+                          <dd className={ddClass(fuelType.fromNhtsa)} title={fuelType.fromNhtsa ? "VIN-decoded" : undefined}>{fuelType.value}</dd>
+                        </div>
+                        <div className="space-y-1">
+                          <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Exterior Color</dt>
+                          <dd className="font-medium text-zinc-900 dark:text-zinc-100">{v.exterior_color ?? "—"}</dd>
+                        </div>
+                        <div className="space-y-1">
+                          <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Availability</dt>
+                          <dd className="font-medium text-zinc-900 dark:text-zinc-100">{locationBadge(v) ?? "—"}</dd>
+                        </div>
+                        <div className="space-y-1">
+                          <dt className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Location</dt>
+                          <dd className="font-medium text-zinc-900 dark:text-zinc-100">{v.inventory_location ?? "—"}</dd>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div className="rounded-xl bg-zinc-50 p-4 dark:bg-zinc-900/50 space-y-2">

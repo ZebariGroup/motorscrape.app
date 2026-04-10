@@ -29,10 +29,6 @@ function normalizedText(value: string | undefined): string {
   return (value ?? "").trim().toLowerCase();
 }
 
-function isNewVehicle(listing: AggregatedListing): boolean {
-  return normalizedText(listing.vehicle_condition) === "new";
-}
-
 const TRIM_SIGNATURE_STOPWORDS = new Set([
   "package",
   "packages",
@@ -302,7 +298,7 @@ function isComparable(
 
 function findComparables(base: AggregatedListing, listings: AggregatedListing[]): AggregatedListing[] {
   const withPrice = listings.filter(
-    (candidate) => candidate.price != null && !Number.isNaN(candidate.price) && isNewVehicle(candidate),
+    (candidate) => candidate.price != null && !Number.isNaN(candidate.price),
   );
 
   const strictYearTrimFeature = withPrice.filter(
@@ -381,7 +377,6 @@ export function buildMarketValuationMap(listings: AggregatedListing[]): Map<stri
   for (const listing of listings) {
     if (listing.price == null || Number.isNaN(listing.price)) continue;
     if (!listing.make || !listing.model) continue;
-    if (!isNewVehicle(listing)) continue;
     const comparables = findComparables(listing, listings);
     const normalizedComparablePrices = comparables
       .map((c) => normalizedComparablePrice(listing, c))
