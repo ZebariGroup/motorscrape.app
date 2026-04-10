@@ -146,7 +146,7 @@ export function InventoryResultsSection({
 }: Props) {
   const [selectedListingIndex, setSelectedListingIndex] = useState<number | null>(null);
   const [vinDetails, setVinDetails] = useState<Record<string, VinDetails | "loading" | "error">>({});
-  const [viewMode, setViewMode] = useState<"grid" | "list" | "compact">("grid");
+  const [viewMode, setViewMode] = useState<"grid" | "list" | "compact">("compact");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
   const effectiveSelectedListingIndex =
