@@ -2595,10 +2595,21 @@ def extract_dom_vehicle_cards(
                 odom_merge[pkey] = val
         if tv_mileage:
             odom_merge["mileage"] = tv_mileage
+        # Suppress card-text mileage fallback for structured "New" vehicles. Dealer Inspire
+        # and similar platforms embed the lease payment summary ("39 months, 32,500 miles")
+        # directly in the card text, which the text regex mistakes for odometer mileage.
+        _structured_is_new = normalize_vehicle_condition(
+            card.get("data-condition")
+            or card.get("data-newused")
+            or card.get("data-vehiclecondition")
+            or card.get("data-unit-condition")
+            or payload.get("condition")
+            or payload.get("type")
+        ) == "new"
         usage_value, usage_unit = _pick_usage_from_dict(
             odom_merge,
             vehicle_category=vehicle_category,
-            fallback_text=card_text,
+            fallback_text=None if _structured_is_new else card_text,
         )
         msrp_attr = _coerce_float(
             card.get("data-msrp")
@@ -2817,7 +2828,7 @@ def extract_dom_vehicle_cards(
         if _CALL_FOR_PRICE_RE.search(card_text or "") and price is not None and price <= 1500 and not card_msrp:
             # Placeholder "$1,000" style incentive rows are common on call-for-price cards.
             price = None
-        if usage_value is None:
+        if usage_value is None and not _structured_is_new:
             usage_value, usage_unit = _pick_usage_from_dict(
                 {},
                 vehicle_category=vehicle_category,

@@ -326,6 +326,20 @@ _FORD_FAMILY_INVENTORY_ZENROWS_JS = _compact_instruction_payload(
     ]
 )
 
+# Team Velocity SRPs load inventory via XHR; an early scroll + wait pattern lets the
+# API response arrive and Vue cards render before ZenRows captures the DOM.
+_TEAM_VELOCITY_INVENTORY_ZENROWS_JS = _compact_instruction_payload(
+    [
+        {"wait": 1500},
+        {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 5000));"},
+        {"wait": 1200},
+        {"evaluate": "window.scrollTo(0, Math.min(document.body.scrollHeight, 9000));"},
+        {"wait": 1000},
+        {"evaluate": "window.scrollTo(0, document.body.scrollHeight);"},
+        {"wait": 1200},
+    ]
+)
+
 
 def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None = None) -> str | None:
     """Return platform-specific ZenRows JS instructions for inventory URLs, if any."""
@@ -339,6 +353,8 @@ def zenrows_inventory_js_instructions_for_url(url: str, platform_id: str | None 
         return _DEALER_ON_INVENTORY_ZENROWS_JS.strip()
     if platform_id == "dealer_inspire":
         return _DEALER_INSPIRE_INVENTORY_ZENROWS_JS.strip()
+    if platform_id == "team_velocity":
+        return _TEAM_VELOCITY_INVENTORY_ZENROWS_JS.strip()
     if platform_id == "marinemax" and "boats-for-sale" in url.lower():
         return _MARINEMAX_BOATS_SRP_ZENROWS_JS.strip()
     if platform_id in {
@@ -884,6 +900,11 @@ def _platform_tie_break_priority(
         return 25 if all(marker in target for marker in ("ford", "vehicle_results_label")) else (
             18 if sum(1 for marker in _FORD_FAMILY_STRONG_MARKERS if marker in target) >= 4 else 0
         )
+    if definition.platform_id == "dealer_on":
+        # Strong DealerOn fingerprints beat generic brand tokens (e.g. "cadillac" on a GM
+        # Cadillac dealer whose homepage also has DealerOn skeleton cards and vhcliaa calls).
+        _dealer_on_strong = {"vhcliaa", "searchresultspagewasabibundle", "dealeron.com", "cdn.dealeron"}
+        return 28 if any(m in target for m in _dealer_on_strong) else 0
     if definition.platform_id == "dealer_dot_com":
         return 15 if "inventoryapiurl" in target or "ddc.widgetdata" in target else 0
     return 0
@@ -914,7 +935,7 @@ def _ddc_fingerprint_dominates_family_stack(target: str, ddc_score: int) -> bool
 def _best_platform_definition(html: str, page_url: str = "") -> PlatformDefinition | None:
     lower = html.lower()
     target = lower + " " + page_url.lower()
-    best: tuple[int, int, PlatformDefinition] | None = None
+    best: tuple[int, int, int, PlatformDefinition] | None = None
     for definition in _PLATFORM_REGISTRY:
         if not _family_stack_allowed_for_target(definition.platform_id, lower, page_url):
             continue
@@ -922,11 +943,14 @@ def _best_platform_definition(html: str, page_url: str = "") -> PlatformDefiniti
         if score <= 0:
             continue
         priority = _platform_tie_break_priority(definition, target, page_url=page_url)
-        if not best or score > best[0] or (score == best[0] and priority > best[1]):
-            best = (score, priority, definition)
+        # Priority is expressed in units comparable to ~3 marker hits so a strong platform
+        # fingerprint (priority >= 28) can override a small raw-marker-count deficit.
+        weighted = score * 10 + priority
+        if not best or weighted > best[0] or (weighted == best[0] and priority > best[2]):
+            best = (weighted, score, priority, definition)
     if not best:
         return None
-    chosen = best[2]
+    chosen = best[3]
     if (
         chosen.platform_id in _PLATFORMS_SUBSUMED_BY_DDC_WHEN_DOMINANT
         and any(m in target for m in _DDC_DOMINANT_MARKERS)
