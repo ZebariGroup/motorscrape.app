@@ -2347,6 +2347,11 @@ def _extract_inventory_anchor_card_vehicles(
         if has_call_for_price and current_price is not None and current_price <= 1500 and msrp_price is None:
             current_price = None
 
+        # Extract VIN from URL path segments (e.g. Honda/Acura /viewdetails/new/VIN/slug).
+        # This allows anchor-card entries to merge with GA4/structured records keyed by VIN.
+        _url_path_vin_m = re.search(r"/(?:[^/]+/){1,3}([A-HJ-NPR-Z0-9]{17})(?:[/?]|$)", listing_url, re.I)
+        url_path_vin = _url_path_vin_m.group(1).upper() if _url_path_vin_m else None
+
         vehicle = VehicleListing(
             vehicle_category=vehicle_category,
             year=_coerce_int(title_fields.get("year")),
@@ -2358,7 +2363,8 @@ def _extract_inventory_anchor_card_vehicles(
             usage_value=usage_value,
             usage_unit=usage_unit,
             vehicle_condition=normalize_vehicle_condition(raw_title) or normalize_vehicle_condition(card_text) or normalize_vehicle_condition(listing_url),
-            vehicle_identifier=stock_value,
+            vin=url_path_vin,
+            vehicle_identifier=url_path_vin or stock_value,
             image_url=image_url,
             listing_url=listing_url,
             raw_title=str(raw_title).strip() if raw_title else None,

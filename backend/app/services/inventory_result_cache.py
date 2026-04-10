@@ -52,7 +52,7 @@ def inventory_listings_cache_key(
             "website": (website or "").strip().rstrip("/").lower(),
             "domain": (domain or "").strip().lower(),
             "make": make_norm,
-            "model": (model or "").strip().lower(),
+            "model": ",".join(sorted({m.strip().lower() for m in (model or "").split(",") if m.strip()})),
             "vehicle_category": category_norm,
             "vehicle_condition": (vehicle_condition or "all").strip().lower(),
             "inventory_scope": (inventory_scope or "all").strip().lower(),
