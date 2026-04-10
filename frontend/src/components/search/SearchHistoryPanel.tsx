@@ -17,6 +17,9 @@ type Props = {
   applyHistoryCriteriaOnly: (run: SearchHistoryRunRow) => Promise<void>;
 };
 
+const INITIAL_LIMIT = 5;
+const FULL_LIMIT = 25;
+
 function formatRunWhen(iso: string | null): string {
   if (!iso) return "";
   try {
@@ -54,29 +57,61 @@ export const SearchHistoryPanel = forwardRef<SearchHistoryPanelHandle, Props>(fu
   ref,
 ) {
   const [runs, setRuns] = useState<SearchHistoryRunRow[]>([]);
+  const [hasMore, setHasMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingList, setLoadingList] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoadError(null);
     setLoadingList(true);
     try {
-      const r = await fetch(resolveApiUrl("/search/logs?limit=25"), { credentials: "include" });
+      // Fetch one extra to detect whether more exist
+      const r = await fetch(resolveApiUrl(`/search/logs?limit=${INITIAL_LIMIT + 1}`), { credentials: "include" });
       if (!r.ok) {
         setRuns([]);
+        setHasMore(false);
         setLoadError(r.status === 401 ? "Sign in to view history." : "Could not load history.");
         return;
       }
       const j = (await r.json()) as { runs?: SearchHistoryRunRow[] };
-      setRuns(Array.isArray(j.runs) ? j.runs : []);
+      const all = Array.isArray(j.runs) ? j.runs : [];
+      if (all.length > INITIAL_LIMIT) {
+        setRuns(all.slice(0, INITIAL_LIMIT));
+        setHasMore(true);
+      } else {
+        setRuns(all);
+        setHasMore(false);
+      }
     } catch {
       setRuns([]);
+      setHasMore(false);
       setLoadError("Could not load history.");
     } finally {
       setLoadingList(false);
     }
   }, []);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    setLoadError(null);
+    try {
+      const r = await fetch(resolveApiUrl(`/search/logs?limit=${FULL_LIMIT}`), { credentials: "include" });
+      if (!r.ok) {
+        setLoadError("Could not load more.");
+        return;
+      }
+      const j = (await r.json()) as { runs?: SearchHistoryRunRow[] };
+      const all = Array.isArray(j.runs) ? j.runs : [];
+      setRuns(all);
+      setHasMore(false);
+    } catch {
+      setLoadError("Could not load more.");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   useImperativeHandle(ref, () => ({ refresh }), [refresh]);
 
@@ -137,7 +172,6 @@ export const SearchHistoryPanel = forwardRef<SearchHistoryPanelHandle, Props>(fu
           const when = formatRunWhen(run.started_at);
           const count = run.result_count > 0 ? `${run.result_count} vehicles` : null;
           const meta = [when, count].filter(Boolean).join(" · ");
-          // suppress unused parseCategory lint
           void parseCategory(run.vehicle_category);
 
           return (
@@ -175,6 +209,17 @@ export const SearchHistoryPanel = forwardRef<SearchHistoryPanelHandle, Props>(fu
           );
         })}
       </ul>
+
+      {hasMore ? (
+        <button
+          type="button"
+          onClick={() => void loadMore()}
+          disabled={loadingMore}
+          className="mt-2 w-full rounded-lg px-2 py-1.5 text-[11px] font-medium text-zinc-500 hover:bg-zinc-50 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-500 dark:hover:bg-zinc-900 dark:hover:text-zinc-300"
+        >
+          {loadingMore ? "Loading…" : "Load more"}
+        </button>
+      ) : null}
     </div>
   );
 });
