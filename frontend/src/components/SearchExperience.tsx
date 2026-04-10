@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchStream } from "@/hooks/useSearchStream";
 import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { AppSidebar } from "@/components/AppSidebar";
+import { AlertsIconButton } from "@/components/search/AlertsIconButton";
 import { DealerProgressList } from "@/components/search/DealerProgressList";
 import { InventoryResultsSection } from "@/components/search/InventoryResultsSection";
 import { SavesAndAlertsPanel } from "@/components/search/SavesAndAlertsPanel";
@@ -332,8 +333,6 @@ export function SearchExperience({
           access={access}
           marketRegion={form.marketRegion}
           onMarketRegionChange={form.setMarketRegion}
-          vehicleCategory={form.vehicleCategory}
-          onVehicleCategoryChange={handleVehicleCategoryChange}
           applySavedSearchFromHistory={search.applySavedSearchFromHistory}
           applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
           alertCriteria={alertCriteria}
@@ -354,34 +353,47 @@ export function SearchExperience({
         {/* Main content */}
         <div className="min-w-0 flex-1">
           <div className="flex flex-col gap-4 px-4 py-4 pb-20 sm:gap-6 sm:px-6 sm:py-6 sm:pb-10">
-            {/* Page header (mobile shows category chips; desktop hides them since sidebar has them) */}
+            {/* Page header */}
             <header>
-              <div className="flex flex-col gap-3">
-                <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl dark:text-zinc-50">
-                  Local motor vehicle inventory, one place
-                </h1>
-                {/* Category chips — mobile only (sidebar handles desktop) */}
-                <div className="flex max-w-full flex-wrap items-center gap-1 self-start rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm sm:gap-2 lg:hidden dark:border-zinc-800 dark:bg-zinc-950">
-                  {CATEGORY_BUTTONS.map((category) => {
-                    const selected = form.vehicleCategory === category.value;
-                    return (
-                      <button
-                        key={category.value}
-                        type="button"
-                        onClick={() => handleVehicleCategoryChange(category.value)}
-                        className={`inline-flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-xs font-medium transition sm:gap-2 sm:px-3 sm:py-2 sm:text-sm ${
-                          selected
-                            ? "bg-emerald-600 text-white shadow-sm"
-                            : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
-                        }`}
-                        aria-pressed={selected}
-                        title={vehicleCategoryLabel(category.value)}
-                      >
-                        {category.icon}
-                        <span>{category.label}</span>
-                      </button>
-                    );
-                  })}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-xl font-semibold tracking-tight text-zinc-900 sm:text-2xl dark:text-zinc-50">
+                    Local motor vehicle inventory
+                  </h1>
+                  <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400 hidden sm:block">
+                    We crawl dealership sites so you don&apos;t have to.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Category chips — all screen sizes */}
+                  <div className="flex items-center gap-0.5 rounded-xl border border-zinc-200 bg-white p-1 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                    {CATEGORY_BUTTONS.map((category) => {
+                      const selected = form.vehicleCategory === category.value;
+                      return (
+                        <button
+                          key={category.value}
+                          type="button"
+                          onClick={() => handleVehicleCategoryChange(category.value)}
+                          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                            selected
+                              ? "bg-emerald-600 text-white shadow-sm"
+                              : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+                          }`}
+                          aria-pressed={selected}
+                          title={vehicleCategoryLabel(category.value)}
+                        >
+                          {category.icon}
+                          <span className="hidden sm:inline">{category.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Mail alerts icon */}
+                  <AlertsIconButton
+                    access={access}
+                    criteria={alertCriteria}
+                    canSearch={canSearch}
+                  />
                 </div>
               </div>
             </header>
