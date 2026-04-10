@@ -90,8 +90,10 @@ class Settings(BaseSettings):
     places_supabase_region_cache_max_age_days: int = 30
     # If no cached dealer is within this many miles of the search center, the Supabase
     # result set likely comes from a broader prior search that didn't cover the local area.
-    # Treat it as a cache miss so Google Places can surface nearby dealers like Brighton Ford.
-    places_supabase_local_coverage_miles: int = 15
+    # Treat it as a cache miss so Google Places can surface nearby dealers like Brighton Ford
+    # or Atchinson Ford (Belleville).  5 miles keeps the check tight enough to avoid false
+    # "covered" states in dense suburban markets where other dealers sit 6–15 miles away.
+    places_supabase_local_coverage_miles: int = 5
     search_running_window_seconds: int = 60 * 10
     # Ignore orphaned runs that never progressed past startup when enforcing
     # concurrent-search quota, without force-failing them on the next request.
