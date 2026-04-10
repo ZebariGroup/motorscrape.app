@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useImperativeHandle, forwardRef, useState } from "react";
 
 import { resolveApiUrl } from "@/lib/apiBase";
-import { defaultVehicleCategory, vehicleCategoryLabel } from "@/lib/vehicleCatalog";
+import { defaultVehicleCategory } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { SearchHistoryDetailResponse, SearchHistoryRunRow } from "@/types/searchHistory";
@@ -18,24 +18,28 @@ type Props = {
 };
 
 function formatRunWhen(iso: string | null): string {
-  if (!iso) return "Unknown time";
+  if (!iso) return "";
   try {
     const d = new Date(iso);
     return new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
     }).format(d);
   } catch {
-    return iso;
+    return "";
   }
 }
 
-function summarizeRun(run: SearchHistoryRunRow): string {
-  const parts = [run.location?.trim() || "—"];
-  const mm = [run.make?.trim(), run.model?.trim()].filter(Boolean).join(" ");
-  if (mm) parts.push(mm);
-  parts.push(vehicleCategoryLabel(parseCategory(run.vehicle_category)));
-  return parts.join(" · ");
+function runTitle(run: SearchHistoryRunRow): string {
+  const parts: string[] = [];
+  const loc = run.location?.trim();
+  if (loc) parts.push(loc);
+  const make = run.make?.trim();
+  const model = run.model?.trim();
+  if (make) parts.push(model ? `${make} ${model}` : make);
+  return parts.join(" · ") || "Search";
 }
 
 function parseCategory(raw: string): VehicleCategory {
@@ -61,7 +65,7 @@ export const SearchHistoryPanel = forwardRef<SearchHistoryPanelHandle, Props>(fu
       const r = await fetch(resolveApiUrl("/search/logs?limit=25"), { credentials: "include" });
       if (!r.ok) {
         setRuns([]);
-        setLoadError(r.status === 401 ? "Sign in to see search history." : "Could not load history.");
+        setLoadError(r.status === 401 ? "Sign in to view history." : "Could not load history.");
         return;
       }
       const j = (await r.json()) as { runs?: SearchHistoryRunRow[] };
@@ -112,63 +116,59 @@ export const SearchHistoryPanel = forwardRef<SearchHistoryPanelHandle, Props>(fu
   };
 
   if (loadingList && runs.length === 0 && !loadError) {
-    return (
-      <div>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>
-      </div>
-    );
+    return <p className="text-xs text-zinc-500 dark:text-zinc-400">Loading…</p>;
   }
 
   if (runs.length === 0) {
     return (
-      <div>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          {loadError ??
-            "After you run a search, it appears here so you can reopen saved results or reuse the same filters without retyping."}
-        </p>
-      </div>
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        {loadError ?? "Past searches appear here after you run one."}
+      </p>
     );
   }
 
   return (
     <div>
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        Open a past run to see vehicles as of that search. Dealers change inventory often—run a new search when you need the
-        latest stock.
-      </p>
-      {loadError ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">{loadError}</p> : null}
-      <ul className="mt-3 divide-y divide-zinc-200 dark:divide-zinc-800">
+      {loadError ? <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">{loadError}</p> : null}
+      <ul className="space-y-px">
         {runs.map((run) => {
           const busy = busyId === run.correlation_id;
           const saved = Boolean(run.has_saved_results && (run.saved_listings_count ?? 0) > 0);
+          const when = formatRunWhen(run.started_at);
+          const count = run.result_count > 0 ? `${run.result_count} vehicles` : null;
+          const meta = [when, count].filter(Boolean).join(" · ");
+          // suppress unused parseCategory lint
+          void parseCategory(run.vehicle_category);
+
           return (
-            <li key={run.correlation_id} className="flex flex-col gap-2 py-3 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{summarizeRun(run)}</p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  {formatRunWhen(run.started_at)}
-                  {run.result_count > 0 ? ` · ${run.result_count} vehicles found` : null}
-                  {run.status !== "success" ? ` · ${run.status.replace(/_/g, " ")}` : null}
-                </p>
-              </div>
-              <div className="flex flex-shrink-0 flex-wrap gap-2">
+            <li
+              key={run.correlation_id}
+              className="group rounded-lg px-2 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+            >
+              <p className="truncate text-xs font-medium text-zinc-800 dark:text-zinc-200" title={runTitle(run)}>
+                {runTitle(run)}
+              </p>
+              {meta ? (
+                <p className="truncate text-[11px] text-zinc-400 dark:text-zinc-500">{meta}</p>
+              ) : null}
+              <div className="mt-1 flex items-center gap-2">
                 {saved ? (
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => void onViewSaved(run)}
-                    className="rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+                    className="text-[11px] font-medium text-emerald-600 hover:text-emerald-500 disabled:opacity-50 dark:text-emerald-400"
                   >
-                    {busy ? "Loading…" : "View saved results"}
+                    {busy ? "Loading…" : "Load results"}
                   </button>
                 ) : null}
                 <button
                   type="button"
                   disabled={busy}
                   onClick={() => void onUseFilters(run)}
-                  className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-800 shadow-sm transition hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+                  className={`text-[11px] font-medium disabled:opacity-50 ${saved ? "text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300" : "text-emerald-600 hover:text-emerald-500 dark:text-emerald-400"}`}
                 >
-                  Use these filters
+                  {busy && !saved ? "Loading…" : "Rerun"}
                 </button>
               </div>
             </li>

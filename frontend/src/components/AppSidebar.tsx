@@ -224,59 +224,50 @@ export function AppSidebar({
       </div>
 
       {/* Navigation */}
-      <div className="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
-        <nav className="flex flex-col gap-1">
-          <Link
-            href="/directory"
-            className="rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
-          >
-            Directory
-          </Link>
-          <Link
-            href="/guides"
-            className="rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
-          >
-            Guides
-          </Link>
+      <div className="border-t border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
+        <nav className="flex flex-wrap items-center gap-1">
+          {[
+            { href: "/directory", label: "Directory" },
+            { href: "/guides", label: "Guides" },
+            ...(access?.is_admin ? [{ href: "/admin", label: "Admin" }] : []),
+          ].map(({ href, label }) => (
+            <Link
+              key={href}
+              href={href}
+              className="rounded-md px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+            >
+              {label}
+            </Link>
+          ))}
           {access?.authenticated ? (
-            <>
-              {access.is_admin ? (
-                <Link
-                  href="/admin"
-                  className="rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
-                >
-                  Admin
-                </Link>
-              ) : null}
-              <Link
-                href="/account"
-                className="rounded-lg px-2 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/60 dark:hover:text-emerald-300"
-              >
-                Account
-              </Link>
-            </>
+            <Link
+              href="/account"
+              className="rounded-md px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/60 dark:hover:text-emerald-300"
+            >
+              Account
+            </Link>
           ) : (
-            <div className="mt-1 flex gap-2">
+            <>
               <Link
                 href="/login"
-                className="flex-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-center text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                className="rounded-md px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
               >
                 Log in
               </Link>
               <Link
                 href="/signup"
-                className="flex-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-center text-xs font-semibold text-white hover:bg-emerald-500"
+                className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-500"
               >
                 Sign up
               </Link>
-            </div>
+            </>
           )}
         </nav>
       </div>
 
       {/* Vehicle category */}
-      <SidebarSection label="Vehicle type" collapsible={false}>
-        <div className="flex flex-col gap-1">
+      <div className="border-t border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
+        <div className="flex gap-1" role="group" aria-label="Vehicle type">
           {CATEGORY_BUTTONS.map((cat) => {
             const selected = vehicleCategory === cat.value;
             return (
@@ -286,19 +277,19 @@ export function AppSidebar({
                 onClick={() => onVehicleCategoryChange(cat.value)}
                 aria-pressed={selected}
                 title={vehicleCategoryLabel(cat.value)}
-                className={`flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium transition ${
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition ${
                   selected
-                    ? "bg-emerald-600 text-white"
-                    : "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
                 }`}
               >
                 {cat.icon}
-                {cat.label}
+                <span className="truncate">{cat.label}</span>
               </button>
             );
           })}
         </div>
-      </SidebarSection>
+      </div>
 
       {/* Scrape history */}
       <SidebarSection label="Search history" defaultOpen={false}>
