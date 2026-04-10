@@ -16,9 +16,9 @@ from app.api.routes_alerts import router as alerts_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_billing import router as billing_router
 from app.api.routes_dealers import router as dealers_router
-from app.api.routes_vehicles import router as vehicles_router
 from app.api.routes_saved_searches import router as saved_searches_router
 from app.api.routes_search_logs import router as search_logs_router
+from app.api.routes_vehicles import router as vehicles_router
 from app.api.search_quota import evaluate_search_start, record_search_completed
 from app.config import settings, vehicle_category_enabled
 from app.db.account_store import get_account_store

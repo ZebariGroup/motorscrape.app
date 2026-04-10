@@ -375,6 +375,7 @@ export function buildMarketValuationMap(listings: AggregatedListing[]): Map<stri
   const valuations = new Map<string, MarketValuation>();
   const nowMs = Date.now();
   for (const listing of listings) {
+    if (listing.vehicle_condition === "used") continue;
     if (listing.price == null || Number.isNaN(listing.price)) continue;
     if (!listing.make || !listing.model) continue;
     const comparables = findComparables(listing, listings);

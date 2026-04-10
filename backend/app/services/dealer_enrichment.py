@@ -16,7 +16,6 @@ import logging
 import re
 import unicodedata
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 
@@ -214,8 +213,6 @@ def _extract_social_links(html: str) -> dict[str, str]:
     for platform, pattern in _SOCIAL_PATTERNS:
         m = re.search(pattern, html, re.IGNORECASE)
         if m:
-            start = max(0, m.start() - 10)
-            raw = html[start : m.end() + 5]
             href_m = re.search(r'https?://' + pattern, html, re.IGNORECASE)
             if href_m:
                 links[platform] = href_m.group(0).rstrip("\"'> \n/")
