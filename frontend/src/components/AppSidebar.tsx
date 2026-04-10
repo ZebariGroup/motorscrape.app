@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 
 import { DealerProgressList } from "@/components/search/DealerProgressList";
-import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
 import { SavesAndAlertsPanel } from "@/components/search/SavesAndAlertsPanel";
 import { SearchHistoryPanel } from "@/components/search/SearchHistoryPanel";
 import type { SearchHistoryPanelHandle } from "@/components/search/SearchHistoryPanel";
@@ -61,43 +60,6 @@ const CATEGORY_BUTTONS: { value: VehicleCategory; label: string; icon: React.JSX
   },
 ];
 
-type FilterProps = {
-  filtersExpanded: boolean;
-  setFiltersExpanded: React.Dispatch<React.SetStateAction<boolean>>;
-  activeResultFilterCount: number;
-  yearFilter: string;
-  setYearFilter: (v: string) => void;
-  yearOptions: number[];
-  bodyStyleFilter: string;
-  setBodyStyleFilter: (v: string) => void;
-  bodyStyleOptions: string[];
-  colorFilter: string;
-  setColorFilter: (v: string) => void;
-  colorOptions: string[];
-  priceBounds: { min: number; max: number } | null;
-  effectivePriceMin: number | null;
-  effectivePriceMax: number | null;
-  isPriceFilterActive: boolean;
-  setPriceFilterMin: (v: number) => void;
-  setPriceFilterMax: (v: number) => void;
-  mileageBounds: { min: number; max: number } | null;
-  effectiveMileageMin: number | null;
-  effectiveMileageMax: number | null;
-  isMileageFilterActive: boolean;
-  setMileageFilterMin: (v: number) => void;
-  setMileageFilterMax: (v: number) => void;
-  transmissionFilter: string;
-  setTransmissionFilter: (v: string) => void;
-  transmissionOptions: string[];
-  drivetrainFilter: string;
-  setDrivetrainFilter: (v: string) => void;
-  drivetrainOptions: string[];
-  fuelTypeFilter: string;
-  setFuelTypeFilter: (v: string) => void;
-  fuelTypeOptions: string[];
-  clearFilters: () => void;
-};
-
 type DealerProps = {
   dealerList: DealershipProgress[];
   running: boolean;
@@ -117,7 +79,6 @@ type Props = {
   onVehicleCategoryChange: (c: VehicleCategory) => void;
   applySavedSearchFromHistory: (run: SearchHistoryRunRow, listings: AggregatedListing[]) => Promise<void>;
   applyHistoryCriteriaOnly: (run: SearchHistoryRunRow) => Promise<void>;
-  filters: FilterProps;
   alertCriteria: AlertCriteria;
   canSearch: boolean;
   onApplySavedSearch: (criteria: SavedSearchCriteria) => Promise<void>;
@@ -183,7 +144,6 @@ export function AppSidebar({
   onVehicleCategoryChange,
   applySavedSearchFromHistory,
   applyHistoryCriteriaOnly,
-  filters,
   alertCriteria,
   canSearch,
   onApplySavedSearch,
@@ -297,52 +257,6 @@ export function AppSidebar({
           ref={historyPanelRef}
           applySavedSearchFromHistory={applySavedSearchFromHistory}
           applyHistoryCriteriaOnly={applyHistoryCriteriaOnly}
-        />
-      </SidebarSection>
-
-      {/* Result filters */}
-      <SidebarSection
-        label="Result filters"
-        badge={filters.activeResultFilterCount}
-        collapsible={false}
-      >
-        <ResultFiltersPanel
-          alwaysExpanded
-          filtersExpanded={filters.filtersExpanded}
-          setFiltersExpanded={filters.setFiltersExpanded}
-          activeResultFilterCount={filters.activeResultFilterCount}
-          yearFilter={filters.yearFilter}
-          setYearFilter={filters.setYearFilter}
-          yearOptions={filters.yearOptions}
-          bodyStyleFilter={filters.bodyStyleFilter}
-          setBodyStyleFilter={filters.setBodyStyleFilter}
-          bodyStyleOptions={filters.bodyStyleOptions}
-          vehicleCategory={vehicleCategory}
-          colorFilter={filters.colorFilter}
-          setColorFilter={filters.setColorFilter}
-          colorOptions={filters.colorOptions}
-          priceBounds={filters.priceBounds}
-          effectivePriceMin={filters.effectivePriceMin}
-          effectivePriceMax={filters.effectivePriceMax}
-          isPriceFilterActive={filters.isPriceFilterActive}
-          setPriceFilterMin={filters.setPriceFilterMin}
-          setPriceFilterMax={filters.setPriceFilterMax}
-          mileageBounds={filters.mileageBounds}
-          effectiveMileageMin={filters.effectiveMileageMin}
-          effectiveMileageMax={filters.effectiveMileageMax}
-          isMileageFilterActive={filters.isMileageFilterActive}
-          setMileageFilterMin={filters.setMileageFilterMin}
-          setMileageFilterMax={filters.setMileageFilterMax}
-          transmissionFilter={filters.transmissionFilter}
-          setTransmissionFilter={filters.setTransmissionFilter}
-          transmissionOptions={filters.transmissionOptions}
-          drivetrainFilter={filters.drivetrainFilter}
-          setDrivetrainFilter={filters.setDrivetrainFilter}
-          drivetrainOptions={filters.drivetrainOptions}
-          fuelTypeFilter={filters.fuelTypeFilter}
-          setFuelTypeFilter={filters.setFuelTypeFilter}
-          fuelTypeOptions={filters.fuelTypeOptions}
-          onClearFilters={filters.clearFilters}
         />
       </SidebarSection>
 

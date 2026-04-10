@@ -8,7 +8,6 @@ import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { AppSidebar } from "@/components/AppSidebar";
 import { DealerProgressList } from "@/components/search/DealerProgressList";
 import { InventoryResultsSection } from "@/components/search/InventoryResultsSection";
-import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
 import { SavesAndAlertsPanel } from "@/components/search/SavesAndAlertsPanel";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -337,42 +336,6 @@ export function SearchExperience({
           onVehicleCategoryChange={handleVehicleCategoryChange}
           applySavedSearchFromHistory={search.applySavedSearchFromHistory}
           applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
-          filters={{
-            filtersExpanded: filters.filtersExpanded,
-            setFiltersExpanded: filters.setFiltersExpanded,
-            activeResultFilterCount: filters.activeResultFilterCount,
-            yearFilter: filters.yearFilter,
-            setYearFilter: filters.setYearFilter,
-            yearOptions: filters.yearOptions,
-            bodyStyleFilter: filters.bodyStyleFilter,
-            setBodyStyleFilter: filters.setBodyStyleFilter,
-            bodyStyleOptions: filters.bodyStyleOptions,
-            colorFilter: filters.colorFilter,
-            setColorFilter: filters.setColorFilter,
-            colorOptions: filters.colorOptions,
-            priceBounds: filters.priceBounds,
-            effectivePriceMin: filters.effectivePriceMin,
-            effectivePriceMax: filters.effectivePriceMax,
-            isPriceFilterActive: filters.isPriceFilterActive,
-            setPriceFilterMin: filters.setPriceFilterMin,
-            setPriceFilterMax: filters.setPriceFilterMax,
-            mileageBounds: filters.mileageBounds,
-            effectiveMileageMin: filters.effectiveMileageMin,
-            effectiveMileageMax: filters.effectiveMileageMax,
-            isMileageFilterActive: filters.isMileageFilterActive,
-            setMileageFilterMin: filters.setMileageFilterMin,
-            setMileageFilterMax: filters.setMileageFilterMax,
-            transmissionFilter: filters.transmissionFilter,
-            setTransmissionFilter: filters.setTransmissionFilter,
-            transmissionOptions: filters.transmissionOptions,
-            drivetrainFilter: filters.drivetrainFilter,
-            setDrivetrainFilter: filters.setDrivetrainFilter,
-            drivetrainOptions: filters.drivetrainOptions,
-            fuelTypeFilter: filters.fuelTypeFilter,
-            setFuelTypeFilter: filters.setFuelTypeFilter,
-            fuelTypeOptions: filters.fuelTypeOptions,
-            clearFilters: filters.clearFilters,
-          }}
           alertCriteria={alertCriteria}
           canSearch={canSearch}
           onApplySavedSearch={applySavedSearchCriteria}
@@ -465,45 +428,8 @@ export function SearchExperience({
               marketRegion={form.marketRegion}
             />
 
-            {/* Mobile-only: filters, saves & alerts, dealer progress */}
+            {/* Mobile-only: saves & alerts, dealer progress */}
             <div className="lg:hidden">
-              <ResultFiltersPanel
-                filtersExpanded={filters.filtersExpanded}
-                setFiltersExpanded={filters.setFiltersExpanded}
-                activeResultFilterCount={filters.activeResultFilterCount}
-                yearFilter={filters.yearFilter}
-                setYearFilter={filters.setYearFilter}
-                yearOptions={filters.yearOptions}
-                bodyStyleFilter={filters.bodyStyleFilter}
-                setBodyStyleFilter={filters.setBodyStyleFilter}
-                bodyStyleOptions={filters.bodyStyleOptions}
-                vehicleCategory={form.vehicleCategory}
-                colorFilter={filters.colorFilter}
-                setColorFilter={filters.setColorFilter}
-                colorOptions={filters.colorOptions}
-                priceBounds={filters.priceBounds}
-                effectivePriceMin={filters.effectivePriceMin}
-                effectivePriceMax={filters.effectivePriceMax}
-                isPriceFilterActive={filters.isPriceFilterActive}
-                setPriceFilterMin={filters.setPriceFilterMin}
-                setPriceFilterMax={filters.setPriceFilterMax}
-                mileageBounds={filters.mileageBounds}
-                effectiveMileageMin={filters.effectiveMileageMin}
-                effectiveMileageMax={filters.effectiveMileageMax}
-                isMileageFilterActive={filters.isMileageFilterActive}
-                setMileageFilterMin={filters.setMileageFilterMin}
-                setMileageFilterMax={filters.setMileageFilterMax}
-                transmissionFilter={filters.transmissionFilter}
-                setTransmissionFilter={filters.setTransmissionFilter}
-                transmissionOptions={filters.transmissionOptions}
-                drivetrainFilter={filters.drivetrainFilter}
-                setDrivetrainFilter={filters.setDrivetrainFilter}
-                drivetrainOptions={filters.drivetrainOptions}
-                fuelTypeFilter={filters.fuelTypeFilter}
-                setFuelTypeFilter={filters.setFuelTypeFilter}
-                fuelTypeOptions={filters.fuelTypeOptions}
-                onClearFilters={filters.clearFilters}
-              />
               <SavesAndAlertsPanel
                 access={access}
                 criteria={alertCriteria}
@@ -537,6 +463,7 @@ export function SearchExperience({
               savedResultsNotice={savedResultsNotice}
               isAnonymous={isAnonymous}
               onSignupClick={() => router.push("/signup")}
+              filters={filters}
             />
           </div>
 

@@ -18,6 +18,44 @@ import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { ListingSortOrder } from "@/hooks/useSearchStream";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { VinDetails, VinDetailsResponse } from "@/types/inventory";
+import { ResultFiltersPanel } from "@/components/search/ResultFiltersPanel";
+
+export type InventoryFilters = {
+  filtersExpanded: boolean;
+  setFiltersExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  activeResultFilterCount: number;
+  yearFilter: string;
+  setYearFilter: (v: string) => void;
+  yearOptions: number[];
+  bodyStyleFilter: string;
+  setBodyStyleFilter: (v: string) => void;
+  bodyStyleOptions: string[];
+  colorFilter: string;
+  setColorFilter: (v: string) => void;
+  colorOptions: string[];
+  priceBounds: { min: number; max: number } | null;
+  effectivePriceMin: number | null;
+  effectivePriceMax: number | null;
+  isPriceFilterActive: boolean;
+  setPriceFilterMin: (v: number) => void;
+  setPriceFilterMax: (v: number) => void;
+  mileageBounds: { min: number; max: number } | null;
+  effectiveMileageMin: number | null;
+  effectiveMileageMax: number | null;
+  isMileageFilterActive: boolean;
+  setMileageFilterMin: (v: number) => void;
+  setMileageFilterMax: (v: number) => void;
+  transmissionFilter: string;
+  setTransmissionFilter: (v: string) => void;
+  transmissionOptions: string[];
+  drivetrainFilter: string;
+  setDrivetrainFilter: (v: string) => void;
+  drivetrainOptions: string[];
+  fuelTypeFilter: string;
+  setFuelTypeFilter: (v: string) => void;
+  fuelTypeOptions: string[];
+  clearFilters: () => void;
+};
 
 function featureChip(text: string, key: string) {
   const short =
@@ -85,6 +123,7 @@ type Props = {
     body: string;
     onDismiss: () => void;
   } | null;
+  filters?: InventoryFilters;
 };
 
 export function InventoryResultsSection({
@@ -103,10 +142,12 @@ export function InventoryResultsSection({
   onSignupClick,
   className = "",
   savedResultsNotice = null,
+  filters,
 }: Props) {
   const [selectedListingIndex, setSelectedListingIndex] = useState<number | null>(null);
   const [vinDetails, setVinDetails] = useState<Record<string, VinDetails | "loading" | "error">>({});
   const [viewMode, setViewMode] = useState<"grid" | "list" | "compact">("grid");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
   const effectiveSelectedListingIndex =
     selectedListingIndex == null || filteredListings.length === 0
@@ -234,7 +275,29 @@ export function InventoryResultsSection({
           </span>
         </div>
         {listings.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {filters ? (
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((v) => !v)}
+                aria-pressed={filtersOpen}
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium shadow-sm transition ${
+                  filtersOpen || (filters.activeResultFilterCount > 0)
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-300"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-500"
+                }`}
+              >
+                <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden>
+                  <path d="M1 3h13M3 7.5h9M5.5 12h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+                Filters
+                {filters.activeResultFilterCount > 0 ? (
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white">
+                    {filters.activeResultFilterCount}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
             <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
               <span className="shrink-0 font-medium text-zinc-700 dark:text-zinc-300">Sort by</span>
               <select
@@ -315,6 +378,51 @@ export function InventoryResultsSection({
           </div>
         ) : null}
       </div>
+
+      {/* Inline filter panel — shown when filter button is toggled */}
+      {filters && filtersOpen ? (
+        <div className="mb-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+          <ResultFiltersPanel
+            alwaysExpanded
+            filtersExpanded={filters.filtersExpanded}
+            setFiltersExpanded={filters.setFiltersExpanded}
+            activeResultFilterCount={filters.activeResultFilterCount}
+            yearFilter={filters.yearFilter}
+            setYearFilter={filters.setYearFilter}
+            yearOptions={filters.yearOptions}
+            bodyStyleFilter={filters.bodyStyleFilter}
+            setBodyStyleFilter={filters.setBodyStyleFilter}
+            bodyStyleOptions={filters.bodyStyleOptions}
+            vehicleCategory={vehicleCategory}
+            colorFilter={filters.colorFilter}
+            setColorFilter={filters.setColorFilter}
+            colorOptions={filters.colorOptions}
+            priceBounds={filters.priceBounds}
+            effectivePriceMin={filters.effectivePriceMin}
+            effectivePriceMax={filters.effectivePriceMax}
+            isPriceFilterActive={filters.isPriceFilterActive}
+            setPriceFilterMin={filters.setPriceFilterMin}
+            setPriceFilterMax={filters.setPriceFilterMax}
+            mileageBounds={filters.mileageBounds}
+            effectiveMileageMin={filters.effectiveMileageMin}
+            effectiveMileageMax={filters.effectiveMileageMax}
+            isMileageFilterActive={filters.isMileageFilterActive}
+            setMileageFilterMin={filters.setMileageFilterMin}
+            setMileageFilterMax={filters.setMileageFilterMax}
+            transmissionFilter={filters.transmissionFilter}
+            setTransmissionFilter={filters.setTransmissionFilter}
+            transmissionOptions={filters.transmissionOptions}
+            drivetrainFilter={filters.drivetrainFilter}
+            setDrivetrainFilter={filters.setDrivetrainFilter}
+            drivetrainOptions={filters.drivetrainOptions}
+            fuelTypeFilter={filters.fuelTypeFilter}
+            setFuelTypeFilter={filters.setFuelTypeFilter}
+            fuelTypeOptions={filters.fuelTypeOptions}
+            onClearFilters={filters.clearFilters}
+          />
+        </div>
+      ) : null}
+
       {listings.length === 0 ? (
         running ? (
           <div className="space-y-4">
