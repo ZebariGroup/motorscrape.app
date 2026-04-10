@@ -59,6 +59,91 @@ The dealership has placed an order for this vehicle, but it hasn't been built ye
 Motorscrape allows you to filter your search by inventory scope. You can choose to see "All" inventory, or restrict your search to "On-Lot Only" if you need a car immediately. If you're planning ahead, including "In-Transit" vehicles gives you the widest selection of options.
     `,
   },
+  {
+    slug: "best-time-to-buy-a-car",
+    title: "The Best Time to Buy a Car: Month-End, Quarter-End, and Year-End Strategies",
+    description: "Dealership salespeople have quotas. Learn exactly when to walk in the door to get the lowest price, and how to use inventory data to confirm whether timing is actually working in your favor.",
+    publishedAt: "2026-04-09T00:00:00Z",
+    author: "Motorscrape Team",
+    content: `
+Timing is one of the most underrated levers in car buying. Dealerships operate on monthly, quarterly, and annual sales quotas, and those deadlines create predictable windows where buyers hold considerably more power than usual. Here is how to identify and take advantage of them.
+
+## Why Quotas Create Deals
+
+Manufacturers reward dealerships with significant bonuses — sometimes thousands of dollars per vehicle — for hitting volume targets. When a dealer is a few sales short of their monthly or quarterly goal, they will often cut into their own profit margin to close the deal. That cost savings gets passed to you.
+
+The end of the month is the most reliable window. The last two to three business days of any month are historically when dealers are most aggressive. Quarter-end months — March, June, September, and December — are even stronger because two quotas (monthly and quarterly) expire simultaneously. December is the single best month of the year because monthly, quarterly, and annual incentives all converge.
+
+## How to Confirm Timing Is Working
+
+Knowing the calendar is only half the battle. You also need to confirm that the specific inventory you want has been sitting long enough for the dealer to feel the pressure. A car that arrived on the lot three days ago is unlikely to move much on price regardless of what month it is.
+
+Use Motorscrape to check days-on-lot for any vehicle you are considering. If the car has been sitting for 45 days or more and you are also shopping during the last week of a quota month, you have two independent pressure points working in your favor at the same time.
+
+## Weekday vs. Weekend
+
+Walk in on a Tuesday, Wednesday, or Thursday afternoon if you can. Weekends are high-traffic and salespeople have little incentive to work harder for your business when the showroom is full. A slow weekday afternoon gives you far more of a salesperson's undivided attention, and a quieter sales floor means managers are more likely to approve an aggressive counter-offer just to move a unit.
+
+## Model-Year Changeovers
+
+When a new model year begins arriving at the lot — typically late summer through fall for most brands — outgoing-year vehicles become a liability for the dealer. They cannot be sold as "new" for full price once the new year hits. Watch Motorscrape for older model-year vehicles that are suddenly appearing in large numbers across multiple dealerships in your area. This pattern almost always signals that regional inventory is being cleared, and prices follow shortly after.
+
+## New Model Launches
+
+The inverse also applies. If a highly anticipated new model or redesign is dropping soon, dealers may have pre-sold allocations and are less motivated to discount the current version. Avoid buying a model in its final few months before a confirmed redesign unless you are specifically searching for value on the outgoing version.
+
+## Putting It Together
+
+The most effective approach is to combine calendar timing with live inventory data. Identify the car you want, check its days-on-lot through Motorscrape to verify it has been sitting long enough to create urgency for the dealer, and then schedule your visit during the last three business days of a quarter-end month. Showing up with a competing price from another dealership in the same metro area — also visible through Motorscrape — gives you one more data point to anchor the negotiation.
+    `,
+  },
+  {
+    slug: "how-to-negotiate-a-car-price",
+    title: "How to Negotiate a Car Price: A Data-Driven Playbook",
+    description: "Most buyers leave thousands of dollars on the table. This step-by-step negotiation guide shows you how to use real inventory data, market medians, and competing offers to pay less for your next car.",
+    publishedAt: "2026-04-09T00:00:00Z",
+    author: "Motorscrape Team",
+    content: `
+Negotiating a car price is uncomfortable for most people — and dealerships know it. The good news is that data almost entirely removes the emotional friction. When you walk in with concrete numbers pulled from live inventory, you are no longer guessing. Here is a repeatable process that works.
+
+## Step 1: Know the Market Median Before You Call Anyone
+
+Before you contact a single dealership, run a Motorscrape search for the exact year, make, model, and trim you want across your metro area. Note the price distribution. If five dealerships are asking between $32,000 and $34,500 for the same trim, that range is your real market. Any single dealer's sticker price is just their opening position within that range, not a fixed fact.
+
+Your target should be at or below the median of the live local market — not the MSRP, not the sticker, not what a dealer's website displays as a "sale" price. Real-time inventory data anchors the conversation in fact.
+
+## Step 2: Identify Motivated Sellers Using Days-on-Lot
+
+A dealer asking $33,800 for a car that arrived last week is very different from a dealer asking $33,800 for the same car that has been on the lot for 72 days. The second dealer is paying floor plan interest every day that vehicle sits unsold. That carrying cost is your leverage.
+
+Filter your Motorscrape search to surface vehicles with 60 or more days on the lot. When you contact that dealership, you already know they have reason to negotiate. You do not need to mention the days-on-lot figure directly — simply asking "what's the best price you can do today?" is often enough to surface a motivated response.
+
+## Step 3: Get Competing Quotes in Writing
+
+Email three to five dealerships with identical inventory for the vehicle you want. Ask each one: "I'm ready to purchase this week. What is your out-the-door price?" You are not negotiating yet — you are collecting data points.
+
+Once you have responses, you have a real competing offer. At that point, you can go back to your preferred dealership and say: "I have a written quote for $31,200 out the door from another dealer 30 miles away for the same vehicle. Can you match or beat it?" Most dealers would rather close the sale than let you drive to a competitor.
+
+## Step 4: Negotiate the Out-the-Door Price, Not the Monthly Payment
+
+One of the most common negotiation mistakes is focusing on monthly payment instead of total price. A dealership can make almost any monthly payment work by adjusting the loan term — stretching your loan to 84 months, for example, makes a $35,000 car feel like $450 per month. But you are paying for that car for seven years.
+
+Always negotiate the out-the-door price first. That number includes the vehicle price, all dealer fees, and taxes. Once you agree on that total, then discuss financing. If you have already been pre-approved by your bank or credit union, you have a second point of leverage because you can walk away from dealer financing entirely.
+
+## Step 5: Be Willing to Walk Away
+
+The single most powerful thing you can do in any negotiation is leave. If a dealership will not move to a price that reflects the market data you have gathered, thank them for their time and walk out. In most cases, you will receive a follow-up call within 24 to 48 hours with a better number. Dealers rarely let a serious, prepared buyer leave permanently.
+
+Motorscrape makes it easy to monitor whether the same vehicle drops in price over the following days or whether a competing dealership has restocked with a better option. You do not have to accept any single offer — the data shows you exactly what the market will bear.
+
+## What Not to Do
+
+* Do not reveal your maximum budget before agreeing on a price.
+* Do not accept add-ons like paint protection, nitrogen tire fills, or extended warranties at the finance desk without researching their value independently.
+* Do not assume a "dealer discount" off MSRP is a good deal — compare to the live market, not to the manufacturer's suggested retail price.
+* Do not let urgency pressure you. "This car will be gone tomorrow" is almost never true when you can see the same trim available at four other dealerships in your search results.
+    `,
+  },
 ];
 
 export function getGuideBySlug(slug: string): Guide | undefined {

@@ -42,6 +42,9 @@ class ScrapeRunRecorder:
     trigger_source: str
     started_at: float
     user_id: str | None = None
+    make: str = ""
+    model: str = ""
+    location: str = ""
     persist_listing_snapshot: bool = False
     max_events: int = MAX_SCRAPE_EVENTS
     sequence_no: int = 0
@@ -301,6 +304,21 @@ class ScrapeRunRecorder:
             except Exception:
                 logger.exception("Failed to record inventory history for run %s", self.run_id)
 
+        # Write to the public vehicle_sightings table for any completed run with results.
+        # This includes anon runs — no PII is stored in vehicle_sightings.
+        if ok and self.result_count > 0 and self.make:
+            try:
+                self.store.record_vehicle_sighting(
+                    make=self.make,
+                    model=self.model,
+                    search_location=self.location,
+                    result_count=self.result_count,
+                    listings_snapshot=listings_snapshot,
+                    scraped_at=completed_at,
+                )
+            except Exception:
+                logger.exception("Failed to record vehicle sighting for run %s", self.run_id)
+
 
 def create_scrape_run_recorder(
     *,
@@ -347,5 +365,8 @@ def create_scrape_run_recorder(
         trigger_source=trigger_source,
         started_at=started_at,
         user_id=user_id,
+        make=make,
+        model=model,
+        location=location,
         persist_listing_snapshot=trigger_source == "interactive" or trigger_source.startswith("alert_"),
     )

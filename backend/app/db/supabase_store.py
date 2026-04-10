@@ -35,6 +35,16 @@ _ALERT_CHANGE_OPTION_FIELDS = frozenset(
 _SCRAPE_RUN_LEGACY_OPTION_FIELDS = frozenset({"prefer_small_dealers"})
 _SCRAPE_RUN_LEGACY_UPDATE_FIELDS = frozenset({"listings_snapshot_json"})
 
+# US state abbreviations for extraction from location strings
+_US_STATE_ABBREVS = frozenset({
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+    "DC",
+})
+
 
 class EmailNotVerifiedError(Exception):
     """Raised when sign_in_with_password fails because the email is not confirmed yet."""
@@ -894,6 +904,40 @@ class SupabaseAccountStore:
         res = self.client.table("scrape_runs").select("*").eq("id", scrape_run_id).limit(1).execute()
         return _row_to_scrape_run(res.data[0])
 
+    def record_vehicle_sighting(
+        self,
+        *,
+        make: str,
+        model: str,
+        search_location: str,
+        result_count: int,
+        listings_snapshot: list[dict[str, Any]] | None,
+        scraped_at: float,
+    ) -> None:
+        """Write one row to vehicle_sightings for a completed scrape run.
+
+        Called after finalize_scrape_run when result_count > 0 and make is set.
+        This table is publicly readable — no PII is stored.
+        """
+        state = _extract_state(search_location)
+        price_min, price_max, price_avg, top_dealers = _compute_sighting_stats(listings_snapshot or [])
+        payload = {
+            "make": make,
+            "model": model,
+            "search_location": search_location,
+            "search_state": state,
+            "result_count": result_count,
+            "price_min": price_min,
+            "price_max": price_max,
+            "price_avg": price_avg,
+            "top_dealerships_json": top_dealers,
+            "scraped_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(scraped_at)),
+        }
+        try:
+            self.client.table("vehicle_sightings").insert(payload).execute()
+        except Exception as exc:
+            logger.warning("Failed to record vehicle sighting (non-fatal): %s", exc)
+
     def add_scrape_event(
         self,
         *,
@@ -1293,6 +1337,41 @@ def _row_to_admin_audit_log(row: dict[str, Any]) -> AdminAuditLogRecord:
         payload=dict(row.get("payload_json") or {}),
         created_at=_ts(row.get("created_at")),
     )
+
+
+def _extract_state(location: str) -> str:
+    """Extract a US state abbreviation from a location string like 'Denver, CO'."""
+    parts = [p.strip().upper() for p in location.split(",")]
+    for part in reversed(parts):
+        token = part.split()[0] if part.split() else ""
+        if token in _US_STATE_ABBREVS:
+            return token
+    return ""
+
+
+def _compute_sighting_stats(
+    listings: list[dict[str, Any]],
+) -> tuple[float | None, float | None, float | None, list[dict[str, Any]]]:
+    """Compute price stats and top-5 dealerships from a listings snapshot."""
+    prices: list[float] = []
+    dealer_counts: dict[str, dict[str, Any]] = {}
+    for listing in listings:
+        price = _maybe_float(listing.get("price"))
+        if price is not None and price > 0:
+            prices.append(price)
+        domain = str(listing.get("dealership_website") or "").strip()
+        name = str(listing.get("dealership_name") or domain)
+        if domain:
+            if domain not in dealer_counts:
+                dealer_counts[domain] = {"domain": domain, "name": name, "count": 0}
+            dealer_counts[domain]["count"] += 1
+
+    price_min = min(prices) if prices else None
+    price_max = max(prices) if prices else None
+    price_avg = sum(prices) / len(prices) if prices else None
+
+    top_dealers = sorted(dealer_counts.values(), key=lambda d: d["count"], reverse=True)[:5]
+    return price_min, price_max, price_avg, top_dealers
 
 
 def _coerce_listings_snapshot(value: Any) -> list[dict[str, Any]] | None:
