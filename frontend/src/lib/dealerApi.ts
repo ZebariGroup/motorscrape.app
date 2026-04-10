@@ -70,6 +70,61 @@ function serverApiBase(): string {
   return "http://127.0.0.1:8000";
 }
 
+export type DealerCard = {
+  slug: string;
+  name: string;
+  address: string;
+  website: string | null;
+  lat: number | null;
+  lng: number | null;
+  rating: number | null;
+  review_count: number | null;
+  oem_brands: string[];
+  services: string[];
+  enriched: boolean;
+};
+
+export type DealerListResponse = {
+  dealers: DealerCard[];
+  total: number;
+  offset: number;
+  limit: number;
+};
+
+export async function fetchDealerList(params?: {
+  make?: string;
+  state?: string;
+  city?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<DealerListResponse> {
+  const base = serverApiBase();
+  const qs = new URLSearchParams();
+  if (params?.make) qs.set("make", params.make);
+  if (params?.state) qs.set("state", params.state);
+  if (params?.city) qs.set("city", params.city);
+  if (params?.limit != null) qs.set("limit", String(params.limit));
+  if (params?.offset != null) qs.set("offset", String(params.offset));
+  const url = `${base}/server/dealerships${qs.toString() ? `?${qs}` : ""}`;
+  try {
+    const res = await fetch(url, { next: { revalidate: 900 } });
+    if (!res.ok) {
+      console.error(`fetchDealerList HTTP ${res.status}`);
+      return { dealers: [], total: 0, offset: 0, limit: 24 };
+    }
+    const data = await res.json();
+    return {
+      dealers: data.dealers ?? [],
+      total: data.total ?? 0,
+      offset: data.offset ?? 0,
+      limit: data.limit ?? 24,
+    };
+  } catch (err) {
+    console.error("fetchDealerList error:", err);
+    return { dealers: [], total: 0, offset: 0, limit: 24 };
+  }
+}
+
 export async function fetchDealerBySlug(slug: string): Promise<DealerProfile | null> {
   const base = serverApiBase();
   const url = `${base}/server/dealerships/${encodeURIComponent(slug)}`;
