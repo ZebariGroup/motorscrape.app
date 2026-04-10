@@ -810,6 +810,25 @@ def _should_prefer_zenrows_render(html: str, *, page_kind: PageKind) -> bool:
     )
 
 
+def _dealer_inspire_rendered_only_used_vehicles(html: str) -> bool:
+    """Detect Dealer Inspire pages that rendered but served only used vehicles.
+
+    When a DI SRP at a /inventory/new URL loads via ZenRows without premium proxy,
+    Cloudflare may block the internal DI inventory API so the page falls back to
+    a cached used-vehicle result set. The DOM will have .result-wrap.used-vehicle
+    elements but zero .result-wrap.new-vehicle elements, indicating a bad render.
+    """
+    lower = html.lower()
+    if "result-wrap used-vehicle" not in lower and "result-wrap.used-vehicle" not in lower:
+        return False
+    if "result-wrap new-vehicle" in lower or "result-wrap.new-vehicle" in lower:
+        return False
+    # Confirm it's a DI page (not some other platform)
+    return "dealeron.js" not in lower and (
+        "dealer-inspire" in lower or "dealerinspire" in lower or "dealerinspiretheme" in lower
+    )
+
+
 def _should_retry_zenrows_with_premium_proxy(html: str, *, page_kind: PageKind) -> bool:
     if settings.zenrows_premium_proxy:
         return False
@@ -820,6 +839,7 @@ def _should_retry_zenrows_with_premium_proxy(html: str, *, page_kind: PageKind) 
         and (
             _looks_like_placeholder_inventory(html)
             or _looks_like_empty_inventory_shell(html)
+            or _dealer_inspire_rendered_only_used_vehicles(html)
         )
     )
 

@@ -144,7 +144,7 @@ def test_inventory_render_plan_includes_zenrows_js_for_dealer_inspire() -> None:
     assert plan.zenrows_wait_ms == 2000
 
 
-def test_detect_platform_profile_matches_dealer_on_without_requiring_render() -> None:
+def test_detect_platform_profile_matches_dealer_on_with_requiring_render() -> None:
     html = """
     <html><body>
       <script src="https://cdn.dealeron.com/js/dealeron.js"></script>
@@ -155,7 +155,7 @@ def test_detect_platform_profile_matches_dealer_on_without_requiring_render() ->
     profile = detect_platform_profile(html, page_url="https://dealer.example/searchnew.aspx")
     assert profile is not None
     assert profile.platform_id == "dealer_on"
-    assert profile.requires_render is False
+    assert profile.requires_render is True
 
 
 def test_detect_platform_profile_matches_autohausen_ahp6() -> None:
