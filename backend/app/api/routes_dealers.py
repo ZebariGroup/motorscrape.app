@@ -152,7 +152,8 @@ async def list_dealerships(
         if city:
             q = q.ilike("address", f"%{city}%")
 
-        q = q.order("rating", desc=True, nulls_last=True).range(offset, offset + limit - 1)
+        # nullsfirst=False with desc=True → ORDER BY rating DESC NULLS LAST (rated dealers first)
+        q = q.order("rating", desc=True, nullsfirst=False).range(offset, offset + limit - 1)
         res = q.execute()
 
         dealers = [
