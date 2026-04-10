@@ -118,15 +118,15 @@ body {
   }
 }
 
-/* Sidebar: thin, theme-aware scrollbar */
+/* Sidebar: thin emerald scrollbar */
 .sidebar-scroll {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: rgb(228 228 231) transparent;
+  scrollbar-color: rgb(16 185 129 / 0.5) transparent;
 }
 
 .dark .sidebar-scroll {
-  scrollbar-color: rgb(63 63 70) transparent;
+  scrollbar-color: rgb(16 185 129 / 0.4) transparent;
 }
 
 .sidebar-scroll::-webkit-scrollbar {
@@ -138,43 +138,35 @@ body {
 }
 
 .sidebar-scroll::-webkit-scrollbar-thumb {
-  background: rgb(212 212 216);
+  background: rgb(16 185 129 / 0.45);
   border-radius: 9999px;
 }
 
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(
-    180deg,
-    rgb(16 185 129 / 0.6) 0%,
-    rgb(5 150 105 / 0.7) 100%
-  );
+  background: rgb(5 150 105 / 0.85);
 }
 
 .dark .sidebar-scroll::-webkit-scrollbar-thumb {
-  background: rgb(63 63 70);
+  background: rgb(16 185 129 / 0.35);
 }
 
 .dark .sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(
-    180deg,
-    rgb(16 185 129 / 0.5) 0%,
-    rgb(5 150 105 / 0.6) 100%
-  );
+  background: rgb(16 185 129 / 0.7);
 }
 
-/* Vehicle detail modal: thin, theme-aware scrollbar (Firefox + WebKit) */
+/* Vehicle detail modal: thin emerald scrollbar */
 .modal-card-scroll {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: rgb(212 212 216) rgb(244 244 245);
+  scrollbar-color: rgb(16 185 129 / 0.5) rgb(244 244 245);
 }
 
 .dark .modal-card-scroll {
-  scrollbar-color: rgb(82 82 91) rgb(24 24 27);
+  scrollbar-color: rgb(16 185 129 / 0.4) rgb(24 24 27);
 }
 
 .modal-card-scroll::-webkit-scrollbar {
-  width: 10px;
+  width: 8px;
 }
 
 .modal-card-scroll::-webkit-scrollbar-track {
@@ -184,22 +176,14 @@ body {
 }
 
 .modal-card-scroll::-webkit-scrollbar-thumb {
-  background: linear-gradient(
-    180deg,
-    rgb(212 212 216) 0%,
-    rgb(181 181 186) 100%
-  );
+  background: rgb(16 185 129 / 0.5);
   border-radius: 9999px;
   border: 2px solid rgb(244 244 245);
   background-clip: padding-box;
 }
 
 .modal-card-scroll::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(
-    180deg,
-    rgb(16 185 129 / 0.55) 0%,
-    rgb(5 150 105 / 0.65) 100%
-  );
+  background: rgb(5 150 105 / 0.85);
   border-color: rgb(244 244 245);
 }
 
@@ -208,19 +192,11 @@ body {
 }
 
 .dark .modal-card-scroll::-webkit-scrollbar-thumb {
-  background: linear-gradient(
-    180deg,
-    rgb(63 63 70) 0%,
-    rgb(52 52 58) 100%
-  );
+  background: rgb(16 185 129 / 0.35);
   border-color: rgb(24 24 27);
 }
 
 .dark .modal-card-scroll::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(
-    180deg,
-    rgb(16 185 129 / 0.45) 0%,
-    rgb(5 150 105 / 0.55) 100%
-  );
+  background: rgb(16 185 129 / 0.7);
   border-color: rgb(24 24 27);
 }
