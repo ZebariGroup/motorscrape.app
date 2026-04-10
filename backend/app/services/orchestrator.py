@@ -1624,7 +1624,7 @@ async def stream_search(
     dealer_score_cards: dict[str, DealerScoreCard] = {}
     dealer_last_fetch_method: dict[str, str] = {}
     places_metrics = PlacesSearchMetrics()
-    candidate_limit = min(requested_dealerships * max(1, settings.places_candidate_limit_multiplier), 30)
+    candidate_limit = min(requested_dealerships * max(1, settings.places_candidate_limit_multiplier), 40)
     historical_snapshot_pool: list[dict[str, Any]] = []
     historical_snapshot_pool_loaded = False
     completed_dealer_count = 0

@@ -88,6 +88,7 @@ EARTH_RADIUS_MILES = 3958.8
 @dataclass(slots=True)
 class PlacesSearchMetrics:
     search_calls: int = 0
+    search_pagination_calls: int = 0
     details_calls: int = 0
     location_resolve_calls: int = 0
     fallback_query_passes: int = 0
@@ -114,6 +115,7 @@ class PlacesSearchMetrics:
     def as_dict(self) -> dict[str, Any]:
         return {
             "search_calls": self.search_calls,
+            "search_pagination_calls": self.search_pagination_calls,
             "details_calls": self.details_calls,
             "location_resolve_calls": self.location_resolve_calls,
             "fallback_query_passes": self.fallback_query_passes,
@@ -440,9 +442,13 @@ async def _search_places_text(
     strict_type_filtering: bool = False,
     metrics: PlacesSearchMetrics | None = None,
 ) -> list[dict[str, Any]]:
+    # Always request the maximum page size (20) regardless of limit — Google charges per
+    # API call, not per result, so a full page costs the same as a partial page.  Callers
+    # that need fewer candidates still trim the result list; requesting a full 20 gives
+    # better geographic coverage in dense markets without additional cost.
     body: dict[str, Any] = {
         "textQuery": text_query,
-        "pageSize": min(limit, 20),
+        "pageSize": 20,
         "languageCode": "en",
     }
     if included_type:
@@ -466,8 +472,34 @@ async def _search_places_text(
             f"Google Places Text Search (New) failed: HTTP {r.status_code}. {_api_error_message(r.json() if r.content else {})}"
         )
     payload = r.json()
-    places = payload.get("places") or []
-    return [p for p in places if isinstance(p, dict)]
+    places: list[dict[str, Any]] = [p for p in (payload.get("places") or []) if isinstance(p, dict)]
+
+    # Paginate when the caller needs more than one page (20 results) and the API
+    # returned a nextPageToken signalling there are more candidates available.
+    max_pages = max(1, int(settings.places_max_page_count or 1))
+    page_num = 1
+    next_token = payload.get("nextPageToken") if isinstance(payload, dict) else None
+    while next_token and len(places) < limit and page_num < max_pages:
+        page_num += 1
+        if metrics is not None:
+            metrics.search_pagination_calls += 1
+            metrics.search_calls += 1
+        page_body: dict[str, Any] = {"pageToken": next_token}
+        rp = await client.post(SEARCH_TEXT_URL, json=page_body, headers=headers)
+        if metrics is not None:
+            metrics.bump_status(metrics.search_status_code_counts, rp.status_code)
+        if rp.status_code != 200:
+            logger.warning(
+                "Places searchText page %d HTTP %s for %r: %s",
+                page_num, rp.status_code, text_query, rp.text[:300],
+            )
+            break
+        page_payload = rp.json()
+        page_places = [p for p in (page_payload.get("places") or []) if isinstance(p, dict)]
+        places.extend(page_places)
+        next_token = page_payload.get("nextPageToken") if isinstance(page_payload, dict) else None
+
+    return places
 
 
 async def _resolve_location_center(

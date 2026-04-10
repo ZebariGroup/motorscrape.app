@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     places_untyped_fallback_result_threshold: int = 0
     # Multiplier used to gather extra dealership candidates before route/cache scoring trims the list.
     places_candidate_limit_multiplier: int = 2
+    # Max number of Places Text Search pages to fetch per query (1 = no pagination, 20 results;
+    # 2 = up to 40 results; 3 = up to 60).  Each extra page costs one additional API call.
+    places_max_page_count: int = 2
     # Explicit user radius choices should always enforce distance; the UI minimum is 5 miles.
     places_geocode_min_radius_miles: int = 5
     places_cache_enabled: bool = True

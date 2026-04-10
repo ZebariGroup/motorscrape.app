@@ -92,6 +92,40 @@ class InventoryRenderPlan:
     zenrows_wait_ms: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ZenRowsHostOverrides:
+    """Per-host ZenRows param overrides applied regardless of platform detection."""
+
+    force_js_render: bool = False
+    force_premium_proxy: bool = False
+    proxy_country: str | None = None
+
+
+# Keyed by host fragment (matched as substring of netloc).
+# Domains here need explicit ZenRows params beyond what platform detection provides.
+_ZENROWS_HOST_OVERRIDES: dict[str, ZenRowsHostOverrides] = {
+    "laethemgm.com": ZenRowsHostOverrides(force_js_render=True),
+    "audinovi.com": ZenRowsHostOverrides(force_js_render=True, force_premium_proxy=True),
+    "audibirminghammi.com": ZenRowsHostOverrides(force_premium_proxy=True),
+    "speednationpowersports.com": ZenRowsHostOverrides(proxy_country="us"),
+    "genesischevrolet.com": ZenRowsHostOverrides(force_js_render=True),
+}
+
+
+def zenrows_host_overrides_for_url(url: str) -> ZenRowsHostOverrides | None:
+    """Return explicit ZenRows param overrides for this URL's host, if any."""
+    if not url:
+        return None
+    try:
+        host = urlsplit(url).netloc.lower().split("@")[-1].split(":")[0]
+    except Exception:
+        return None
+    for fragment, overrides in _ZENROWS_HOST_OVERRIDES.items():
+        if fragment in host:
+            return overrides
+    return None
+
+
 _ONEAUDI_FALCON_DEFINE_LOAD_MORE_HELPER_JS = (
     "window.__zrClickMore=()=>{"
     "for(const e of document.querySelectorAll('button,a,[role=\"button\"]')){"

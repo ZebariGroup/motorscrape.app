@@ -16,7 +16,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.config import settings
-from app.services.dealer_platforms import inventory_render_plan_for_url
+from app.services.dealer_platforms import inventory_render_plan_for_url, zenrows_host_overrides_for_url
 from app.services.scraper_strategies import zenrows_try_once
 
 logger = logging.getLogger(__name__)
@@ -436,6 +436,10 @@ async def fetch_page_html(
     ):
         prefer_render = True
 
+    _host_zr_overrides = zenrows_host_overrides_for_url(url)
+    if _host_zr_overrides is not None and _host_zr_overrides.force_js_render:
+        prefer_render = True
+
     def _m(key: str) -> None:
         if metrics is not None:
             metrics[key] = metrics.get(key, 0) + 1
@@ -563,6 +567,8 @@ async def fetch_page_html(
                 metric_prefix="zenrows_static",
                 failure_label="zenrows_static",
                 platform_id=platform_id,
+                force_premium_proxy=_host_zr_overrides.force_premium_proxy if _host_zr_overrides else False,
+                proxy_country=_host_zr_overrides.proxy_country if _host_zr_overrides else None,
             )
             if html is not None:
                 return html, "zenrows_static"
@@ -606,6 +612,8 @@ async def fetch_page_html(
                     failure_label="zenrows_rendered",
                     js_instructions=js_instructions,
                     platform_id=platform_id,
+                    force_premium_proxy=_host_zr_overrides.force_premium_proxy if _host_zr_overrides else False,
+                    proxy_country=_host_zr_overrides.proxy_country if _host_zr_overrides else None,
                 )
                 if html is not None:
                     return html, "zenrows_rendered"
@@ -973,6 +981,14 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str 
             return False
         if _html_looks_inventory_ready(html, platform_id=platform_id):
             return True
+        # DealerOn SSR pages embed real VINs and view-details links server-side even without
+        # a full JS render.  Check structured data first, then fall back to inline VIN count
+        # (pattern: "vin: XXXXXXXXXXXXXXXXXXX" rendered in the SRP card HTML).
+        if _has_structured_inventory_hint(html) and _count_structured_vehicle_signals(html) >= 3:
+            return True
+        lower = html.lower()
+        if lower.count("vin:") >= 3 and lower.count("view details") >= 3:
+            return True
     elif page_kind == "inventory" and platform_id == "tesla_inventory":
         if _looks_like_empty_inventory_shell(html):
             return False
@@ -1049,6 +1065,7 @@ async def _zenrows_fetch(
     wait_ms: int = 0,
     premium_proxy: bool = False,
     js_instructions: str | None = None,
+    proxy_country: str | None = None,
 ) -> str:
     """https://docs.zenrows.com/universal-scraper-api"""
     api_url = "https://api.zenrows.com/v1/"
@@ -1063,6 +1080,8 @@ async def _zenrows_fetch(
         params["js_instructions"] = js_instructions
     if settings.zenrows_premium_proxy or premium_proxy:
         params["premium_proxy"] = "true"
+    if proxy_country:
+        params["proxy_country"] = proxy_country
     await _await_zenrows_cooldown_if_needed()
 
     attempts = max(1, int(settings.zenrows_request_attempts))
@@ -1140,6 +1159,11 @@ def _html_looks_inventory_ready(html: str, *, platform_id: str | None = None) ->
         stock_rows = lower.count("stock #</strong>")
         detail_links = lower.count("view details")
         if stock_rows >= 3 and detail_links >= 3:
+            return True
+    if platform_id == "dealer_on":
+        # DealerOn SSR pages render VIN labels ("VIN:") and "View Details" links
+        # server-side across all template versions, even when card CSS class names vary.
+        if lower.count("vin:") >= 3 and lower.count("view details") >= 3:
             return True
     if platform_id in _SONIC_STYLE_INVENTORY_PLATFORMS:
         return (

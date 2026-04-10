@@ -82,6 +82,8 @@ async def zenrows_try_once(
     failure_label: str,
     js_instructions: str | None = None,
     platform_id: str | None = None,
+    force_premium_proxy: bool = False,
+    proxy_country: str | None = None,
 ) -> str | None:
     """Single ZenRows attempt with optional premium retry; mirrors previous nested `_try_zenrows`."""
     from app.services.scraper import (  # noqa: PLC0415 — lazy import breaks cycle with zenrows helpers
@@ -99,7 +101,9 @@ async def zenrows_try_once(
             timeout,
             js_render=js_render,
             wait_ms=wait_ms,
+            premium_proxy=force_premium_proxy,
             js_instructions=js_instructions,
+            proxy_country=proxy_country,
         )
         html = await _maybe_append_inventory_api_data(url, html, timeout)
         if _direct_html_sufficient(html, page_kind=page_kind, platform_id=platform_id):
@@ -122,7 +126,7 @@ async def zenrows_try_once(
             else:
                 needs_premium = True
 
-    if not needs_premium or settings.zenrows_premium_proxy:
+    if not needs_premium or (settings.zenrows_premium_proxy or force_premium_proxy):
         return None
 
     try:
@@ -133,6 +137,7 @@ async def zenrows_try_once(
             wait_ms=wait_ms,
             premium_proxy=True,
             js_instructions=js_instructions,
+            proxy_country=proxy_country,
         )
         premium_html = await _maybe_append_inventory_api_data(url, premium_html, timeout)
         if _direct_html_sufficient(premium_html, page_kind=page_kind, platform_id=platform_id):
