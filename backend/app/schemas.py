@@ -66,6 +66,7 @@ class DealershipFound(BaseModel):
     lat: float | None = None
     lng: float | None = None
     discovery_source: str | None = None
+    slug: str | None = None
 
 
 class VehicleListing(BaseModel):

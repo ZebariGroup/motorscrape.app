@@ -2057,6 +2057,7 @@ async def stream_search(
             "platform_id": platform_entry.platform_id if platform_entry is not None else None,
             "strategy_used": platform_entry.extraction_mode if platform_entry is not None else None,
             "discovery_source": dealer.discovery_source,
+            **({"slug": dealer.slug} if dealer.slug else {}),
         }
 
     seed_query_limit = min(3, max(1, int(settings.places_text_query_variant_cap or 1)))
@@ -2391,6 +2392,7 @@ async def stream_search(
                     "address": d.address,
                     "status": "scraping",
                     "info": "Contacting the dealership website…",
+                    **({"slug": d.slug} if d.slug else {}),
                 },
             )
         )

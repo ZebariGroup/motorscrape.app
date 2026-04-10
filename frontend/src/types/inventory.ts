@@ -86,6 +86,8 @@ export type DealershipProgress = {
   from_cache?: boolean;
   /** Where the dealership was discovered: live Google Places API, Supabase regional cache, or process-local memory cache. */
   discovery_source?: "google" | "supabase_cache" | "memory_cache";
+  /** URL slug for the dealer's profile page on Motorscrape (populated when enrichment has run). */
+  slug?: string;
   /** Client-only: when the current status phase started (ms since epoch). */
   phaseSince?: number;
 };

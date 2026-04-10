@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { dealerSiteKey } from "@/lib/inventoryFormat";
@@ -334,7 +335,18 @@ export function DealerProgressList({
                         <div className="flex min-w-0 items-start justify-between gap-2">
                           <div className="min-w-0">
                             <div className="flex min-w-0 items-center gap-1.5">
-                              <p className="truncate font-medium text-zinc-900 dark:text-zinc-50">{d.name}</p>
+                              {d.slug ? (
+                                <Link
+                                  href={`/dealers/${d.slug}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="truncate font-medium text-zinc-900 hover:text-emerald-700 dark:text-zinc-50 dark:hover:text-emerald-400"
+                                  title="View dealer profile"
+                                >
+                                  {d.name}
+                                </Link>
+                              ) : (
+                                <p className="truncate font-medium text-zinc-900 dark:text-zinc-50">{d.name}</p>
+                              )}
                               {d.discovery_source === "google" ? (
                                 <span
                                   title="Discovered via Google Places API — not yet in our dealership database"

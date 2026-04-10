@@ -15,6 +15,7 @@ from app.api.routes_admin import router as admin_router
 from app.api.routes_alerts import router as alerts_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_billing import router as billing_router
+from app.api.routes_dealers import router as dealers_router
 from app.api.routes_saved_searches import router as saved_searches_router
 from app.api.routes_search_logs import router as search_logs_router
 from app.api.search_quota import evaluate_search_start, record_search_completed
@@ -389,6 +390,7 @@ app.include_router(billing_router)
 app.include_router(alerts_router)
 app.include_router(saved_searches_router)
 app.include_router(search_logs_router)
+app.include_router(dealers_router)
 
 # Mount twice so the same deployment works locally (/health) and on Vercel Services
 # whether the platform forwards the `/server` prefix or strips it to root paths.
@@ -400,3 +402,4 @@ app.include_router(billing_router, prefix="/server")
 app.include_router(alerts_router, prefix="/server")
 app.include_router(saved_searches_router, prefix="/server")
 app.include_router(search_logs_router, prefix="/server")
+app.include_router(dealers_router, prefix="/server")

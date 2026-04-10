@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from app.config import settings
@@ -75,6 +76,7 @@ def check_supabase_cache(
                     lat=row.get("lat"),
                     lng=row.get("lng"),
                     discovery_source="supabase_cache",
+                    slug=row.get("slug"),
                 )
             )
         return results or None
@@ -110,7 +112,7 @@ def save_to_supabase_cache(
             if d.lat is None or d.lng is None:
                 continue
 
-            # Upsert dealership and get id
+            # Upsert dealership and get id + slug
             d_res = client.table("dealerships").upsert({
                 "place_id": d.place_id,
                 "name": d.name,
@@ -123,7 +125,32 @@ def save_to_supabase_cache(
 
             if d_res.data and len(d_res.data) > 0:
                 persisted_count += 1
-                d_id = d_res.data[0]["id"]
+                d_row = d_res.data[0]
+                d_id = d_row["id"]
+                # Propagate slug so SSE events can link to the dealer profile page
+                if d_row.get("slug"):
+                    d.slug = d_row["slug"]
+
+                # Fire enrichment for dealers that haven't been enriched yet.
+                # This is non-blocking: the search continues while enrichment runs.
+                if not d_row.get("enriched_at"):
+                    try:
+                        from app.services.dealer_enrichment import enrich_dealer
+                        asyncio.create_task(
+                            enrich_dealer(
+                                dealership_id=d_id,
+                                place_id=d.place_id,
+                                name=d.name,
+                                address=d.address,
+                                website=d.website,
+                            )
+                        )
+                    except RuntimeError:
+                        # No running event loop (e.g. sync tests) — skip silently
+                        pass
+                    except Exception as enrich_exc:
+                        logger.warning("Could not schedule dealer enrichment for %s: %s", d.name, enrich_exc)
+
                 # Link make
                 client.table("dealership_makes").upsert({
                     "dealership_id": d_id,
