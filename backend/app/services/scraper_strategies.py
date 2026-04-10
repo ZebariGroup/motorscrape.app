@@ -114,7 +114,13 @@ async def zenrows_try_once(
         logger.warning("ZenRows %s failed for %s: %s", failure_label, url, sanitized)
         failures.append(f"{failure_label}: {sanitized}")
         if _should_retry_zenrows_error_with_premium_proxy(e):
-            needs_premium = True
+            # Dealer Inspire sites protected by Cloudflare at the JS level always time out
+            # (50s+) on premium-proxy JS render. Skip the escalation when we already know
+            # this is a rendered DI pass so the scraper fails fast instead.
+            if js_render and platform_id == "dealer_inspire":
+                pass
+            else:
+                needs_premium = True
 
     if not needs_premium or settings.zenrows_premium_proxy:
         return None

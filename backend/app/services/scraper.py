@@ -834,12 +834,16 @@ def _should_retry_zenrows_with_premium_proxy(html: str, *, page_kind: PageKind) 
         return False
     if page_kind == "inventory" and _has_structured_inventory_hint(html):
         return False
+    # Cloudflare-protected Dealer Inspire sites render a cached used-vehicle result set
+    # instead of the requested new inventory. Premium JS render always times out (50s+)
+    # for these sites, so skip the premium escalation and let the scraper fail fast.
+    if page_kind == "inventory" and _dealer_inspire_rendered_only_used_vehicles(html):
+        return False
     return _looks_like_block_page(html) or (
         page_kind == "inventory"
         and (
             _looks_like_placeholder_inventory(html)
             or _looks_like_empty_inventory_shell(html)
-            or _dealer_inspire_rendered_only_used_vehicles(html)
         )
     )
 
@@ -914,6 +918,12 @@ _SONIC_JSONLD_SUFFICIENT_THRESHOLD = 6
 
 def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str | None = None) -> bool:
     if _looks_like_block_page(html):
+        return False
+    # Dealer Inspire pages behind Cloudflare sometimes render only the used-vehicle result
+    # cache instead of new inventory. Treat this as insufficient so the scraper doesn't
+    # return wrong-condition vehicles as "good" data, and so no premium-proxy retry is
+    # triggered (which would time out for CF-protected DI sites like Miami Acura).
+    if page_kind == "inventory" and _dealer_inspire_rendered_only_used_vehicles(html):
         return False
     if page_kind == "inventory" and _looks_like_sonic_teamvelocity_spa(html):
         # Sonic/TeamVelocity SPA pages embed JSON-LD for SEO but load inventory
