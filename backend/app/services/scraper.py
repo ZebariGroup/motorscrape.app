@@ -1732,6 +1732,7 @@ async def _maybe_append_inventory_api_data(
     payloads: list[str] = []
     client = await _get_standard_httpx_client()
     for api_url, body in api_posts[:2]:
+        content: str | None = None
         try:
             rewritten_body = _rewrite_inventory_post_body_for_page(body, page_url)
             r = await client.post(
@@ -1740,12 +1741,38 @@ async def _maybe_append_inventory_api_data(
                 content=rewritten_body,
                 timeout=timeout,
             )
-            r.raise_for_status()
+            if r.status_code == 403 and settings.zenrows_api_key:
+                # Akamai-protected inventory APIs (e.g. Toyota OEM ws-inv-data) block
+                # direct POST calls but allow them when proxied through ZenRows.
+                try:
+                    zenrows_api = "https://api.zenrows.com/v1/"
+                    zr_params: dict[str, str] = {
+                        "apikey": settings.zenrows_api_key,
+                        "url": api_url,
+                    }
+                    if settings.zenrows_premium_proxy:
+                        zr_params["premium_proxy"] = "true"
+                    await _await_zenrows_cooldown_if_needed()
+                    zr_client = await _get_standard_httpx_client()
+                    zr_r = await zr_client.post(
+                        zenrows_api,
+                        params=zr_params,
+                        content=rewritten_body,
+                        headers={"Content-Type": "application/json"},
+                        timeout=timeout,
+                    )
+                    zr_r.raise_for_status()
+                    content = zr_r.text.strip()
+                    logger.debug("Toyota/OEM inventory API proxied via ZenRows POST for %s", api_url)
+                except Exception as zr_e:
+                    logger.debug("ZenRows POST fallback failed for %s: %s", api_url, zr_e)
+            else:
+                r.raise_for_status()
+                content = r.text.strip()
         except Exception as e:
             logger.debug("Inventory API POST failed for %s: %s", api_url, e)
             continue
-        content = r.text.strip()
-        if not content.startswith("{"):
+        if not content or not content.startswith("{"):
             continue
         payloads.append(content)
     if payloads:
