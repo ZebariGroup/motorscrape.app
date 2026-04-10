@@ -1092,8 +1092,30 @@ async def find_dealerships(
                 radius_miles=requested_radius,
             )
             if supabase_cached_results is not None:
-                metrics.search_cache_hits += 1
-                return supabase_cached_results
+                # Validate local coverage: if no cached dealer is within the local threshold,
+                # the cache is likely populated from a broader prior search whose center was
+                # far from the current one.  In that case, skip the cache so Google Places
+                # can surface dealers that are actually near the search center (e.g. Brighton
+                # Ford for a search centered on Brighton, MI).
+                local_threshold = max(
+                    5.0,
+                    float(getattr(settings, "places_supabase_local_coverage_miles", 15) or 15),
+                )
+                has_local_dealer = any(
+                    d.lat is not None
+                    and d.lng is not None
+                    and _haversine_distance_miles(center_lat, center_lng, float(d.lat), float(d.lng))
+                    <= local_threshold
+                    for d in supabase_cached_results
+                )
+                if has_local_dealer:
+                    metrics.search_cache_hits += 1
+                    return supabase_cached_results
+                logger.info(
+                    "Supabase cache hit for %s/%s near (%.4f, %.4f) r=%dmi but no dealer "
+                    "within %.0fmi of center — treating as miss to refresh local results",
+                    make_q, vehicle_category, center_lat, center_lng, requested_radius, local_threshold,
+                )
 
         if use_search_cache:
             cached_results = get_cached_places_search(search_cache_key)

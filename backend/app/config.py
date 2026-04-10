@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     places_details_cache_ttl_seconds: int = 60 * 60 * 24 * 45  # 45 days
     places_geocode_cache_ttl_seconds: int = 60 * 60 * 24 * 30  # 30 days
     places_supabase_region_cache_max_age_days: int = 30
+    # If no cached dealer is within this many miles of the search center, the Supabase
+    # result set likely comes from a broader prior search that didn't cover the local area.
+    # Treat it as a cache miss so Google Places can surface nearby dealers like Brighton Ford.
+    places_supabase_local_coverage_miles: int = 15
     search_running_window_seconds: int = 60 * 10
     # Ignore orphaned runs that never progressed past startup when enforcing
     # concurrent-search quota, without force-failing them on the next request.
