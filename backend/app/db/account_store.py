@@ -1596,6 +1596,20 @@ class AccountStore:
         assert row is not None
         return _row_to_scrape_run(row)
 
+    def record_vehicle_sighting(
+        self,
+        *,
+        make: str,
+        model: str,
+        search_location: str,
+        result_count: int,
+        listings_snapshot: list[dict[str, Any]] | None,
+        scraped_at: float,
+    ) -> None:
+        # The local SQLite store does not maintain the public vehicle_sightings table.
+        # Only the Supabase store writes sightings; this is a safe no-op.
+        pass
+
     def add_scrape_event(
         self,
         *,
