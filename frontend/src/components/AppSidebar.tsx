@@ -108,12 +108,35 @@ export function AppSidebar({
       {/* Brand */}
       <div className="px-4 py-4">
         <div className="flex items-center justify-between gap-2">
-          <Link href="/" className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-            Motorscrape
+          <Link href="/" className="group flex items-center gap-2" aria-label="Motorscrape home">
+            {/* Icon mark */}
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-600 shadow-sm">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <path
+                  d="M1.5 10.5 4 6a1 1 0 0 1 .87-.5h6.26A1 1 0 0 1 12 6l2.5 4.5"
+                  stroke="white"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M1 10.5h14a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5H1a.5.5 0 0 1-.5-.5V11a.5.5 0 0 1 .5-.5Z"
+                  stroke="white"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+                <circle cx="4" cy="13" r="1" fill="white" />
+                <circle cx="12" cy="13" r="1" fill="white" />
+              </svg>
+            </span>
+            {/* Wordmark */}
+            <span className="text-sm font-bold tracking-tight">
+              <span className="text-zinc-900 dark:text-zinc-50">Motor</span><span className="text-emerald-600 dark:text-emerald-400">scrape</span>
+            </span>
           </Link>
           <MarketRegionToggle value={marketRegion} onChange={onMarketRegionChange} />
         </div>
-        <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">We crawl so you can drive.</p>
+        <p className="mt-1.5 text-[11px] font-medium uppercase tracking-widest text-zinc-400 dark:text-zinc-500">We crawl so you can drive.</p>
 
         {/* Usage hint */}
         {anonHint ? (
