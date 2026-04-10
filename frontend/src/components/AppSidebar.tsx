@@ -4,16 +4,13 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 
 import { DealerProgressList } from "@/components/search/DealerProgressList";
-import { SavesAndAlertsPanel } from "@/components/search/SavesAndAlertsPanel";
 import { SearchHistoryPanel } from "@/components/search/SearchHistoryPanel";
 import type { SearchHistoryPanelHandle } from "@/components/search/SearchHistoryPanel";
 import { MarketRegionToggle } from "@/components/MarketRegionToggle";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { MarketRegion } from "@/lib/marketRegion";
 import type { AccessSummary } from "@/types/access";
-import type { AlertCriteria } from "@/types/alerts";
 import type { DealershipProgress } from "@/types/inventory";
-import type { SavedSearchCriteria } from "@/types/savedSearch";
 import type { SearchHistoryRunRow } from "@/types/searchHistory";
 type DealerProps = {
   dealerList: DealershipProgress[];
@@ -32,9 +29,6 @@ type Props = {
   onMarketRegionChange: (r: MarketRegion) => void;
   applySavedSearchFromHistory: (run: SearchHistoryRunRow, listings: AggregatedListing[]) => Promise<void>;
   applyHistoryCriteriaOnly: (run: SearchHistoryRunRow) => Promise<void>;
-  alertCriteria: AlertCriteria;
-  canSearch: boolean;
-  onApplySavedSearch: (criteria: SavedSearchCriteria) => Promise<void>;
   dealers: DealerProps;
 };
 
@@ -95,9 +89,6 @@ export function AppSidebar({
   onMarketRegionChange,
   applySavedSearchFromHistory,
   applyHistoryCriteriaOnly,
-  alertCriteria,
-  canSearch,
-  onApplySavedSearch,
   dealers,
 }: Props) {
   const historyPanelRef = useRef<SearchHistoryPanelHandle>(null);
@@ -184,16 +175,6 @@ export function AppSidebar({
           applyHistoryCriteriaOnly={applyHistoryCriteriaOnly}
         />
       </SidebarSection>
-
-      {/* Saves & Alerts — panel has its own collapse UI, render it directly */}
-      <div className="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
-        <SavesAndAlertsPanel
-          access={access}
-          criteria={alertCriteria}
-          canSearch={canSearch}
-          onApplySavedSearch={onApplySavedSearch}
-        />
-      </div>
 
       {/* Dealer progress */}
       <SidebarSection label="Dealers" defaultOpen={true}>

@@ -9,7 +9,6 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { AlertsIconButton } from "@/components/search/AlertsIconButton";
 import { DealerProgressList } from "@/components/search/DealerProgressList";
 import { InventoryResultsSection } from "@/components/search/InventoryResultsSection";
-import { SavesAndAlertsPanel } from "@/components/search/SavesAndAlertsPanel";
 import { SearchFormSection } from "@/components/search/SearchFormSection";
 import { SiteHeader } from "@/components/SiteHeader";
 import { resolveApiUrl } from "@/lib/apiBase";
@@ -335,9 +334,6 @@ export function SearchExperience({
           onMarketRegionChange={form.setMarketRegion}
           applySavedSearchFromHistory={search.applySavedSearchFromHistory}
           applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
-          alertCriteria={alertCriteria}
-          canSearch={canSearch}
-          onApplySavedSearch={applySavedSearchCriteria}
           dealers={{
             dealerList: dealers.dealerList,
             running: search.running,
@@ -438,16 +434,13 @@ export function SearchExperience({
               applySavedSearchFromHistory={search.applySavedSearchFromHistory}
               applyHistoryCriteriaOnly={search.applyHistoryCriteriaOnly}
               marketRegion={form.marketRegion}
+              access={access}
+              savedSearchCriteria={alertCriteria}
+              onApplySavedSearch={applySavedSearchCriteria}
             />
 
-            {/* Mobile-only: saves & alerts, dealer progress */}
+            {/* Mobile-only: dealer progress */}
             <div className="lg:hidden">
-              <SavesAndAlertsPanel
-                access={access}
-                criteria={alertCriteria}
-                canSearch={canSearch}
-                onApplySavedSearch={applySavedSearchCriteria}
-              />
               <DealerProgressList
                 dealerList={dealers.dealerList}
                 running={search.running}

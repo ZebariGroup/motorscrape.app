@@ -8,8 +8,12 @@ import type { VehicleCategory } from "@/lib/vehicleCatalog";
 import type { AggregatedListing } from "@/lib/inventoryFormat";
 import type { SearchHistoryRunRow } from "@/types/searchHistory";
 
+import type { AccessSummary } from "@/types/access";
+import type { SavedSearchCriteria } from "@/types/savedSearch";
+
 import { MultiModelSelect } from "./MultiModelSelect";
 import { PlowTruck } from "./PlowTruck";
+import { SavedSearchIconButton } from "./SavedSearchIconButton";
 import { ScrapeMiniGame } from "./ScrapeMiniGame";
 import { SearchHistoryModal } from "./SearchHistoryModal";
 
@@ -63,6 +67,9 @@ type Props = {
   applySavedSearchFromHistory: (run: SearchHistoryRunRow, listings: AggregatedListing[]) => Promise<void>;
   applyHistoryCriteriaOnly: (run: SearchHistoryRunRow) => Promise<void>;
   marketRegion: MarketRegion;
+  access?: AccessSummary | null;
+  savedSearchCriteria?: SavedSearchCriteria | null;
+  onApplySavedSearch?: (criteria: SavedSearchCriteria) => Promise<void>;
 };
 
 export function SearchFormSection({
@@ -105,6 +112,9 @@ export function SearchFormSection({
   applySavedSearchFromHistory,
   applyHistoryCriteriaOnly,
   marketRegion,
+  access = null,
+  savedSearchCriteria = null,
+  onApplySavedSearch,
 }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
@@ -557,6 +567,14 @@ export function SearchFormSection({
                   />
                 </svg>
               </button>
+              {savedSearchCriteria && onApplySavedSearch ? (
+                <SavedSearchIconButton
+                  access={access}
+                  criteria={savedSearchCriteria}
+                  canSearch={canSearch}
+                  onApplySavedSearch={onApplySavedSearch}
+                />
+              ) : null}
             </div>
           </div>
           {!running && searchReadinessHint ? (
