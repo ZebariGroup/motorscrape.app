@@ -474,7 +474,7 @@ export function InventoryResultsSection({
         <div className="relative">
           <div className={`transition-all duration-300 ${
             viewMode === "list"
-              ? "flex flex-col gap-3"
+              ? "flex flex-col gap-1.5"
               : viewMode === "compact"
                 ? "grid gap-3 grid-cols-2 sm:grid-cols-3 xl:grid-cols-4"
                 : "grid gap-4 sm:grid-cols-2"
@@ -488,7 +488,7 @@ export function InventoryResultsSection({
               key={`inventory-${listingKey}`}
               className={`overflow-hidden border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950 cursor-pointer hover:border-emerald-300 hover:ring-1 hover:ring-emerald-500/20 transition-all ${
                 viewMode === "list"
-                  ? "flex flex-row rounded-2xl"
+                  ? "flex flex-row rounded-xl"
                   : viewMode === "compact"
                     ? "flex flex-col rounded-xl"
                     : "flex flex-row sm:flex-col rounded-2xl"
@@ -497,7 +497,7 @@ export function InventoryResultsSection({
             >
               <div className={`relative shrink-0 bg-zinc-100 dark:bg-zinc-900 ${
                 viewMode === "list"
-                  ? "w-36 sm:w-52 self-stretch"
+                  ? "w-24 sm:w-36 self-stretch"
                   : viewMode === "compact"
                     ? "w-full aspect-[4/3]"
                     : "w-2/5 sm:w-full sm:aspect-[16/10] min-h-[128px]"
@@ -578,104 +578,161 @@ export function InventoryResultsSection({
                   </>
                 ) : null}
               </div>
-              <div className={`flex flex-1 flex-col ${viewMode === "compact" ? "p-2" : "p-3 sm:p-4"}`}>
-                <h3 className={`font-semibold text-zinc-900 dark:text-zinc-50 ${viewMode === "compact" ? "text-xs line-clamp-2" : "text-sm sm:text-base line-clamp-2 sm:line-clamp-none"}`}>
-                  {v.raw_title ??
-                    ([v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") || "Vehicle")}
-                </h3>
-                {viewMode === "compact" ? (
-                  <p className="mt-1 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                    {v.price != null ? formatMoney(v.price) : "—"}
-                  </p>
-                ) : null}
-                <dl className={`mt-2 flex flex-col gap-1 text-[12px] sm:grid sm:grid-cols-2 sm:gap-x-2 sm:text-xs text-zinc-600 dark:text-zinc-400 ${viewMode === "compact" ? "hidden" : ""}`}>
-                  {!v.image_url ? (
-                    <div className="flex justify-between sm:contents">
-                      <dt className="font-medium text-zinc-500">Price</dt>
-                      <dd className="font-semibold text-zinc-900 dark:text-zinc-50 sm:font-normal sm:text-zinc-600 sm:dark:text-zinc-400">
-                        {formatMoney(v.price, "Visit site for price")}
-                      </dd>
+              <div className={`flex flex-1 flex-col min-w-0 ${viewMode === "compact" ? "p-2" : viewMode === "list" ? "p-2 sm:p-2.5" : "p-3 sm:p-4"}`}>
+                {viewMode === "list" ? (
+                  <>
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="text-sm font-semibold leading-snug text-zinc-900 dark:text-zinc-50 line-clamp-1 min-w-0">
+                        {v.raw_title ??
+                          ([v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") || "Vehicle")}
+                      </h3>
+                      <span className="shrink-0 text-sm font-bold text-zinc-900 dark:text-zinc-50">
+                        {formatMoney(v.price, v.image_url ? "" : "—")}
+                      </span>
                     </div>
-                  ) : null}
-                  {!v.image_url && leaseLabel(v) ? (
-                    <div className="flex justify-between sm:contents">
-                      <dt className="font-medium text-zinc-500">Lease</dt>
-                      <dd>{leaseLabel(v)}</dd>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 min-w-0">
+                      {usageLabel(v) !== "—" ? <span>{usageLabel(v)}</span> : null}
+                      {v.vehicle_condition ? <><span aria-hidden>·</span><span className="capitalize">{v.vehicle_condition}</span></> : null}
+                      {(v.vehicle_identifier ?? v.vin) ? <><span aria-hidden>·</span><span className="font-mono text-[10px]">{identifierLabel(v)}: {v.vehicle_identifier ?? v.vin}</span></> : null}
+                      {v.engine ? <><span aria-hidden>·</span><span className="truncate">{v.engine}</span></> : null}
                     </div>
-                  ) : null}
-                  <div className="flex justify-between sm:contents">
-                    <dt className="font-medium text-zinc-500">{usageFieldLabel(v)}</dt>
-                    <dd>{usageLabel(v)}</dd>
-                  </div>
-                  <div className="hidden sm:contents">
-                    <dt className="font-medium text-zinc-500">Condition</dt>
-                    <dd>{v.vehicle_condition ?? "—"}</dd>
-                  </div>
-                  <div className="hidden sm:contents">
-                    <dt className="font-medium text-zinc-500">{identifierLabel(v)}</dt>
-                    <dd className="truncate">{v.vehicle_identifier ?? v.vin ?? "—"}</dd>
-                  </div>
-                  <div className="flex justify-between sm:contents">
-                    <dt className="font-medium text-zinc-500">Dealer</dt>
-                    <dd className="truncate text-right max-w-[120px] sm:max-w-none sm:text-left">{v.dealership}</dd>
-                  </div>
-                  {valuation ? (
-                    <div className="hidden sm:contents">
-                      <dt className="font-medium text-zinc-500">Market</dt>
-                      <dd>{valuation.label}</dd>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] min-w-0">
+                      {v.dealership ? <span className="font-medium text-zinc-600 dark:text-zinc-300 truncate">{v.dealership}</span> : null}
+                      {valuation ? <><span aria-hidden className="text-zinc-400">·</span><span className="text-zinc-500 dark:text-zinc-400">{valuation.label}</span></> : null}
+                      {locationBadge(v) ? <><span aria-hidden className="text-zinc-400">·</span><span className="text-zinc-500 dark:text-zinc-400">{locationBadge(v)}</span></> : null}
+                      {historyPriceDeltaLabel(v.history_price_change) ? <><span aria-hidden className="text-zinc-400">·</span><span className="text-zinc-500 dark:text-zinc-400">{historyPriceDeltaLabel(v.history_price_change)}</span></> : null}
                     </div>
-                  ) : null}
-                  {historyPriceDeltaLabel(v.history_price_change) ? (
-                    <div className="hidden sm:contents">
-                      <dt className="font-medium text-zinc-500">Price trend</dt>
-                      <dd>{historyPriceDeltaLabel(v.history_price_change)}</dd>
+                    <div className="mt-auto flex items-center gap-3 pt-1.5">
+                      <button
+                        type="button"
+                        className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-900 transition hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
+                        onClick={(e) => { e.stopPropagation(); openListingDetails(idx); }}
+                      >
+                        More details
+                      </button>
+                      {v.listing_url ? (
+                        <a
+                          href={v.listing_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] font-semibold text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          View listing
+                        </a>
+                      ) : null}
+                      <a
+                        href={v.dealership_website}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] font-semibold text-zinc-500 underline-offset-2 hover:underline dark:text-zinc-400"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Dealer site
+                      </a>
                     </div>
-                  ) : null}
-                  <div className="hidden sm:contents">
-                    <dt className="font-medium text-zinc-500">Availability</dt>
-                    <dd>{locationBadge(v) ?? "—"}</dd>
-                  </div>
-                  <div className="hidden sm:contents">
-                    <dt className="font-medium text-zinc-500">Engine</dt>
-                    <dd className="truncate">{v.engine ?? "—"}</dd>
-                  </div>
-                  <div className="hidden sm:contents">
-                    <dt className="font-medium text-zinc-500">Location</dt>
-                    <dd className="truncate">{v.inventory_location ?? "—"}</dd>
-                  </div>
-                </dl>
-                <div className="mt-auto flex flex-wrap gap-2 pt-3">
-                  <button
-                    type="button"
-                    className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900 transition hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openListingDetails(idx);
-                    }}
-                  >
-                    More details
-                  </button>
-                  {v.listing_url ? (
-                    <a
-                      href={v.listing_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs font-semibold text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      View listing
-                    </a>
-                  ) : null}
-                  <a
-                    href={v.dealership_website}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs font-semibold text-zinc-600 underline-offset-2 hover:underline dark:text-zinc-400"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    Dealer site
-                  </a>
-                </div>
+                  </>
+                ) : (
+                  <>
+                    <h3 className={`font-semibold text-zinc-900 dark:text-zinc-50 ${viewMode === "compact" ? "text-xs line-clamp-2" : "text-sm sm:text-base line-clamp-2 sm:line-clamp-none"}`}>
+                      {v.raw_title ??
+                        ([v.year, v.make, v.model, v.trim].filter(Boolean).join(" ") || "Vehicle")}
+                    </h3>
+                    {viewMode === "compact" ? (
+                      <p className="mt-1 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                        {v.price != null ? formatMoney(v.price) : "—"}
+                      </p>
+                    ) : null}
+                    <dl className={`mt-2 flex flex-col gap-1 text-[12px] sm:grid sm:grid-cols-2 sm:gap-x-2 sm:text-xs text-zinc-600 dark:text-zinc-400 ${viewMode === "compact" ? "hidden" : ""}`}>
+                      {!v.image_url ? (
+                        <div className="flex justify-between sm:contents">
+                          <dt className="font-medium text-zinc-500">Price</dt>
+                          <dd className="font-semibold text-zinc-900 dark:text-zinc-50 sm:font-normal sm:text-zinc-600 sm:dark:text-zinc-400">
+                            {formatMoney(v.price, "Visit site for price")}
+                          </dd>
+                        </div>
+                      ) : null}
+                      {!v.image_url && leaseLabel(v) ? (
+                        <div className="flex justify-between sm:contents">
+                          <dt className="font-medium text-zinc-500">Lease</dt>
+                          <dd>{leaseLabel(v)}</dd>
+                        </div>
+                      ) : null}
+                      <div className="flex justify-between sm:contents">
+                        <dt className="font-medium text-zinc-500">{usageFieldLabel(v)}</dt>
+                        <dd>{usageLabel(v)}</dd>
+                      </div>
+                      <div className="hidden sm:contents">
+                        <dt className="font-medium text-zinc-500">Condition</dt>
+                        <dd>{v.vehicle_condition ?? "—"}</dd>
+                      </div>
+                      <div className="hidden sm:contents">
+                        <dt className="font-medium text-zinc-500">{identifierLabel(v)}</dt>
+                        <dd className="truncate">{v.vehicle_identifier ?? v.vin ?? "—"}</dd>
+                      </div>
+                      <div className="flex justify-between sm:contents">
+                        <dt className="font-medium text-zinc-500">Dealer</dt>
+                        <dd className="truncate text-right max-w-[120px] sm:max-w-none sm:text-left">{v.dealership}</dd>
+                      </div>
+                      {valuation ? (
+                        <div className="hidden sm:contents">
+                          <dt className="font-medium text-zinc-500">Market</dt>
+                          <dd>{valuation.label}</dd>
+                        </div>
+                      ) : null}
+                      {historyPriceDeltaLabel(v.history_price_change) ? (
+                        <div className="hidden sm:contents">
+                          <dt className="font-medium text-zinc-500">Price trend</dt>
+                          <dd>{historyPriceDeltaLabel(v.history_price_change)}</dd>
+                        </div>
+                      ) : null}
+                      <div className="hidden sm:contents">
+                        <dt className="font-medium text-zinc-500">Availability</dt>
+                        <dd>{locationBadge(v) ?? "—"}</dd>
+                      </div>
+                      <div className="hidden sm:contents">
+                        <dt className="font-medium text-zinc-500">Engine</dt>
+                        <dd className="truncate">{v.engine ?? "—"}</dd>
+                      </div>
+                      <div className="hidden sm:contents">
+                        <dt className="font-medium text-zinc-500">Location</dt>
+                        <dd className="truncate">{v.inventory_location ?? "—"}</dd>
+                      </div>
+                    </dl>
+                    <div className="mt-auto flex flex-wrap gap-2 pt-3">
+                      <button
+                        type="button"
+                        className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-900 transition hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openListingDetails(idx);
+                        }}
+                      >
+                        More details
+                      </button>
+                      {v.listing_url ? (
+                        <a
+                          href={v.listing_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-semibold text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          View listing
+                        </a>
+                      ) : null}
+                      <a
+                        href={v.dealership_website}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-semibold text-zinc-600 underline-offset-2 hover:underline dark:text-zinc-400"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Dealer site
+                      </a>
+                    </div>
+                  </>
+                )}
               </div>
             </article>
               );
