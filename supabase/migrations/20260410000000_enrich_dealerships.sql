@@ -43,6 +43,8 @@ ALTER TABLE public.dealer_reviews ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "dealer_reviews_public_read" ON public.dealer_reviews FOR SELECT USING (true);
 
 -- Update find_cached_dealerships to also return slug, rating, review_count for directory cards
+-- Must DROP first because the return type is changing (adding slug, rating, review_count, lat, lng)
+DROP FUNCTION IF EXISTS public.find_cached_dealerships(TEXT, TEXT, DOUBLE PRECISION, DOUBLE PRECISION, INTEGER);
 CREATE OR REPLACE FUNCTION public.find_cached_dealerships(
     p_make TEXT,
     p_vehicle_category TEXT,

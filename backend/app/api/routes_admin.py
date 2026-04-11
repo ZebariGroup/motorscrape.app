@@ -453,3 +453,52 @@ def admin_audit_log(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.post("/enrich-dealers/backfill")
+async def admin_enrich_dealers_backfill(
+    _ctx: Annotated[AccessContext, Depends(_get_admin_ctx)],
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, Any]:
+    """
+    Trigger enrichment for all dealers in Supabase that have never been enriched
+    (enriched_at IS NULL).  Runs up to `limit` dealers concurrently in background
+    tasks so the response returns immediately.
+    """
+    if not settings.supabase_url or not settings.supabase_service_key:
+        raise HTTPException(status_code=503, detail="Supabase not configured.")
+
+    try:
+        from app.db.supabase_store import get_supabase_store
+        client = get_supabase_store().client
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Supabase unavailable: {exc}") from exc
+
+    res = (
+        client.table("dealerships")
+        .select("id, place_id, name, address, website")
+        .is_("enriched_at", "null")
+        .limit(limit)
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        return {"ok": True, "queued": 0, "message": "All dealers already enriched."}
+
+    from app.services.dealer_enrichment import enrich_dealer
+    import asyncio
+
+    tasks = []
+    for row in rows:
+        task = asyncio.create_task(
+            enrich_dealer(
+                dealership_id=row["id"],
+                place_id=row.get("place_id") or "",
+                name=row.get("name") or "",
+                address=row.get("address") or "",
+                website=row.get("website"),
+            )
+        )
+        tasks.append(task)
+
+    return {"ok": True, "queued": len(tasks), "message": f"Enrichment started for {len(tasks)} dealer(s)."}
