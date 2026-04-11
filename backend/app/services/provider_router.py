@@ -484,8 +484,8 @@ def _looks_like_exact_bmw_inventory_path(url: str, model: str) -> bool:
 def _canonical_dealer_on_inventory_url(url: str, condition: str) -> str:
     parts = urlsplit(url)
     host = parts.netloc.lower().split("@")[-1].split(":")[0]
-    if host.startswith("buy.") or host.startswith("buyonline."):
-        _pfx = "buy." if host.startswith("buy.") else "buyonline."
+    if host.startswith("buy.") or host.startswith("buyonline.") or host.startswith("monogram."):
+        _pfx = next(p for p in ("buy.", "buyonline.", "monogram.") if host.startswith(p))
         base = host.removeprefix(_pfx)
         if base and not base.startswith(_pfx):
             netloc = parts.netloc.replace(host, f"www.{base}", 1)
@@ -515,7 +515,7 @@ def _canonical_dealer_inspire_inventory_url(url: str, condition: str) -> str:
     parts = urlsplit(url)
     host = parts.netloc.lower().split("@")[-1].split(":")[0]
     netloc = parts.netloc
-    for _pfx in ("buy.", "buyonline."):
+    for _pfx in ("buy.", "buyonline.", "monogram."):
         if host.startswith(_pfx):
             base = host.removeprefix(_pfx)
             if base and not base.startswith(_pfx):
@@ -541,7 +541,7 @@ def _canonical_dealer_inspire_filtered_inventory_url(
         parts = urlsplit(base)
         host = parts.netloc.lower().split("@")[-1].split(":")[0]
         netloc = parts.netloc
-        for _pfx in ("buy.", "buyonline."):
+        for _pfx in ("buy.", "buyonline.", "monogram."):
             if host.startswith(_pfx):
                 base_host = host.removeprefix(_pfx)
                 if base_host and not base_host.startswith(_pfx):

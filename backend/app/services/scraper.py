@@ -250,7 +250,7 @@ _PLACEHOLDER_MARKERS = (
 )
 
 
-_RETAIL_SUBDOMAINS = ("express.", "buyonline.", "buy.")
+_RETAIL_SUBDOMAINS = ("express.", "buyonline.", "buy.", "monogram.")
 
 
 def _host_is_express_retail(url: str) -> bool:

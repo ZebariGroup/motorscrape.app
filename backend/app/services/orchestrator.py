@@ -85,6 +85,36 @@ _STREAM_LISTING_BATCH_SIZE = 24
 # Sentinel placed on per-search SSE queue when a dealership worker finishes (see stream_search).
 _SSE_STREAM_WORKER_DONE = object()
 
+# Social media, video, and other non-dealer domains that occasionally surface in Places results.
+# A dealer's social page is not an inventory page — skip immediately.
+_NON_DEALER_DOMAINS: frozenset[str] = frozenset(
+    {
+        "youtube.com",
+        "facebook.com",
+        "instagram.com",
+        "twitter.com",
+        "x.com",
+        "tiktok.com",
+        "linkedin.com",
+        "yelp.com",
+        "dealerrater.com",
+        "cars.com",
+        "autotrader.com",
+        "cargurus.com",
+        "carfax.com",
+        "edmunds.com",
+        "kbb.com",
+        "truecar.com",
+        "vroom.com",
+        "carvana.com",
+        "carmax.com",
+        "maps.google.com",
+        "google.com",
+        "apple.com",
+        "bing.com",
+    }
+)
+
 # OEM/manufacturer corporate domains that surface in Places results but don't host individual
 # dealer inventory pages. Scraping them wastes budget and always fails.
 _OEM_CORPORATE_DOMAINS: frozenset[str] = frozenset(
@@ -136,14 +166,22 @@ _OEM_CORPORATE_DOMAINS: frozenset[str] = frozenset(
 )
 
 
-def _is_oem_corporate_website(website: str) -> bool:
-    """Return True if the website URL belongs to an OEM/manufacturer corporate domain."""
+def _non_dealer_website(website: str) -> str | None:
+    """Return a human-readable reason if the website URL is clearly not a dealer inventory site."""
+    if not website:
+        return "no website URL"
     try:
         from urllib.parse import urlsplit
-        host = urlsplit(website).netloc.lower().lstrip("www.")
-        return any(host == d or host.endswith(f".{d}") for d in _OEM_CORPORATE_DOMAINS)
+        host = urlsplit(website).netloc.lower()
+        # strip leading www. for comparison
+        bare = host.removeprefix("www.")
+        if any(bare == d or bare.endswith(f".{d}") for d in _NON_DEALER_DOMAINS):
+            return f"{host} is a social-media or marketplace site, not a dealer inventory page"
+        if any(bare == d or bare.endswith(f".{d}") for d in _OEM_CORPORATE_DOMAINS):
+            return f"{host} is an OEM manufacturer website, not an individual dealer inventory page"
     except Exception:
-        return False
+        pass
+    return None
 
 # Inventory-page family stacks that should override generic website platforms (DealerOn / Inspire / DDC).
 _INVENTORY_FAMILY_PLATFORM_IDS = frozenset(
@@ -2243,9 +2281,10 @@ async def stream_search(
         dealer_zip = _extract_us_zip(d.address or "") or _extract_us_zip(location)
         logger.info(f"{cid_log}Processing dealer {index}: {d.name} ({website})")
 
-        # Skip OEM corporate websites immediately — they have no individual dealer inventory.
-        if _is_oem_corporate_website(website):
-            logger.info("%sSkipping OEM corporate website for %s: %s", cid_log, d.name, website)
+        # Skip social-media, OEM corporate, and other non-dealer websites immediately.
+        _skip_reason = _non_dealer_website(website)
+        if _skip_reason:
+            logger.info("%sSkipping non-dealer website for %s: %s", cid_log, d.name, website)
             nonlocal completed_dealer_count
             completed_dealer_count += 1
             await _emit(sse_pack("dealership", {
@@ -2254,7 +2293,7 @@ async def stream_search(
                 "name": d.name,
                 "website": website,
                 "status": "failed",
-                "error_message": f"Skipped: {website} is an OEM manufacturer website, not an individual dealer inventory page.",
+                "error_message": f"Skipped: {_skip_reason}.",
                 "listing_count": 0,
             }))
             return
