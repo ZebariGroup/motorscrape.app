@@ -279,3 +279,7 @@ export default async function DealersIndexPage({
             )}
           </>
         )}
+      </main>
+    </>
+  );
+}
