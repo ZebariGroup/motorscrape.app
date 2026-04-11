@@ -485,8 +485,9 @@ async def admin_enrich_dealers_backfill(
     if not rows:
         return {"ok": True, "queued": 0, "message": "All dealers already enriched."}
 
-    from app.services.dealer_enrichment import enrich_dealer
     import asyncio
+
+    from app.services.dealer_enrichment import enrich_dealer
 
     tasks = []
     for row in rows:
@@ -502,3 +503,75 @@ async def admin_enrich_dealers_backfill(
         tasks.append(task)
 
     return {"ok": True, "queued": len(tasks), "message": f"Enrichment started for {len(tasks)} dealer(s)."}
+
+
+@router.post("/dealers/backfill-slugs")
+async def admin_backfill_dealer_slugs(
+    _ctx: Annotated[AccessContext, Depends(_get_admin_ctx)],
+    limit: int = Query(default=500, ge=1, le=2000),
+) -> dict[str, Any]:
+    """
+    Synchronously set provisional slugs for all dealers that have slug IS NULL.
+    Dealers without slugs are invisible in the directory. This endpoint fixes
+    dealers that were upserted before the provisional-slug-on-insert change.
+    Also triggers full enrichment for each so rating/photos/brands are populated.
+    """
+    if not settings.supabase_url or not settings.supabase_service_key:
+        raise HTTPException(status_code=503, detail="Supabase not configured.")
+
+    try:
+        from app.db.supabase_store import get_supabase_store
+        client = get_supabase_store().client
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Supabase unavailable: {exc}") from exc
+
+    res = (
+        client.table("dealerships")
+        .select("id, place_id, name, address, website")
+        .is_("slug", "null")
+        .limit(limit)
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        return {"ok": True, "updated": 0, "message": "All dealers already have slugs."}
+
+    from app.services.dealer_enrichment import generate_slug, enrich_dealer
+    import asyncio
+
+    updated = 0
+    enrichment_tasks = []
+    for row in rows:
+        name = row.get("name") or ""
+        address = row.get("address") or ""
+        dealer_id = row["id"]
+
+        slug = generate_slug(name, address)
+        if not slug:
+            continue
+        try:
+            client.table("dealerships").update({"slug": slug}).eq("id", dealer_id).execute()
+            updated += 1
+        except Exception as e:
+            logger.warning("backfill-slugs: failed to set slug for %s: %s", name, e)
+            continue
+
+        # Schedule full enrichment so rating, photos, brands are populated too
+        enrichment_tasks.append(
+            asyncio.create_task(
+                enrich_dealer(
+                    dealership_id=dealer_id,
+                    place_id=row.get("place_id") or "",
+                    name=name,
+                    address=address,
+                    website=row.get("website"),
+                )
+            )
+        )
+
+    return {
+        "ok": True,
+        "updated": updated,
+        "enrichment_queued": len(enrichment_tasks),
+        "message": f"Set provisional slugs for {updated} dealer(s); enrichment queued for {len(enrichment_tasks)}.",
+    }

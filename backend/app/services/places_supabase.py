@@ -106,6 +106,8 @@ def save_to_supabase_cache(
     cat_q = vehicle_category.strip().lower()
 
     try:
+        from app.services.dealer_enrichment import generate_slug
+
         # 1. Insert dealerships
         persisted_count = 0
         for d in dealerships:
@@ -127,12 +129,47 @@ def save_to_supabase_cache(
                 persisted_count += 1
                 d_row = d_res.data[0]
                 d_id = d_row["id"]
+
+                # Set a provisional slug and seed oem_brands immediately if the
+                # row has none. The directory query filters by slug IS NOT NULL,
+                # so without this new dealers are invisible until async enrichment
+                # completes — which may never happen if the process exits first.
+                if not d_row.get("slug"):
+                    provisional_slug = generate_slug(d.name, d.address)
+                    # Also seed oem_brands with the search make so the brand
+                    # filter in the directory works before full enrichment.
+                    existing_brands: list[str] = d_row.get("oem_brands") or []
+                    make_display = make.strip()
+                    seed_brands = (
+                        list({*existing_brands, make_display})
+                        if make_display and make_display not in existing_brands
+                        else existing_brands or [make_display]
+                    )
+                    try:
+                        slug_res = client.table("dealerships").update(
+                            {"slug": provisional_slug, "oem_brands": seed_brands}
+                        ).eq("id", d_id).execute()
+                        if slug_res.data:
+                            d_row["slug"] = provisional_slug
+                            logger.info(
+                                "Set provisional slug '%s' and brands %s for new dealer %s",
+                                provisional_slug,
+                                seed_brands,
+                                d.name,
+                            )
+                    except Exception as slug_exc:
+                        logger.warning(
+                            "Could not set provisional slug for %s: %s", d.name, slug_exc
+                        )
+
                 # Propagate slug so SSE events can link to the dealer profile page
                 if d_row.get("slug"):
                     d.slug = d_row["slug"]
 
                 # Fire enrichment for dealers that haven't been enriched yet.
                 # This is non-blocking: the search continues while enrichment runs.
+                # Enrichment refines the slug (collision resolution), adds rating,
+                # photos, phone, social links, and OEM brands from the homepage.
                 if not d_row.get("enriched_at"):
                     try:
                         from app.services.dealer_enrichment import enrich_dealer
