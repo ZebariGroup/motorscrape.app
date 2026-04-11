@@ -99,14 +99,15 @@ function DealerCard({ dealer }: { dealer: DealerCard }) {
 export default async function DealersIndexPage({
   searchParams,
 }: {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const q = typeof searchParams.q === "string" ? searchParams.q : undefined;
-  const make = typeof searchParams.make === "string" ? searchParams.make : undefined;
-  const state = typeof searchParams.state === "string" ? searchParams.state : undefined;
-  const city = typeof searchParams.city === "string" ? searchParams.city : undefined;
-  const sort = typeof searchParams.sort === "string" ? searchParams.sort : undefined;
-  const pageStr = typeof searchParams.page === "string" ? searchParams.page : "1";
+  const sp = await searchParams;
+  const q = typeof sp.q === "string" ? sp.q : undefined;
+  const make = typeof sp.make === "string" ? sp.make : undefined;
+  const state = typeof sp.state === "string" ? sp.state : undefined;
+  const city = typeof sp.city === "string" ? sp.city : undefined;
+  const sort = typeof sp.sort === "string" ? sp.sort : undefined;
+  const pageStr = typeof sp.page === "string" ? sp.page : "1";
   const page = parseInt(pageStr, 10) || 1;
   const limit = 48;
   const offset = (page - 1) * limit;
