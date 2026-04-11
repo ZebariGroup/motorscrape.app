@@ -4,6 +4,8 @@ import type { Metadata } from "next";
 import { DirectoryHeader } from "@/components/DirectoryHeader";
 import { fetchDealerList, type DealerCard } from "@/lib/dealerApi";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Car Dealership Directory | Motorscrape",
   description:

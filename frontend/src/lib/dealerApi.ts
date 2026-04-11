@@ -107,7 +107,7 @@ export async function fetchDealerList(params?: {
   if (params?.offset != null) qs.set("offset", String(params.offset));
   const url = `${base}/server/dealerships${qs.toString() ? `?${qs}` : ""}`;
   try {
-    const res = await fetch(url, { next: { revalidate: 900 } });
+    const res = await fetch(url, { cache: "no-store" });
     if (!res.ok) {
       console.error(`fetchDealerList HTTP ${res.status}`);
       return { dealers: [], total: 0, offset: 0, limit: 24 };
