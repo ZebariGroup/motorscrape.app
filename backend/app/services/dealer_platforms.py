@@ -114,6 +114,8 @@ _ZENROWS_HOST_OVERRIDES: dict[str, ZenRowsHostOverrides] = {
     # Dealer Inspire sites behind aggressive WAF — skip Playwright, use ZenRows JS render
     "carvanacdjrofsandiego.com": ZenRowsHostOverrides(force_js_render=True),
     "jackpowellcdjr.com": ZenRowsHostOverrides(force_js_render=True),
+    # Rusnak Porsche uses express.* subdomain that 404s; www.* needs ZenRows JS render
+    "rusnakpasadenaporsche.com": ZenRowsHostOverrides(force_js_render=True),
 }
 
 

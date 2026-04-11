@@ -85,6 +85,66 @@ _STREAM_LISTING_BATCH_SIZE = 24
 # Sentinel placed on per-search SSE queue when a dealership worker finishes (see stream_search).
 _SSE_STREAM_WORKER_DONE = object()
 
+# OEM/manufacturer corporate domains that surface in Places results but don't host individual
+# dealer inventory pages. Scraping them wastes budget and always fails.
+_OEM_CORPORATE_DOMAINS: frozenset[str] = frozenset(
+    {
+        "porsche.com",
+        "mercedes-benz.com",
+        "bmw.com",
+        "audi.com",
+        "volkswagen.com",
+        "vw.com",
+        "toyota.com",
+        "honda.com",
+        "ford.com",
+        "gm.com",
+        "stellantis.com",
+        "kia.com",
+        "hyundai.com",
+        "genesis.com",
+        "ferrari.com",
+        "lamborghini.com",
+        "maserati.com",
+        "astonmartin.com",
+        "rolls-roycemotorcars.com",
+        "bentleymotors.com",
+        "landrover.com",
+        "jaguarlandrover.com",
+        "jaguar.com",
+        "volvocars.com",
+        "mazda.com",
+        "subaru.com",
+        "mitsubishi-motors.com",
+        "chrysler.com",
+        "dodge.com",
+        "jeep.com",
+        "ramtrucks.com",
+        "mopar.com",
+        "buick.com",
+        "cadillac.com",
+        "chevrolet.com",
+        "gmc.com",
+        "lincoln.com",
+        "acura.com",
+        "infiniti.com",
+        "polestar.com",
+        "mclaren.com",
+        "bugatti.com",
+        "koenigsegg.com",
+    }
+)
+
+
+def _is_oem_corporate_website(website: str) -> bool:
+    """Return True if the website URL belongs to an OEM/manufacturer corporate domain."""
+    try:
+        from urllib.parse import urlsplit
+        host = urlsplit(website).netloc.lower().lstrip("www.")
+        return any(host == d or host.endswith(f".{d}") for d in _OEM_CORPORATE_DOMAINS)
+    except Exception:
+        return False
+
 # Inventory-page family stacks that should override generic website platforms (DealerOn / Inspire / DDC).
 _INVENTORY_FAMILY_PLATFORM_IDS = frozenset(
     {
@@ -1415,6 +1475,23 @@ def _cap_unknown_platform_fetch_timeout(
     return float(base_timeout)
 
 
+def _route_inventory_fetch_timeout(
+    base_timeout: float,
+    *,
+    route: ProviderRoute | None,
+    dealer_timeout: float,
+) -> float:
+    timeout = float(base_timeout)
+    if not route or not route.requires_render:
+        return timeout
+    # Dealer Inspire inventory pages frequently need a direct 403 + managed-render pass
+    # before returning usable HTML. Keep this bounded, but give them enough room to
+    # finish without tripping the orchestrator timeout first.
+    if route.platform_id == "dealer_inspire":
+        return max(timeout, min(settings.scrape_timeout + 15.0, max(20.0, float(dealer_timeout) * 0.28)))
+    return timeout
+
+
 def _merge_vehicle_detail(base: VehicleListing, enriched: VehicleListing) -> VehicleListing:
     base_data = base.model_dump()
     enriched_data = enriched.model_dump()
@@ -2165,6 +2242,22 @@ async def stream_search(
         website = prefer_https_website_url((d.website or "").strip())
         dealer_zip = _extract_us_zip(d.address or "") or _extract_us_zip(location)
         logger.info(f"{cid_log}Processing dealer {index}: {d.name} ({website})")
+
+        # Skip OEM corporate websites immediately — they have no individual dealer inventory.
+        if _is_oem_corporate_website(website):
+            logger.info("%sSkipping OEM corporate website for %s: %s", cid_log, d.name, website)
+            nonlocal completed_dealer_count
+            completed_dealer_count += 1
+            await _emit(sse_pack("dealership", {
+                "index": index,
+                "total": len(dealers),
+                "name": d.name,
+                "website": website,
+                "status": "failed",
+                "error_message": f"Skipped: {website} is an OEM manufacturer website, not an individual dealer inventory page.",
+                "listing_count": 0,
+            }))
+            return
         if recorder is not None:
             recorder.note_dealer_started(dealership_name=d.name, dealership_website=website)
             recorder.event(
@@ -2903,10 +2996,14 @@ async def stream_search(
                 )
                 try:
                     inv_timeout = _phase_timeout(
-                        _cap_unknown_platform_fetch_timeout(
-                            fetch_timeout,
-                            page_kind="inventory",
-                            platform_id=route.platform_id if route else None,
+                        _route_inventory_fetch_timeout(
+                            _cap_unknown_platform_fetch_timeout(
+                                fetch_timeout,
+                                page_kind="inventory",
+                                platform_id=route.platform_id if route else None,
+                            ),
+                            route=route,
+                            dealer_timeout=dealer_timeout,
                         )
                     )
                     if inv_timeout is None:
@@ -2951,10 +3048,14 @@ async def stream_search(
                         )
                         try:
                             retry_timeout = _phase_timeout(
-                                _cap_unknown_platform_fetch_timeout(
-                                    fetch_timeout,
-                                    page_kind="inventory",
-                                    platform_id=route.platform_id if route else None,
+                                _route_inventory_fetch_timeout(
+                                    _cap_unknown_platform_fetch_timeout(
+                                        fetch_timeout,
+                                        page_kind="inventory",
+                                        platform_id=route.platform_id if route else None,
+                                    ),
+                                    route=route,
+                                    dealer_timeout=dealer_timeout,
                                 ),
                                 reserve_seconds=6.0,
                             )
@@ -3055,7 +3156,14 @@ async def stream_search(
                         return
             elif route and route.requires_render:
                 try:
-                    render_timeout = _phase_timeout(fetch_timeout, reserve_seconds=6.0)
+                    render_timeout = _phase_timeout(
+                        _route_inventory_fetch_timeout(
+                            fetch_timeout,
+                            route=route,
+                            dealer_timeout=dealer_timeout,
+                        ),
+                        reserve_seconds=6.0,
+                    )
                     if render_timeout is None:
                         raise RuntimeError("dealer_time_budget_exhausted")
                     current_html, current_method = await asyncio.wait_for(
@@ -3394,7 +3502,13 @@ async def stream_search(
                         )
                     )
                     try:
-                        page_timeout = _phase_timeout(fetch_timeout)
+                        page_timeout = _phase_timeout(
+                            _route_inventory_fetch_timeout(
+                                fetch_timeout,
+                                route=route,
+                                dealer_timeout=dealer_timeout,
+                            )
+                        )
                         if page_timeout is None:
                             break
                         current_html, current_method = await asyncio.wait_for(

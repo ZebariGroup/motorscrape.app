@@ -631,6 +631,38 @@ async def fetch_page_html(
                 if html is not None:
                     return html, "zenrows_rendered"
 
+        # If ZenRows returned 404 on a retail subdomain (express./buyonline./buy.),
+        # try the www.* equivalent with ZenRows before falling through to ScrapingBee.
+        # The express URL often doesn't serve inventory pages directly (RESP002 404),
+        # but the canonical www host does.
+        if _host_is_express_retail(effective_url):
+            www_alt = _www_swap_express_url(effective_url)
+            if www_alt and www_alt.rstrip("/") != effective_url.rstrip("/"):
+                recent = " | ".join(failures).lower()
+                if "404" in recent or "resp002" in recent or "page not found" in recent:
+                    logger.info(
+                        "ZenRows 404 on retail subdomain; retrying ZenRows JS-render on www equivalent: %s",
+                        www_alt,
+                    )
+                    html = await zenrows_try_once(
+                        url=www_alt,
+                        timeout=timeout,
+                        page_kind=page_kind,
+                        failures=failures,
+                        metric_bump=_m,
+                        js_render=True,
+                        wait_ms=render_wait_ms,
+                        metric_prefix="zenrows_rendered_www",
+                        failure_label="zenrows_rendered_www",
+                        js_instructions=js_instructions,
+                        platform_id=platform_id,
+                        force_premium_proxy=_host_zr_overrides.force_premium_proxy if _host_zr_overrides else False,
+                        proxy_country=_host_zr_overrides.proxy_country if _host_zr_overrides else None,
+                    )
+                    if html is not None:
+                        effective_url = www_alt
+                        return html, "zenrows_rendered_www"
+
     # 3) ScrapingBee: static then rendered
     if allow_escalation and settings.scrapingbee_api_key:
         try:
