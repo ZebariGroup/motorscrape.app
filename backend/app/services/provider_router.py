@@ -1818,6 +1818,17 @@ def resolve_inventory_url_for_provider(
                 generic_base = _canonical_family_inventory_url(generic_base, condition)
             else:
                 generic_base = _canonical_dealer_inspire_inventory_url(generic_base, condition)
+            # For make-filtered DI searches without a model, use query-param filtering
+            # (?_dFR[make][0]=Ram) rather than relying on the caller to apply it.
+            # Path-slug sub-pages like /new-vehicles/ram/ are stripped by
+            # _canonical_dealer_inspire_inventory_url; the filtered URL is more reliable.
+            if make_norm and make.strip() and not _looks_like_team_velocity_inventory_stack(html, generic_base):
+                generic_base = _canonical_dealer_inspire_filtered_inventory_url(
+                    generic_base,
+                    condition=condition,
+                    make=make,
+                    model="",
+                )
             best_url = generic_base
 
     if route and route.platform_id == "autohausen_ahp6":

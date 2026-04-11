@@ -450,7 +450,8 @@ async def fetch_page_html(
         prefer_render = True
 
     _host_zr_overrides = zenrows_host_overrides_for_url(url)
-    if _host_zr_overrides is not None and _host_zr_overrides.force_js_render:
+    _force_zenrows_render = _host_zr_overrides is not None and _host_zr_overrides.force_js_render
+    if _force_zenrows_render:
         prefer_render = True
 
     def _m(key: str) -> None:
@@ -482,11 +483,10 @@ async def fetch_page_html(
 
     if (
         allow_escalation
-        and (
-        prefer_render
+        and prefer_render
         and page_kind == "inventory"
         and platform_id not in _DIRECT_FIRST_RENDER_PREFERRED_PLATFORMS
-        )
+        and not _force_zenrows_render  # skip Playwright when ZenRows is explicitly forced
     ):
         # Some platforms truly need a browser pass first, but DealerOn inventory pages are often
         # fully SSR and should stay on the cheap direct path before trying Playwright.

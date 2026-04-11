@@ -1029,7 +1029,34 @@ def test_resolve_inventory_url_for_provider_canonicalizes_dealer_inspire_filtere
         model="",
         vehicle_condition="new",
     )
-    assert url == "https://www.northlandchryslerjeepdodge.com/new-vehicles/"
+    # make filter is preserved / re-applied via _dFR query params
+    assert "_dFR%5Bmake%5D%5B0%5D=Jeep" in url or "_dFR[make][0]=Jeep" in url
+    assert "northlandchryslerjeepdodge.com/new-vehicles/" in url
+
+
+def test_resolve_inventory_url_for_provider_canonicalizes_dealer_inspire_buy_host() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=1.0,
+        extraction_mode="structured_json",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles", "used-vehicles"),
+        inventory_url_hint="https://buy.sedanochevrolet.com/carbravo/shopping/inventory/search",
+    )
+    url = resolve_inventory_url_for_provider(
+        "<html></html>",
+        "https://www.sedanochevrolet.com/",
+        route,
+        fallback_url=route.inventory_url_hint,
+        make="Chevrolet",
+        model="",
+        vehicle_condition="new",
+    )
+    # buy.* host swapped to www.* and make filter applied via _dFR query params
+    assert "sedanochevrolet.com/new-vehicles/" in url
+    assert "_dFR%5Bmake%5D%5B0%5D=Chevrolet" in url or "_dFR[make][0]=Chevrolet" in url
 
 
 def test_resolve_inventory_url_for_provider_uses_family_inventory_for_team_velocity_like_dealer_inspire_html() -> None:
