@@ -167,6 +167,10 @@ async def list_dealerships(
 
         if sort == "name_asc":
             query = query.order("name", desc=False)
+        elif sort == "reviews_desc":
+            query = query.order("review_count", desc=True, nullsfirst=False)
+        elif sort == "enriched_first":
+            query = query.order("enriched_at", desc=True, nullsfirst=False)
         else:
             # nullsfirst=False with desc=True → ORDER BY rating DESC NULLS LAST (rated dealers first)
             query = query.order("rating", desc=True, nullsfirst=False)
