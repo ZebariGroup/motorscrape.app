@@ -96,31 +96,131 @@ function DealerCard({ dealer }: { dealer: DealerCard }) {
   );
 }
 
-export default async function DealersIndexPage() {
-  const { dealers, total } = await fetchDealerList({ limit: 48 });
+export default async function DealersIndexPage({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | string[] | undefined };
+}) {
+  const q = typeof searchParams.q === "string" ? searchParams.q : undefined;
+  const make = typeof searchParams.make === "string" ? searchParams.make : undefined;
+  const state = typeof searchParams.state === "string" ? searchParams.state : undefined;
+  const city = typeof searchParams.city === "string" ? searchParams.city : undefined;
+  const sort = typeof searchParams.sort === "string" ? searchParams.sort : undefined;
+  const pageStr = typeof searchParams.page === "string" ? searchParams.page : "1";
+  const page = parseInt(pageStr, 10) || 1;
+  const limit = 48;
+  const offset = (page - 1) * limit;
+
+  const { dealers, total } = await fetchDealerList({
+    q,
+    make,
+    state,
+    city,
+    sort,
+    limit,
+    offset,
+  });
+
+  const totalPages = Math.ceil(total / limit);
+
+  // Helper to build pagination links
+  const buildPageUrl = (p: number) => {
+    const sp = new URLSearchParams();
+    if (q) sp.set("q", q);
+    if (make) sp.set("make", make);
+    if (state) sp.set("state", state);
+    if (city) sp.set("city", city);
+    if (sort) sp.set("sort", sort);
+    if (p > 1) sp.set("page", p.toString());
+    const qs = sp.toString();
+    return qs ? `/dealers?${qs}` : "/dealers";
+  };
 
   return (
     <>
       <DirectoryHeader />
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-12">
-        <header className="flex flex-col gap-1">
-          <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Dealership Directory
-          </h1>
-          <p className="mt-1 max-w-2xl text-zinc-500 dark:text-zinc-400">
-            {total > 0
-              ? `${total.toLocaleString()} dealer${total !== 1 ? "s" : ""} indexed by Motorscrape. Click any card to see hours, contact info, ratings, and inventory.`
-              : "Dealers appear here after being discovered through inventory searches."}
-          </p>
+        <header className="flex flex-col gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+              Dealership Directory
+            </h1>
+            <p className="mt-1 max-w-2xl text-zinc-500 dark:text-zinc-400">
+              {total > 0
+                ? `${total.toLocaleString()} dealer${total !== 1 ? "s" : ""} indexed by Motorscrape. Click any card to see hours, contact info, ratings, and inventory.`
+                : "Dealers appear here after being discovered through inventory searches."}
+            </p>
+          </div>
+
+          <form action="/dealers" method="GET" className="flex flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="q" className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Search Name or Location
+              </label>
+              <input
+                type="text"
+                id="q"
+                name="q"
+                defaultValue={q}
+                placeholder="e.g. Ford or Texas"
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              />
+            </div>
+            
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="make" className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Make
+              </label>
+              <input
+                type="text"
+                id="make"
+                name="make"
+                defaultValue={make}
+                placeholder="e.g. Toyota"
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="sort" className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Sort By
+              </label>
+              <select
+                id="sort"
+                name="sort"
+                defaultValue={sort || "rating_desc"}
+                className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              >
+                <option value="rating_desc">Highest Rated</option>
+                <option value="name_asc">Name (A-Z)</option>
+              </select>
+            </div>
+
+            <button
+              type="submit"
+              className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              Apply Filters
+            </button>
+            
+            {(q || make || state || city || sort) && (
+              <Link
+                href="/dealers"
+                className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                Clear
+              </Link>
+            )}
+          </form>
         </header>
 
         {dealers.length === 0 ? (
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-8 text-center dark:border-zinc-800 dark:bg-zinc-900/40">
             <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-              No dealers indexed yet.
+              No dealers found matching your criteria.
             </p>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-500">
-              Run a live inventory search to start building the directory.
+              Try adjusting your filters or search terms.
             </p>
             <Link
               href="/"
@@ -140,36 +240,42 @@ export default async function DealersIndexPage() {
               ))}
             </div>
 
-            {total > 48 && (
-              <p className="text-center text-sm text-zinc-400 dark:text-zinc-500">
-                Showing 48 of {total.toLocaleString()} dealers.{" "}
-                <Link href="/directory" className="text-emerald-600 hover:underline dark:text-emerald-400">
-                  Browse by make &amp; location
-                </Link>{" "}
-                to filter.
-              </p>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-zinc-200 pt-6 dark:border-zinc-800">
+                <div className="text-sm text-zinc-500 dark:text-zinc-400">
+                  Showing <span className="font-medium text-zinc-900 dark:text-zinc-100">{offset + 1}</span> to{" "}
+                  <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                    {Math.min(offset + limit, total)}
+                  </span>{" "}
+                  of <span className="font-medium text-zinc-900 dark:text-zinc-100">{total.toLocaleString()}</span> dealers
+                </div>
+                <div className="flex items-center gap-2">
+                  {page > 1 ? (
+                    <Link
+                      href={buildPageUrl(page - 1)}
+                      className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    >
+                      Previous
+                    </Link>
+                  ) : (
+                    <button disabled className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-600">
+                      Previous
+                    </button>
+                  )}
+                  {page < totalPages ? (
+                    <Link
+                      href={buildPageUrl(page + 1)}
+                      className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    >
+                      Next
+                    </Link>
+                  ) : (
+                    <button disabled className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-600">
+                      Next
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
           </>
         )}
-
-        <div className="flex flex-wrap gap-4 border-t border-zinc-100 pt-6 dark:border-zinc-800">
-          <Link
-            href="/directory"
-            className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-          >
-            Browse by Make &amp; Location
-          </Link>
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
-          >
-            Search Inventory
-            <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M3 8h10M9 4l4 4-4 4" />
-            </svg>
-          </Link>
-        </div>
-      </main>
-    </>
-  );
-}

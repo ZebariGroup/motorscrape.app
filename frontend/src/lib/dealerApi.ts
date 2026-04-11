@@ -92,17 +92,25 @@ export type DealerListResponse = {
 };
 
 export async function fetchDealerList(params?: {
+  q?: string;
   make?: string;
   state?: string;
   city?: string;
+  sort?: string;
+  lat?: number;
+  lng?: number;
   limit?: number;
   offset?: number;
 }): Promise<DealerListResponse> {
   const base = serverApiBase();
   const qs = new URLSearchParams();
+  if (params?.q) qs.set("q", params.q);
   if (params?.make) qs.set("make", params.make);
   if (params?.state) qs.set("state", params.state);
   if (params?.city) qs.set("city", params.city);
+  if (params?.sort) qs.set("sort", params.sort);
+  if (params?.lat != null) qs.set("lat", String(params.lat));
+  if (params?.lng != null) qs.set("lng", String(params.lng));
   if (params?.limit != null) qs.set("limit", String(params.limit));
   if (params?.offset != null) qs.set("offset", String(params.offset));
   const url = `${base}/server/dealerships${qs.toString() ? `?${qs}` : ""}`;

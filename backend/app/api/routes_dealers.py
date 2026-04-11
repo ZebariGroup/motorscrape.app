@@ -125,6 +125,10 @@ async def list_dealerships(
     make: str | None = Query(default=None, description="Filter by OEM brand, e.g. Ford"),
     state: str | None = Query(default=None, description="Filter by US state abbreviation, e.g. TX"),
     city: str | None = Query(default=None, description="Filter by city name"),
+    q: str | None = Query(default=None, description="Search by dealer name or address"),
+    sort: str | None = Query(default="rating_desc", description="Sort order: rating_desc, name_asc"),
+    lat: float | None = Query(default=None, description="Latitude for distance sorting"),
+    lng: float | None = Query(default=None, description="Longitude for distance sorting"),
     limit: int = Query(default=24, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
@@ -137,24 +141,38 @@ async def list_dealerships(
         raise HTTPException(status_code=503, detail="Dealer directory is not available.")
 
     try:
-        q = client.table("dealerships").select(
+        query = client.table("dealerships").select(
             "id, slug, name, address, website, lat, lng, rating, review_count, oem_brands, services, enriched_at"
         ).not_.is_("slug", "null")
+        
+        count_query = client.table("dealerships").select("id", count="exact").not_.is_("slug", "null")
 
         if make:
             # Filter via dealership_makes join using RPC is complex; filter by oem_brands array
-            q = q.contains("oem_brands", [make])
+            query = query.contains("oem_brands", [make])
+            count_query = count_query.contains("oem_brands", [make])
 
         if state:
             # Address format: "..., City, ST XXXXX, USA" — simple ilike match
-            q = q.ilike("address", f"%, {state.upper()} %")
+            query = query.ilike("address", f"%, {state.upper()} %")
+            count_query = count_query.ilike("address", f"%, {state.upper()} %")
 
         if city:
-            q = q.ilike("address", f"%{city}%")
+            query = query.ilike("address", f"%{city}%")
+            count_query = count_query.ilike("address", f"%{city}%")
+            
+        if q:
+            query = query.or_(f"name.ilike.%{q}%,address.ilike.%{q}%")
+            count_query = count_query.or_(f"name.ilike.%{q}%,address.ilike.%{q}%")
 
-        # nullsfirst=False with desc=True → ORDER BY rating DESC NULLS LAST (rated dealers first)
-        q = q.order("rating", desc=True, nullsfirst=False).range(offset, offset + limit - 1)
-        res = q.execute()
+        if sort == "name_asc":
+            query = query.order("name", desc=False)
+        else:
+            # nullsfirst=False with desc=True → ORDER BY rating DESC NULLS LAST (rated dealers first)
+            query = query.order("rating", desc=True, nullsfirst=False)
+
+        query = query.range(offset, offset + limit - 1)
+        res = query.execute()
 
         dealers = [
             {
@@ -174,7 +192,7 @@ async def list_dealerships(
         ]
 
         # Total count for pagination
-        count_res = client.table("dealerships").select("id", count="exact").not_.is_("slug", "null").execute()
+        count_res = count_query.execute()
         total = count_res.count or 0
 
         return {"ok": True, "dealers": dealers, "total": total, "offset": offset, "limit": limit}
