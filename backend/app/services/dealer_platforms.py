@@ -109,6 +109,8 @@ _ZENROWS_HOST_OVERRIDES: dict[str, ZenRowsHostOverrides] = {
     "audibirminghammi.com": ZenRowsHostOverrides(force_premium_proxy=True),
     "speednationpowersports.com": ZenRowsHostOverrides(proxy_country="us"),
     "genesischevrolet.com": ZenRowsHostOverrides(force_js_render=True),
+    # DDC express store — all direct fetches 403/Cloudflare; force ZenRows JS render
+    "spreensubaru.com": ZenRowsHostOverrides(force_js_render=True),
 }
 
 

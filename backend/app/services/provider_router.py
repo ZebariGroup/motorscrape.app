@@ -484,9 +484,10 @@ def _looks_like_exact_bmw_inventory_path(url: str, model: str) -> bool:
 def _canonical_dealer_on_inventory_url(url: str, condition: str) -> str:
     parts = urlsplit(url)
     host = parts.netloc.lower().split("@")[-1].split(":")[0]
-    if host.startswith("buy."):
-        base = host.removeprefix("buy.")
-        if base and not base.startswith("buy."):
+    if host.startswith("buy.") or host.startswith("buyonline."):
+        _pfx = "buy." if host.startswith("buy.") else "buyonline."
+        base = host.removeprefix(_pfx)
+        if base and not base.startswith(_pfx):
             netloc = parts.netloc.replace(host, f"www.{base}", 1)
         else:
             netloc = parts.netloc
@@ -512,11 +513,19 @@ def _canonical_dealer_on_inventory_url(url: str, condition: str) -> str:
 
 def _canonical_dealer_inspire_inventory_url(url: str, condition: str) -> str:
     parts = urlsplit(url)
+    host = parts.netloc.lower().split("@")[-1].split(":")[0]
+    netloc = parts.netloc
+    for _pfx in ("buy.", "buyonline."):
+        if host.startswith(_pfx):
+            base = host.removeprefix(_pfx)
+            if base and not base.startswith(_pfx):
+                netloc = parts.netloc.replace(host, f"www.{base}", 1)
+            break
     if condition == "used":
         path = "/used-vehicles/"
     else:
         path = "/new-vehicles/"
-    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+    return urlunsplit((parts.scheme, netloc, path, "", ""))
 
 
 def _canonical_dealer_inspire_filtered_inventory_url(
@@ -530,10 +539,18 @@ def _canonical_dealer_inspire_filtered_inventory_url(
     if cond == "all":
         base = _normalize_inventory_candidate_url(base_url)
         parts = urlsplit(base)
+        host = parts.netloc.lower().split("@")[-1].split(":")[0]
+        netloc = parts.netloc
+        for _pfx in ("buy.", "buyonline."):
+            if host.startswith(_pfx):
+                base_host = host.removeprefix(_pfx)
+                if base_host and not base_host.startswith(_pfx):
+                    netloc = parts.netloc.replace(host, f"www.{base_host}", 1)
+                break
         path = parts.path or "/new-vehicles/"
         if not path.endswith("/"):
             path += "/"
-        base = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+        base = urlunsplit((parts.scheme, netloc, path, "", ""))
     else:
         base = _canonical_dealer_inspire_inventory_url(base_url, cond)
     updates: dict[str, str] = {}

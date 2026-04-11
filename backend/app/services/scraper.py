@@ -249,8 +249,11 @@ _PLACEHOLDER_MARKERS = (
 )
 
 
+_RETAIL_SUBDOMAINS = ("express.", "buyonline.", "buy.")
+
+
 def _host_is_express_retail(url: str) -> bool:
-    """Dealer 'express store' subdomains (e.g. express.dealer.com) sit behind strict WAF; prefer managed fetch."""
+    """Dealer retail subdomains (express./buyonline./buy.) sit behind strict WAFs; prefer managed fetch."""
     try:
         host = urlsplit(url).netloc.lower().split("@")[-1]
     except Exception:
@@ -258,21 +261,22 @@ def _host_is_express_retail(url: str) -> bool:
     if not host:
         return False
     no_port = host.split(":")[0]
-    return no_port == "express" or no_port.startswith("express.")
+    return any(no_port == pfx.rstrip(".") or no_port.startswith(pfx) for pfx in _RETAIL_SUBDOMAINS)
 
 
 def _www_swap_express_url(url: str) -> str | None:
-    """express.dealer.com/path -> www.dealer.com/path when the group runs inventory on both."""
+    """express./buyonline./buy.dealer.com/path -> www.dealer.com/path for inventory fallback."""
     try:
         parts = urlsplit(url)
         host = parts.netloc.lower().split("@")[-1].split(":")[0]
-        if not host.startswith("express."):
-            return None
-        base = host.removeprefix("express.")
-        if not base or base.startswith("express."):
-            return None
-        www_host = f"www.{base}"
-        return urlunsplit((parts.scheme, www_host, parts.path, parts.query, parts.fragment))
+        for pfx in _RETAIL_SUBDOMAINS:
+            if host.startswith(pfx):
+                base = host.removeprefix(pfx)
+                if not base or base.startswith(pfx):
+                    return None
+                www_host = f"www.{base}"
+                return urlunsplit((parts.scheme, www_host, parts.path, parts.query, parts.fragment))
+        return None
     except Exception:
         return None
 
@@ -371,8 +375,8 @@ async def _playwright_pass(
 
 async def _direct_get_with_express_www_fallback(url: str, timeout: httpx.Timeout) -> str:
     """
-    Try direct GET; on 403 from an express.* host, try the same path on www.* once
-    (some Dealer.com groups answer on www while express is Cloudflare-challenged).
+    Try direct GET; on 403/OSError from a retail subdomain host (express./buyonline./buy.),
+    try the same path on www.* once.
     Also handles TLS internal errors by trying http:// if it's a known problematic host.
     """
     try:
@@ -391,13 +395,22 @@ async def _direct_get_with_express_www_fallback(url: str, timeout: httpx.Timeout
             alt = url.replace("https://", "http://", 1)
             return await _direct_get(alt, timeout)
         raise
+    except OSError as e:
+        # [Errno 16] Device or resource busy — common on buyonline./buy. retail subdomains
+        # that serve digital-retailing flows rather than standard SRPs. Try www.* equivalent.
+        if _host_is_express_retail(url):
+            alt = _www_swap_express_url(url)
+            if alt and alt.rstrip("/") != url.rstrip("/"):
+                logger.info("OSError %s on retail subdomain; retrying on www equivalent: %s", e, alt)
+                return await _direct_get(alt, timeout)
+        raise
     except httpx.HTTPStatusError as e:
         if e.response.status_code != 403 or not _host_is_express_retail(url):
             raise
         alt = _www_swap_express_url(url)
         if not alt or alt.rstrip("/") == url.rstrip("/"):
             raise
-        logger.info("403 on express inventory; retrying direct on www equivalent: %s", alt)
+        logger.info("403 on retail subdomain; retrying direct on www equivalent: %s", alt)
         return await _direct_get(alt, timeout)
 
 
@@ -977,8 +990,6 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str 
     elif page_kind == "inventory" and platform_id == "dealer_on":
         if _looks_like_empty_inventory_shell(html):
             return False
-        if _dealer_on_has_only_skeleton_cards(html):
-            return False
         if _html_looks_inventory_ready(html, platform_id=platform_id):
             return True
         # DealerOn SSR pages embed real VINs and view-details links server-side even without
@@ -989,6 +1000,8 @@ def _direct_html_sufficient(html: str, *, page_kind: PageKind, platform_id: str 
         lower = html.lower()
         if lower.count("vin:") >= 3 and lower.count("view details") >= 3:
             return True
+        if _dealer_on_has_only_skeleton_cards(html):
+            return False
     elif page_kind == "inventory" and platform_id == "tesla_inventory":
         if _looks_like_empty_inventory_shell(html):
             return False
