@@ -188,12 +188,27 @@ def save_to_supabase_cache(
                     except Exception as enrich_exc:
                         logger.warning("Could not schedule dealer enrichment for %s: %s", d.name, enrich_exc)
 
-                # Link make
+                # Link make in the junction table
                 client.table("dealership_makes").upsert({
                     "dealership_id": d_id,
                     "make": make_q,
                     "vehicle_category": cat_q
                 }, on_conflict="dealership_id,make,vehicle_category").execute()
+
+                # Also keep oem_brands column in sync so the directory brand filter works.
+                # The column stores display-cased make names; add the search make if missing.
+                make_display = make.strip()
+                existing_brands: list[str] = d_row.get("oem_brands") or []
+                if make_display and make_display not in existing_brands:
+                    updated_brands = list({*existing_brands, make_display})
+                    try:
+                        client.table("dealerships").update(
+                            {"oem_brands": updated_brands}
+                        ).eq("id", d_id).execute()
+                    except Exception as brands_exc:
+                        logger.warning(
+                            "Could not sync oem_brands for %s: %s", d.name, brands_exc
+                        )
 
         coverage_confident = persisted_count > 0 and persisted_count == len(dealerships)
         if not coverage_confident:
