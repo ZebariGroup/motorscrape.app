@@ -199,6 +199,7 @@ _INVENTORY_HINTS = (
     "vehicle-card--mod",
     "inventory-card",
     "featuredvehicle",
+    "vehicle-grid-item",   # Jazel SRP cards
     "vehiclecard",
     "inventory_list",
     "inventory-listing",

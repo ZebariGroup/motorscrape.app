@@ -2404,6 +2404,8 @@ def extract_dom_vehicle_cards(
         "li.featuredVehicle",
         ".result-wrap.new-vehicle",
         ".new-vehicle[data-vehicle]",
+        ".vehicle-grid-item[data-vehicle]",  # Jazel
+        ".vehicle[data-vehicle]",             # Jazel fallback
         ".brandInventoryCard",
         ".hit",
         ".sbiGrid .item",
