@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveApiUrl } from "@/lib/apiBase";
-import { downloadCsv, listingsToCsv } from "@/lib/csvExport";
+import { downloadFile, listingsToCsv, listingsToTsv, listingsToJson } from "@/lib/csvExport";
 import {
   formatMoney,
   formatObservedAtForDisplay,
@@ -148,6 +148,21 @@ export function InventoryResultsSection({
   const [vinDetails, setVinDetails] = useState<Record<string, VinDetails | "loading" | "error">>({});
   const [viewMode, setViewMode] = useState<"grid" | "list" | "compact">("compact");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"csv" | "tsv" | "json">("csv");
+  const [exportScope, setExportScope] = useState<"filtered" | "all">("filtered");
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [exportOpen]);
   const usageSortLabel = vehicleCategory === "boat" ? "Usage (low to high)" : "Mileage (low to high)";
   const effectiveSelectedListingIndex =
     selectedListingIndex == null || filteredListings.length === 0
@@ -310,24 +325,99 @@ export function InventoryResultsSection({
               <option value="days_on_lot_desc">Longest on lot</option>
               <option value="days_on_lot_asc">Newest on lot</option>
             </select>
-            <button
-              type="button"
-              disabled={filteredListings.length === 0 || !allowCsvExport}
-              title={!allowCsvExport ? "CSV export is included with Standard, Pro, and Max Pro." : "Download CSV"}
-              onClick={() => {
-                const csv = listingsToCsv(filteredListings);
-                const day = new Date().toISOString().slice(0, 10);
-                downloadCsv(`motorscrape-inventory-${day}.csv`, csv);
-              }}
-              className="flex items-center justify-center rounded-lg border border-zinc-300 bg-white p-1.5 text-zinc-700 shadow-sm transition hover:border-emerald-400 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-emerald-600"
-              aria-label="Download CSV"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-            </button>
+            <div className="relative" ref={exportRef}>
+              <button
+                type="button"
+                disabled={filteredListings.length === 0 || !allowCsvExport}
+                title={!allowCsvExport ? "CSV export is included with Standard, Pro, and Max Pro." : "Export"}
+                onClick={() => setExportOpen((v) => !v)}
+                aria-expanded={exportOpen}
+                className={`flex items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-sm shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  exportOpen
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-300"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:border-emerald-400 hover:text-emerald-700 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-emerald-600"
+                }`}
+                aria-label="Export"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                <span className="font-medium">Export</span>
+              </button>
+
+              {exportOpen ? (
+                <div className="absolute right-0 top-full z-50 mt-1.5 w-64 rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Format</p>
+                  <div className="flex gap-1.5">
+                    {(["csv", "tsv", "json"] as const).map((fmt) => (
+                      <button
+                        key={fmt}
+                        type="button"
+                        onClick={() => setExportFormat(fmt)}
+                        className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold uppercase transition ${
+                          exportFormat === fmt
+                            ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/60 dark:text-emerald-300"
+                            : "border-zinc-200 text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                        }`}
+                      >
+                        {fmt}
+                      </button>
+                    ))}
+                  </div>
+
+                  {filteredListings.length !== listings.length ? (
+                    <>
+                      <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Rows</p>
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setExportScope("filtered")}
+                          className={`flex-1 rounded-lg border py-1.5 text-xs font-medium transition ${
+                            exportScope === "filtered"
+                              ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/60 dark:text-emerald-300"
+                              : "border-zinc-200 text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                          }`}
+                        >
+                          Filtered <span className="opacity-70">({filteredListings.length})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setExportScope("all")}
+                          className={`flex-1 rounded-lg border py-1.5 text-xs font-medium transition ${
+                            exportScope === "all"
+                              ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/60 dark:text-emerald-300"
+                              : "border-zinc-200 text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                          }`}
+                        >
+                          All <span className="opacity-70">({listings.length})</span>
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rows = exportScope === "all" ? listings : filteredListings;
+                      const day = new Date().toISOString().slice(0, 10);
+                      if (exportFormat === "csv") {
+                        downloadFile(`motorscrape-inventory-${day}.csv`, listingsToCsv(rows), "text/csv");
+                      } else if (exportFormat === "tsv") {
+                        downloadFile(`motorscrape-inventory-${day}.tsv`, listingsToTsv(rows), "text/tab-separated-values");
+                      } else {
+                        downloadFile(`motorscrape-inventory-${day}.json`, listingsToJson(rows), "application/json");
+                      }
+                      setExportOpen(false);
+                    }}
+                    className="mt-4 w-full rounded-lg bg-emerald-600 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+                  >
+                    Download {exportFormat.toUpperCase()}
+                  </button>
+                </div>
+              ) : null}
+            </div>
             {/* View mode toggle */}
             <div className="flex items-center rounded-lg border border-zinc-300 bg-white shadow-sm dark:border-zinc-600 dark:bg-zinc-900" role="group" aria-label="View mode">
               <button
