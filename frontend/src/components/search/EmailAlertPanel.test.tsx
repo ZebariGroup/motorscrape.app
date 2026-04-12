@@ -13,6 +13,7 @@ const access: AccessSummary = {
     max_dealerships: 8,
     max_pages_per_dealer: 3,
     max_radius_miles: 100,
+    max_concurrent_searches: 2,
     csv_export: true,
     inventory_scope_premium: true,
     minute_rate_limit: 10,

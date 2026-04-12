@@ -168,6 +168,7 @@ def access_summary(ctx: Annotated[AccessContext, Depends(get_access_context)]) -
             "max_dealerships": lim.max_dealerships,
             "max_pages_per_dealer": lim.max_pages_per_dealer,
             "max_radius_miles": lim.max_radius_miles,
+            "max_concurrent_searches": lim.max_concurrent_searches,
             "csv_export": lim.csv_export,
             "inventory_scope_premium": lim.inventory_scope_premium,
             "minute_rate_limit": lim.minute_rate_limit,
