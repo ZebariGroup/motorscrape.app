@@ -88,6 +88,13 @@ type SearchTabPanelProps = {
   onLabelChange: (label: string) => void;
   /** Called whenever running state or listing count changes (for the tab bar) */
   onStatusChange: (running: boolean, listingCount: number) => void;
+  /**
+   * Whether this panel owns the URL (reads searchParams on mount, writes
+   * criteria to the URL while active). Only the first tab should do this;
+   * secondary tabs are purely in-memory so switching tabs never clobbers
+   * each other's form state.
+   */
+  syncWithUrl?: boolean;
 };
 
 export function SearchTabPanel({
@@ -97,6 +104,7 @@ export function SearchTabPanel({
   initialCriteria,
   onLabelChange,
   onStatusChange,
+  syncWithUrl = true,
 }: SearchTabPanelProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -180,8 +188,9 @@ export function SearchTabPanel({
     }
   }, [search.errorEvents, signupModalOpen]);
 
-  // URL sync — only when this panel is the active tab
+  // URL sync — only when this panel is the active tab AND owns the URL
   useEffect(() => {
+    if (!syncWithUrl) return;
     if (!isActive) return;
     const qs = searchParams.toString();
     if (pendingUrlWriteQueryRef.current === qs) {
@@ -211,7 +220,7 @@ export function SearchTabPanel({
     if (!parsed) return;
     void applySavedSearchCriteria(parsed);
     appliedCriteriaQueryRef.current = qs;
-  }, [applySavedSearchCriteria, searchParams, initialCriteria, isActive]);
+  }, [applySavedSearchCriteria, searchParams, initialCriteria, isActive, syncWithUrl]);
 
   const alertCriteria = useMemo(
     () => ({
@@ -253,8 +262,9 @@ export function SearchTabPanel({
     return null;
   }, [access?.authenticated, allowAnyModel, form.location, form.model]);
 
-  // Write criteria to URL when active and form changes
+  // Write criteria to URL when active and form changes — only for the URL-owning tab
   useEffect(() => {
+    if (!syncWithUrl) return;
     if (!isActive) return;
     const qs = searchParams.toString();
     if (qs && appliedCriteriaQueryRef.current === null) return;
@@ -266,7 +276,7 @@ export function SearchTabPanel({
     pendingUrlWriteQueryRef.current = nextQuery;
     appliedCriteriaQueryRef.current = nextQuery;
     router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
-  }, [currentCriteriaQuery, form.location, pathname, router, searchParams, isActive]);
+  }, [syncWithUrl, currentCriteriaQuery, form.location, pathname, router, searchParams, isActive]);
 
   // Tier cap sync
   useEffect(() => {

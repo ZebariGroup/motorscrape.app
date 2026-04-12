@@ -138,7 +138,7 @@ export function SearchExperience({
       )}
 
       {/* Render all tab panels; hide inactive ones via CSS so streams keep running */}
-      {tabs.map((tab) => (
+      {tabs.map((tab, index) => (
         <div
           key={tab.id}
           className={tab.id !== activeTabId ? "hidden" : undefined}
@@ -148,7 +148,8 @@ export function SearchExperience({
             isActive={tab.id === activeTabId}
             access={access}
             onRefreshAccess={refreshAccess}
-            initialCriteria={tab.id === tabs[0].id ? initialCriteria : undefined}
+            initialCriteria={index === 0 ? initialCriteria : undefined}
+            syncWithUrl={index === 0}
             onLabelChange={getLabelCallback(tab.id)}
             onStatusChange={getStatusCallback(tab.id)}
           />
