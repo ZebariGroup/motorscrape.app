@@ -947,6 +947,37 @@ def test_inventory_url_recovery_candidates_add_www_ddc_path_for_express_hosts() 
     assert "https://www.mbbloomfield.com/new-inventory/index.htm" in candidates
 
 
+def test_inventory_url_recovery_candidates_decommissioned_smartpath_subdomain() -> None:
+    """When inv_url is on a dead smartpath.* subdomain (NXDOMAIN), recovery candidates should
+    use the dealer's main www.* host so we try working paths instead of the dead subdomain."""
+    route = ProviderRoute(
+        platform_id="toyota_lexus_oem_inventory",
+        confidence=1.0,
+        extraction_mode="structured_api",
+        requires_render=False,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-inventory", "used-inventory"),
+        inventory_url_hint="https://smartpath.serratoyotatraversecity.com/new-inventory/",
+    )
+    candidates = _inventory_url_recovery_candidates(
+        inv_url="https://smartpath.serratoyotatraversecity.com/new-inventory/",
+        base_url="https://www.serratoyotatraversecity.com/",
+        route=route,
+        make="Toyota",
+        model="RAV4",
+        vehicle_condition="new",
+    )
+    # All recovery candidates must use the main site host, not the dead smartpath.* subdomain
+    assert all("smartpath." not in c for c in candidates), (
+        f"Recovery candidates must not reference dead smartpath.* host: {candidates}"
+    )
+    # Should include the Toyota OEM inventory path on the main site
+    assert any("serratoyotatraversecity.com/inventory/new" in c for c in candidates), (
+        f"Expected /inventory/new on main site in candidates: {candidates}"
+    )
+
+
 def test_effective_search_concurrency_uses_config_without_managed_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.services.orchestrator_utils.settings.search_concurrency", 7)
     monkeypatch.setattr("app.services.orchestrator_utils.settings.zenrows_api_key", "")

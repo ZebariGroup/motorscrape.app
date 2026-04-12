@@ -1359,7 +1359,19 @@ def _inventory_url_recovery_candidates(
         candidates.append(url)
 
     condition = (vehicle_condition or "all").strip().lower()
-    parsed_base = urlsplit(inv_url or base_url)
+    parsed_inv_url = urlsplit(inv_url or base_url)
+    parsed_base_url_parts = urlsplit(base_url)
+    # When inv_url is on a different host than base_url (e.g. a smartpath.* or buy.* subdomain
+    # that has been decommissioned or is unreachable), derive recovery candidates from base_url's
+    # netloc so we try the dealer's main site paths instead of repeating the dead host.
+    if (
+        parsed_inv_url.netloc
+        and parsed_base_url_parts.netloc
+        and parsed_inv_url.netloc != parsed_base_url_parts.netloc
+    ):
+        parsed_base = parsed_base_url_parts
+    else:
+        parsed_base = parsed_inv_url
     if not parsed_base.scheme or not parsed_base.netloc:
         parsed_base = urlsplit(base_url)
     model_values = _requested_model_values(model)
@@ -1452,16 +1464,29 @@ def _inventory_url_recovery_candidates(
         ):
             add(candidate)
 
-    # Cross-stack safety net for misdetected inventory routes (common on express.* sites):
-    # try generic OEM and Dealer.com canonical SRP paths on both current and www hosts.
+    # Cross-stack safety net for misdetected inventory routes (common on express.* sites and
+    # decommissioned subdomains like smartpath.*): try generic OEM and Dealer.com canonical SRP
+    # paths on the inv_url host (skipped when it differs from base_url), www-variant, and base_url
+    # host.  When inv_url is on a different subdomain than base_url we skip the inv_url host to
+    # avoid flooding retries with NXDOMAIN / unreachable subdomain paths.
     try:
         parsed_inv = urlsplit(inv_url or base_url)
-        candidate_hosts = [parsed_inv.netloc]
+        parsed_base_fallback = urlsplit(base_url)
+        inv_on_different_host = (
+            parsed_inv.netloc
+            and parsed_base_fallback.netloc
+            and parsed_inv.netloc != parsed_base_fallback.netloc
+        )
+        # Only include inv_url's host if it matches base_url (same-domain redirects, etc.)
+        candidate_hosts: list[str] = [] if inv_on_different_host else [parsed_inv.netloc]
         host_only = parsed_inv.netloc.lower().split("@")[-1].split(":")[0]
         if host_only.startswith("express."):
             base_host = host_only.removeprefix("express.")
             if base_host:
                 candidate_hosts.append(f"www.{base_host}")
+        # Also try base_url's host when inv_url landed on a different subdomain
+        if parsed_base_fallback.netloc and parsed_base_fallback.netloc not in candidate_hosts:
+            candidate_hosts.append(parsed_base_fallback.netloc)
         generic_paths: list[str] = []
         if condition == "used":
             generic_paths.extend(("/inventory/used", "/used-inventory/index.htm"))
