@@ -588,7 +588,7 @@ async def admin_backfill_dealer_slugs(
 async def run_dealer_sweep(
     background_tasks: BackgroundTasks,
     max_pairs: int = Query(default=25, ge=1, le=200, description="Max (make, metro) pairs to process this call"),
-    x_sweep_secret: Annotated[str | None, Header(alias="X-Sweep-Secret")] = None,
+    x_sweep_secret: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     """
     Kick off a batch of the dealer directory sweep in the background and

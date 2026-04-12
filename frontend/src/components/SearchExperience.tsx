@@ -301,8 +301,6 @@ export function SearchExperience({
     form.setModel("");
   };
 
-  const hasInventoryResults = listings.listings.length > 0;
-
   const savedResultsNotice = useMemo(() => {
     const hv = search.historyView;
     if (!hv) return null;

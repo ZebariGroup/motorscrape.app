@@ -33,7 +33,7 @@ export async function GET(request: Request) {
   const res = await fetch(url, {
     method: "POST",
     headers: {
-      "X-Sweep-Secret": sweepSecret,
+      "x-sweep-secret": sweepSecret,
       "Content-Type": "application/json",
     },
     cache: "no-store",

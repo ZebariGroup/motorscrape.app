@@ -52,6 +52,16 @@ _INVENTORY_PATH_HINTS = (
 _MAX_SITEMAPS = 4
 _MAX_URLS_PER_SITEMAP = 400
 _MAX_RETURN_URLS = 12
+_NON_INVENTORY_PATH_HINTS = (
+    "/promociones",
+    "/promotions",
+    "/promotion",
+    "/offers",
+    "/offer",
+    "/specials",
+    "/special",
+    "/campaign",
+)
 
 
 def _origin_from_url(site_url: str) -> str:
@@ -83,6 +93,9 @@ def _loc_urls_from_sitemap_xml(xml_text: str) -> list[str]:
 
 def _is_inventory_like_url(url: str) -> bool:
     u = url.lower()
+    path = urlparse(u).path
+    if any(h in path for h in _NON_INVENTORY_PATH_HINTS):
+        return False
     if any(h in u for h in _INVENTORY_PATH_HINTS):
         return True
     # Dealer VDP paths often end with stock or id segments

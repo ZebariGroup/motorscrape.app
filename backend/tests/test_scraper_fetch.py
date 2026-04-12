@@ -747,6 +747,26 @@ async def test_fetch_page_html_prefer_render_still_uses_direct_when_inventory_is
     assert "vehicle-card" in html
 
 
+def test_direct_html_sufficient_accepts_dealer_on_ssr_with_skeleton_classes() -> None:
+    html = """
+    <html><body>
+      <div class="vehicle-card vehicle-card--mod skeleton">
+        <a href="/vehicledetails/new-2025-chevrolet-blazer-1GNEVHKW1SJ000001">View Details</a>
+        <span>VIN: 1GNEVHKW1SJ000001</span>
+      </div>
+      <div class="vehicle-card vehicle-card--mod skeleton">
+        <a href="/vehicledetails/new-2025-chevrolet-trax-1GNEVHKW1SJ000002">View Details</a>
+        <span>VIN: 1GNEVHKW1SJ000002</span>
+      </div>
+      <div class="vehicle-card vehicle-card--mod skeleton">
+        <a href="/vehicledetails/new-2025-chevrolet-equinox-1GNEVHKW1SJ000003">View Details</a>
+        <span>VIN: 1GNEVHKW1SJ000003</span>
+      </div>
+    </body></html>
+    """
+    assert _direct_html_sufficient(html, page_kind="inventory", platform_id="dealer_on") is True
+
+
 @respx.mock
 @pytest.mark.asyncio
 async def test_fetch_page_html_dealer_on_prefers_direct_before_playwright_when_inventory_is_ready(

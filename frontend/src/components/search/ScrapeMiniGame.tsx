@@ -392,7 +392,7 @@ export function ScrapeMiniGame({ onClose, searchCompletedTick }: Props) {
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
-  const [score, setScore] = useState(0);
+  const [, setScore] = useState(0);
   const [highScore, setHighScore] = useState(() => {
     try {
       const raw = localStorage.getItem(HIGH_SCORE_KEY);

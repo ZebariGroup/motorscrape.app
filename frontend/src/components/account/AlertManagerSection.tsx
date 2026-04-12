@@ -18,7 +18,6 @@ import {
   defaultVehicleCategory,
   getMakeGroupsForCategory,
   getModelGroupsForMake,
-  getModelsForMake,
   vehicleCategoryLabel,
 } from "@/lib/vehicleCatalog";
 import type { VehicleCategory } from "@/lib/vehicleCatalog";

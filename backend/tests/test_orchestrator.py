@@ -27,6 +27,7 @@ from app.services.orchestrator import (
     _needs_vdp_usage_enrichment,
     _oneaudi_all_inventory_urls,
     _room58_detail_overlay,
+    _route_inventory_fetch_timeout,
     _route_supports_team_velocity_style_inventory_reroute,
     _team_velocity_inventory_url_from_model_hub,
     _team_velocity_model_inventory_urls,
@@ -161,6 +162,21 @@ def test_cap_unknown_platform_fetch_timeout_reduces_untyped_fetch_budgets() -> N
     assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="homepage", platform_id=None) == 18.0
     assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="inventory", platform_id=None) == 24.0
     assert _cap_unknown_platform_fetch_timeout(95.0, page_kind="inventory", platform_id="dealer_on") == 95.0
+
+
+def test_route_inventory_fetch_timeout_extends_dealer_inspire_render_budget() -> None:
+    route = ProviderRoute(
+        platform_id="dealer_inspire",
+        confidence=1.0,
+        extraction_mode="rendered_dom",
+        requires_render=True,
+        detection_source="test",
+        cache_status="detected",
+        inventory_path_hints=("new-vehicles", "used-vehicles"),
+        inventory_url_hint="https://www.bmwbloomfieldhills.com/new-vehicles/",
+    )
+    timeout = _route_inventory_fetch_timeout(22.5, route=route, dealer_timeout=150.0)
+    assert timeout == pytest.approx(42.0)
 
 
 def test_needs_vdp_usage_enrichment_flags_used_listings_missing_mileage() -> None:

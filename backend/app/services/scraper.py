@@ -173,7 +173,7 @@ _EXTRA_API_RES = (
     re.compile(r'["\'](?P<url>/imglib/Inventory/cache/\d+/(?:[NU])?VehInv\.js[^"\']*)["\']', re.I),
 )
 _WS_INV_FETCH_RE = re.compile(
-    r'fetch\("(?P<url>/api/widget/ws-inv-data/getInventory)".*?body:decodeURI\("(?P<body>.*?)"\)',
+    r'fetch\("(?P<url>/api/widget/ws-inv-data/getInventory)".*?body:decodeURI(?:Component)?\("(?P<body>.*?)"\)',
     re.S,
 )
 _DDC_WIDGET_PROPS_RE = re.compile(

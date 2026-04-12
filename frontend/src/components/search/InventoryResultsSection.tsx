@@ -164,7 +164,6 @@ export function InventoryResultsSection({
     selectedVinDetails !== "error"
       ? selectedVinDetails
       : null;
-  const selectedVinSource = selectedLoadedVinDetails?.source ?? null;
   const canViewPrevious = effectiveSelectedListingIndex != null && effectiveSelectedListingIndex > 0;
   const canViewNext =
     effectiveSelectedListingIndex != null && effectiveSelectedListingIndex < filteredListings.length - 1;

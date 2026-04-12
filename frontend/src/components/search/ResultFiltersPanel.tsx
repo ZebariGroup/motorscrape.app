@@ -103,8 +103,6 @@ export function ResultFiltersPanel({
   const mileageLeftPct = mileageBounds ? ((mileageSliderMin - mileageBounds.min) / mileageSpan) * 100 : 0;
   const mileageRightPct = mileageBounds ? ((mileageSliderMax - mileageBounds.min) / mileageSpan) * 100 : 100;
 
-  const isOpen = alwaysExpanded || filtersExpanded;
-
   const content = (
     <div className="space-y-5">
       {/* Year / Body Style / Color */}
