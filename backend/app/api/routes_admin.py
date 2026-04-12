@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from app.api.deps import AccessContext, get_access_context, require_admin_context
@@ -586,9 +586,9 @@ async def admin_backfill_dealer_slugs(
 
 @router.post("/dealer-sweep/run")
 async def run_dealer_sweep(
+    request: Request,
     background_tasks: BackgroundTasks,
     max_pairs: int = Query(default=25, ge=1, le=200, description="Max (make, metro) pairs to process this call"),
-    x_sweep_secret: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     """
     Kick off a batch of the dealer directory sweep in the background and
@@ -596,10 +596,11 @@ async def run_dealer_sweep(
     202-style acknowledgement; the actual Places searches run asynchronously
     so the caller never times out.
 
-    Protected by the X-Sweep-Secret header (DEALER_SWEEP_SECRET env var).
+    Protected by the x-sweep-secret header (DEALER_SWEEP_SECRET env var).
     """
+    x_sweep_secret = request.headers.get("x-sweep-secret") or request.headers.get("X-Sweep-Secret") or ""
     configured_secret = (settings.dealer_sweep_secret or "").strip()
-    if not configured_secret or x_sweep_secret != configured_secret:
+    if not configured_secret or x_sweep_secret.strip() != configured_secret:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or missing sweep secret.")
 
     from app.services.dealer_sweep import run_sweep_batch
