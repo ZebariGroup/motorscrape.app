@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 import { getMakesForCategory, getModelsForMake } from "@/lib/vehicleCatalog";
 import { TOP_STATES, getCitiesByState } from "@/lib/locations";
 import { GUIDES } from "@/lib/guides";
+import { ALL_STATES, POPULAR_MAKES } from "@/lib/dealerDirectory";
 
 const BASE_URL = "https://www.motorscrape.com";
 
@@ -25,7 +26,33 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly",
       priority: 0.8,
     },
+    {
+      url: `${BASE_URL}/dealers`,
+      lastModified: new Date(),
+      changeFrequency: "daily",
+      priority: 0.9,
+    },
   ];
+
+  // Dealer state landing pages
+  for (const state of ALL_STATES) {
+    sitemap.push({
+      url: `${BASE_URL}/dealers/state/${state.slug}`,
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.8,
+    });
+  }
+
+  // Dealer make landing pages
+  for (const make of POPULAR_MAKES) {
+    sitemap.push({
+      url: `${BASE_URL}/dealers/make/${make.slug}`,
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.8,
+    });
+  }
 
   // Add Guides URLs
   for (const guide of GUIDES) {

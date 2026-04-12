@@ -144,7 +144,7 @@ async def list_dealerships(
 
     try:
         query = client.table("dealerships").select(
-            "id, slug, name, address, website, lat, lng, rating, review_count, oem_brands, services, enriched_at"
+            "id, slug, name, address, website, lat, lng, phone, rating, review_count, oem_brands, services, enriched_at"
         ).not_.is_("slug", "null")
 
         count_query = client.table("dealerships").select("id", count="exact").not_.is_("slug", "null")
@@ -188,6 +188,7 @@ async def list_dealerships(
                 "website": r.get("website"),
                 "lat": r.get("lat"),
                 "lng": r.get("lng"),
+                "phone": r.get("phone"),
                 "rating": r.get("rating"),
                 "review_count": r.get("review_count"),
                 "oem_brands": r.get("oem_brands") or [],
@@ -249,6 +250,34 @@ async def get_dealer_photo(
             "Vary": "Accept",
         },
     )
+
+
+@router.get("/slugs")
+async def list_dealership_slugs() -> dict[str, Any]:
+    """
+    Return all enriched dealer slugs for sitemap generation.
+    Only includes dealers with a non-null slug.
+    """
+    client = _get_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Dealer directory is not available.")
+
+    try:
+        res = (
+            client.table("dealerships")
+            .select("slug, updated_at")
+            .not_.is_("slug", "null")
+            .order("updated_at", desc=True)
+            .execute()
+        )
+        slugs = [
+            {"slug": r["slug"], "updated_at": r.get("updated_at")}
+            for r in (res.data or [])
+            if r.get("slug")
+        ]
+        return {"ok": True, "slugs": slugs, "total": len(slugs)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch dealer slugs: {exc}") from exc
 
 
 @router.get("/{slug}")

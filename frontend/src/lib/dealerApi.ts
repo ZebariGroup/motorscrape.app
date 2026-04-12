@@ -77,6 +77,7 @@ export type DealerCard = {
   website: string | null;
   lat: number | null;
   lng: number | null;
+  phone: string | null;
   rating: number | null;
   review_count: number | null;
   oem_brands: string[];
@@ -101,6 +102,8 @@ export async function fetchDealerList(params?: {
   lng?: number;
   limit?: number;
   offset?: number;
+  /** ISR revalidation seconds; omit for no-store (dynamic pages) */
+  revalidate?: number;
 }): Promise<DealerListResponse> {
   const base = serverApiBase();
   const qs = new URLSearchParams();
@@ -114,8 +117,11 @@ export async function fetchDealerList(params?: {
   if (params?.limit != null) qs.set("limit", String(params.limit));
   if (params?.offset != null) qs.set("offset", String(params.offset));
   const url = `${base}/server/dealerships${qs.toString() ? `?${qs}` : ""}`;
+  const fetchInit: RequestInit = params?.revalidate != null
+    ? { next: { revalidate: params.revalidate } }
+    : { cache: "no-store" };
   try {
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetch(url, fetchInit);
     if (!res.ok) {
       console.error(`fetchDealerList HTTP ${res.status}`);
       return { dealers: [], total: 0, offset: 0, limit: 24 };
@@ -130,6 +136,28 @@ export async function fetchDealerList(params?: {
   } catch (err) {
     console.error("fetchDealerList error:", err);
     return { dealers: [], total: 0, offset: 0, limit: 24 };
+  }
+}
+
+export type DealerSlugEntry = {
+  slug: string;
+  updated_at: string | null;
+};
+
+export async function fetchAllDealerSlugs(): Promise<DealerSlugEntry[]> {
+  const base = serverApiBase();
+  const url = `${base}/server/dealerships/slugs`;
+  try {
+    const res = await fetch(url, { next: { revalidate: 3600 } });
+    if (!res.ok) {
+      console.error(`fetchAllDealerSlugs HTTP ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    return data.slugs ?? [];
+  } catch (err) {
+    console.error("fetchAllDealerSlugs error:", err);
+    return [];
   }
 }
 

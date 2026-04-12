@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 
 import { DirectoryHeader } from "@/components/DirectoryHeader";
 import { fetchDealerList, type DealerCard } from "@/lib/dealerApi";
+import { ALL_STATES, POPULAR_MAKES } from "@/lib/dealerDirectory";
+import { DealerExportButton } from "@/components/dealers/DealerExportButton";
 
 export const dynamic = "force-dynamic";
 
@@ -14,67 +16,6 @@ export const metadata: Metadata = {
 };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-
-const ALL_STATES = [
-  { abbr: "AL", name: "Alabama" },
-  { abbr: "AK", name: "Alaska" },
-  { abbr: "AZ", name: "Arizona" },
-  { abbr: "AR", name: "Arkansas" },
-  { abbr: "CA", name: "California" },
-  { abbr: "CO", name: "Colorado" },
-  { abbr: "CT", name: "Connecticut" },
-  { abbr: "DE", name: "Delaware" },
-  { abbr: "FL", name: "Florida" },
-  { abbr: "GA", name: "Georgia" },
-  { abbr: "HI", name: "Hawaii" },
-  { abbr: "ID", name: "Idaho" },
-  { abbr: "IL", name: "Illinois" },
-  { abbr: "IN", name: "Indiana" },
-  { abbr: "IA", name: "Iowa" },
-  { abbr: "KS", name: "Kansas" },
-  { abbr: "KY", name: "Kentucky" },
-  { abbr: "LA", name: "Louisiana" },
-  { abbr: "ME", name: "Maine" },
-  { abbr: "MD", name: "Maryland" },
-  { abbr: "MA", name: "Massachusetts" },
-  { abbr: "MI", name: "Michigan" },
-  { abbr: "MN", name: "Minnesota" },
-  { abbr: "MS", name: "Mississippi" },
-  { abbr: "MO", name: "Missouri" },
-  { abbr: "MT", name: "Montana" },
-  { abbr: "NE", name: "Nebraska" },
-  { abbr: "NV", name: "Nevada" },
-  { abbr: "NH", name: "New Hampshire" },
-  { abbr: "NJ", name: "New Jersey" },
-  { abbr: "NM", name: "New Mexico" },
-  { abbr: "NY", name: "New York" },
-  { abbr: "NC", name: "North Carolina" },
-  { abbr: "ND", name: "North Dakota" },
-  { abbr: "OH", name: "Ohio" },
-  { abbr: "OK", name: "Oklahoma" },
-  { abbr: "OR", name: "Oregon" },
-  { abbr: "PA", name: "Pennsylvania" },
-  { abbr: "RI", name: "Rhode Island" },
-  { abbr: "SC", name: "South Carolina" },
-  { abbr: "SD", name: "South Dakota" },
-  { abbr: "TN", name: "Tennessee" },
-  { abbr: "TX", name: "Texas" },
-  { abbr: "UT", name: "Utah" },
-  { abbr: "VT", name: "Vermont" },
-  { abbr: "VA", name: "Virginia" },
-  { abbr: "WA", name: "Washington" },
-  { abbr: "WV", name: "West Virginia" },
-  { abbr: "WI", name: "Wisconsin" },
-  { abbr: "WY", name: "Wyoming" },
-];
-
-const POPULAR_MAKES = [
-  "Acura", "Alfa Romeo", "Audi", "BMW", "Buick", "Cadillac", "Chevrolet",
-  "Chrysler", "Dodge", "Ford", "Genesis", "GMC", "Honda", "Hyundai",
-  "Infiniti", "Jeep", "Kia", "Land Rover", "Lexus", "Lincoln", "Mazda",
-  "Mercedes-Benz", "Mitsubishi", "Nissan", "Porsche", "RAM", "Subaru",
-  "Tesla", "Toyota", "Volkswagen", "Volvo",
-];
 
 const SORT_OPTIONS = [
   { value: "rating_desc", label: "Highest Rated" },
@@ -102,7 +43,7 @@ function buildUrl(
 
 function parseState(abbr: string | undefined) {
   if (!abbr) return undefined;
-  return ALL_STATES.find((s) => s.abbr === abbr.toUpperCase()) ?? undefined;
+  return ALL_STATES.find((s) => s.abbr === abbr.toUpperCase());
 }
 
 // ─── Sub-components (server) ──────────────────────────────────────────────────
@@ -176,6 +117,19 @@ function DealerGridCard({ dealer, baseParams }: { dealer: DealerCard; baseParams
         ) : (
           <div className="text-xs text-zinc-400 dark:text-zinc-600">No rating yet</div>
         )}
+
+        {/* Phone */}
+        {dealer.phone && (
+          <a
+            href={`tel:${dealer.phone}`}
+            className="flex items-center gap-1.5 text-xs text-emerald-700 hover:text-emerald-900 dark:text-emerald-400 dark:hover:text-emerald-200 transition-colors"
+          >
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M2.5 3.5c0-.83.67-1.5 1.5-1.5h1.5l1.5 3-1.75 1.75A10.5 10.5 0 009 10.25L10.75 8.5l3 1.5V11.5A1.5 1.5 0 0112.25 13C6.58 13 2 8.42 2 2.75" />
+            </svg>
+            {dealer.phone}
+          </a>
+        )}
       </div>
 
       {/* Divider */}
@@ -227,7 +181,7 @@ function DealerListRow({ dealer, baseParams }: { dealer: DealerCard; baseParams:
 
   return (
     <div className="group flex items-center gap-4 rounded-xl border border-zinc-200/80 bg-white px-5 py-4 shadow-sm transition-all hover:border-emerald-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-emerald-700/60">
-      {/* Name + address */}
+      {/* Name + address + phone */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <Link href={`/dealers/${dealer.slug}`}>
@@ -247,6 +201,17 @@ function DealerListRow({ dealer, baseParams }: { dealer: DealerCard; baseParams:
         </div>
         {cityState && (
           <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{cityState}</p>
+        )}
+        {dealer.phone && (
+          <a
+            href={`tel:${dealer.phone}`}
+            className="mt-0.5 flex items-center gap-1 text-[11px] text-emerald-700 hover:text-emerald-900 dark:text-emerald-400 dark:hover:text-emerald-200 transition-colors"
+          >
+            <svg viewBox="0 0 16 16" className="h-3 w-3 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M2.5 3.5c0-.83.67-1.5 1.5-1.5h1.5l1.5 3-1.75 1.75A10.5 10.5 0 009 10.25L10.75 8.5l3 1.5V11.5A1.5 1.5 0 0112.25 13C6.58 13 2 8.42 2 2.75" />
+            </svg>
+            {dealer.phone}
+          </a>
         )}
       </div>
 
@@ -489,7 +454,7 @@ export default async function DealersIndexPage({
               >
                 <option value="">All Makes</option>
                 {POPULAR_MAKES.map((m) => (
-                  <option key={m} value={m}>{m}</option>
+                  <option key={m.name} value={m.name}>{m.name}</option>
                 ))}
               </select>
             </div>
@@ -689,6 +654,57 @@ export default async function DealersIndexPage({
             </p>
           </div>
         )}
+
+        {/* Export */}
+        <div className="mt-8 flex justify-end">
+          <DealerExportButton make={make} state={state} q={q} />
+        </div>
+
+        {/* Browse by Brand */}
+        <section className="mt-14 border-t border-zinc-200 pt-10 dark:border-zinc-800">
+          <h2 className="mb-1 text-lg font-bold text-zinc-900 dark:text-zinc-100">Browse Dealers by Brand</h2>
+          <p className="mb-5 text-sm text-zinc-500 dark:text-zinc-400">
+            Find dealerships that carry specific makes.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {POPULAR_MAKES.map((m) => (
+              <Link
+                key={m.slug}
+                href={`/dealers/make/${m.slug}`}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  make === m.name
+                    ? "border-sky-500 bg-sky-600 text-white"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:border-sky-300 hover:text-sky-700 hover:bg-sky-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-sky-700 dark:hover:text-sky-300"
+                }`}
+              >
+                {m.name}
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {/* Browse by State */}
+        <section className="mt-12 border-t border-zinc-200 pt-10 dark:border-zinc-800">
+          <h2 className="mb-1 text-lg font-bold text-zinc-900 dark:text-zinc-100">Browse Dealers by State</h2>
+          <p className="mb-5 text-sm text-zinc-500 dark:text-zinc-400">
+            Explore dealership directories for every US state.
+          </p>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {ALL_STATES.map((s) => (
+              <Link
+                key={s.slug}
+                href={`/dealers/state/${s.slug}`}
+                className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                  state === s.abbr
+                    ? "bg-emerald-600 text-white"
+                    : "border border-zinc-200 bg-white text-zinc-700 hover:border-emerald-300 hover:text-emerald-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-emerald-700 dark:hover:text-emerald-400"
+                }`}
+              >
+                {s.name}
+              </Link>
+            ))}
+          </div>
+        </section>
       </main>
     </>
   );
