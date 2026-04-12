@@ -340,7 +340,6 @@ export default async function DealersIndexPage({
 }) {
   const sp = await searchParams;
 
-  const q = typeof sp.q === "string" && sp.q ? sp.q : undefined;
   const make = typeof sp.make === "string" && sp.make ? sp.make : undefined;
   const state = typeof sp.state === "string" && sp.state ? sp.state : undefined;
   const sort = typeof sp.sort === "string" && sp.sort ? sp.sort : "rating_desc";
@@ -352,7 +351,6 @@ export default async function DealersIndexPage({
   const stateObj = parseState(state);
 
   const { dealers, total } = await fetchDealerList({
-    q,
     make,
     state,
     sort,
@@ -363,7 +361,6 @@ export default async function DealersIndexPage({
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
   const baseParams: Record<string, string | undefined> = {
-    q,
     make,
     state,
     sort: sort !== "rating_desc" ? sort : undefined,
@@ -372,7 +369,7 @@ export default async function DealersIndexPage({
 
   const buildPageUrl = (p: number) => buildUrl({ ...baseParams, page: p });
 
-  const hasFilters = !!(q || make || state);
+  const hasFilters = !!(make || state);
   const sortLabel = SORT_OPTIONS.find((o) => o.value === sort)?.label ?? "Highest Rated";
 
   return (
@@ -387,60 +384,15 @@ export default async function DealersIndexPage({
           </h1>
           <p className="mt-2 text-zinc-400 text-sm sm:text-base">
             {total > 0
-              ? `${total.toLocaleString()} dealer${total !== 1 ? "s" : ""} indexed — search by name, brand, or state`
-              : "Search car dealerships by name, brand, or location"}
+              ? `${total.toLocaleString()} dealer${total !== 1 ? "s" : ""} indexed — filter by brand or state`
+              : "Browse car dealerships by brand or location"}
           </p>
-
-          {/* Search bar */}
-          <form action="/dealers" method="GET" className="mt-6">
-            {/* Preserve non-search params */}
-            {make && <input type="hidden" name="make" value={make} />}
-            {state && <input type="hidden" name="state" value={state} />}
-            {sort !== "rating_desc" && <input type="hidden" name="sort" value={sort} />}
-            {view !== "grid" && <input type="hidden" name="view" value={view} />}
-
-            <div className="flex items-center rounded-2xl bg-white ring-1 ring-zinc-200 shadow-xl overflow-hidden dark:bg-zinc-900 dark:ring-zinc-700">
-              <span className="pl-4 pr-2 text-zinc-400 dark:text-zinc-500 shrink-0">
-                <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <circle cx="8.5" cy="8.5" r="5.5" />
-                  <path d="M14.5 14.5l3.5 3.5" />
-                </svg>
-              </span>
-              <input
-                type="text"
-                name="q"
-                defaultValue={q}
-                placeholder="Search dealers by name, city, or brand…"
-                className="flex-1 bg-transparent py-4 pr-4 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100 dark:placeholder:text-zinc-500"
-                autoComplete="off"
-              />
-              {q && (
-                <Link
-                  href={buildUrl({ ...baseParams, q: undefined, page: undefined })}
-                  className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-                  aria-label="Clear search"
-                >
-                  <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                    <path d="M4 4l8 8M12 4l-8 8" />
-                  </svg>
-                </Link>
-              )}
-              <button
-                type="submit"
-                className="m-1.5 shrink-0 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
-              >
-                Search
-              </button>
-            </div>
-          </form>
         </div>
       </div>
 
       {/* ── Filter strip ── */}
       <div className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/95">
         <form action="/dealers" method="GET">
-          {/* Preserve search query */}
-          {q && <input type="hidden" name="q" value={q} />}
           {view !== "grid" && <input type="hidden" name="view" value={view} />}
 
           <div className="mx-auto flex max-w-6xl items-center gap-2 overflow-x-auto px-4 py-3 sm:px-6">
@@ -536,17 +488,6 @@ export default async function DealersIndexPage({
         {hasFilters && (
           <div className="mb-5 flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Filters:</span>
-            {q && (
-              <Link
-                href={buildUrl({ ...baseParams, q: undefined, page: undefined })}
-                className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 pl-3 pr-2 py-1 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
-              >
-                &ldquo;{q}&rdquo;
-                <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                  <path d="M3 3l6 6M9 3l-6 6" />
-                </svg>
-              </Link>
-            )}
             {make && (
               <Link
                 href={buildUrl({ ...baseParams, make: undefined, page: undefined })}
@@ -610,7 +551,7 @@ export default async function DealersIndexPage({
             </div>
             <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">No dealers found</p>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-500">
-              {hasFilters ? "Try adjusting your filters or search terms." : "Dealers appear as inventory is discovered."}
+              {hasFilters ? "Try adjusting your filters." : "Dealers appear as inventory is discovered."}
             </p>
             <div className="mt-5 flex items-center justify-center gap-3">
               {hasFilters && (
@@ -657,7 +598,7 @@ export default async function DealersIndexPage({
 
         {/* Export */}
         <div className="mt-8 flex justify-end">
-          <DealerExportButton make={make} state={state} q={q} />
+          <DealerExportButton make={make} state={state} />
         </div>
 
         {/* Browse by Brand */}
