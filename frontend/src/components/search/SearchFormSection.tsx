@@ -462,83 +462,21 @@ export function SearchFormSection({
               </>
             )}
           </div>
-          <div className="mt-3 flex items-center justify-end">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-800 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
+              className="flex items-center gap-1 text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-800 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
             >
-              {showAdvanced ? "Hide advanced options" : "Show advanced options"}
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`h-3 w-3 transition-transform ${showAdvanced ? "rotate-180" : ""}`} aria-hidden>
+                <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+              </svg>
+              {showAdvanced ? "Fewer options" : "More options"}
             </button>
-          </div>
-          <div className="mt-4 flex flex-col justify-end gap-2 sm:flex-row sm:items-stretch">
-            <button
-              type="button"
-              className={`relative inline-flex min-h-[2.75rem] flex-1 flex-col items-center justify-center overflow-hidden rounded-lg bg-emerald-600 px-4 py-2.5 text-base font-bold text-white shadow-sm transition hover:bg-emerald-500 hover:text-white ${
-                !running && !canSearch ? "cursor-not-allowed opacity-50" : ""
-              }`}
-              disabled={!running && !canSearch}
-              onClick={running ? undefined : handleSearch}
-              onDoubleClick={() => {
-                if (running) setIsGameActive(true);
-              }}
-            >
-              {running ? (
-                <>
-                  <div className="pointer-events-none absolute inset-0 flex flex-col" aria-hidden>
-                    {/* Discovered progress background */}
-                    <div className="absolute inset-0 bg-emerald-700/50" />
-                    <div
-                      className="absolute inset-y-0 left-0 bg-emerald-500/40 transition-[width] duration-700 ease-out"
-                      style={{ width: `${discoveredDealerPercent}%` }}
-                    />
-                    {/* Completed progress background */}
-                    <div
-                      className="absolute inset-y-0 left-0 bg-emerald-400 transition-[width] duration-700 ease-out"
-                      style={{ width: `${completedDealerPercent}%` }}
-                    />
-                  </div>
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 px-2" aria-hidden>
-                    <div className="scrape-truck-track">
-                      <div className="scrape-truck-floor" />
-                      <div className="scrape-truck-ruts" />
-                      <span className="scrape-truck">
-                        <PlowTruck />
-                      </span>
-                    </div>
-                  </div>
-                  <span className="relative z-10 flex flex-col items-center gap-0.5 pb-1.5 leading-tight">
-                    <span>{reconnecting ? "Reconnecting…" : "Scraping…"}</span>
-                    <span className="max-w-full truncate px-1 text-center text-xs font-medium text-white/95">
-                      {`${dealerListLength}/${targetDealerCount} found · ${doneDealerCount}/${targetDealerCount} done · ${listingsCount} vehicles`}
-                    </span>
-                    {!isGameActive && (
-                      <span className="mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-white/80 animate-pulse">
-                        {preferTapPlayHint ? "Tap Play to pass time" : "Double-click to play"}
-                      </span>
-                    )}
-                    {!isGameActive && preferTapPlayHint && running ? (
-                      <button
-                        type="button"
-                        className="relative z-20 mt-1 rounded-md bg-white/20 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-white backdrop-blur-sm transition hover:bg-white/30"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsGameActive(true);
-                        }}
-                      >
-                        Play
-                      </button>
-                    ) : null}
-                  </span>
-                </>
-              ) : (
-                "Scrape inventory"
-              )}
-            </button>
-            <div className="flex flex-1 gap-2 sm:max-w-none sm:flex-initial sm:shrink-0">
+            <div className="flex flex-1 justify-end gap-2">
               <button
                 type="button"
-                className="inline-flex min-h-[2.75rem] flex-1 items-center justify-center rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900 sm:flex-initial sm:min-w-[4.5rem]"
+                className="inline-flex min-h-[2.5rem] min-w-[4rem] items-center justify-center rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900"
                 disabled={!running}
                 onClick={onStop}
               >
@@ -547,7 +485,7 @@ export function SearchFormSection({
               <button
                 type="button"
                 onClick={() => setHistoryModalOpen(true)}
-                className="inline-flex min-h-[2.75rem] min-w-[2.75rem] shrink-0 items-center justify-center rounded-lg border border-zinc-300 text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+                className="inline-flex min-h-[2.5rem] min-w-[2.5rem] shrink-0 items-center justify-center rounded-lg border border-zinc-300 text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
                 aria-label="Recent searches"
                 title="Recent searches"
               >
@@ -557,7 +495,7 @@ export function SearchFormSection({
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="1.75"
-                  className="h-5 w-5"
+                  className="h-4 w-4"
                   aria-hidden
                 >
                   <path
@@ -575,6 +513,67 @@ export function SearchFormSection({
                   onApplySavedSearch={onApplySavedSearch}
                 />
               ) : null}
+              <button
+                type="button"
+                className={`relative inline-flex min-h-[2.5rem] flex-col items-center justify-center overflow-hidden rounded-lg bg-emerald-600 px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-500 hover:text-white sm:min-w-[10rem] ${
+                  !running && !canSearch ? "cursor-not-allowed opacity-50" : ""
+                }`}
+                disabled={!running && !canSearch}
+                onClick={running ? undefined : handleSearch}
+                onDoubleClick={() => {
+                  if (running) setIsGameActive(true);
+                }}
+              >
+                {running ? (
+                  <>
+                    <div className="pointer-events-none absolute inset-0 flex flex-col" aria-hidden>
+                      <div className="absolute inset-0 bg-emerald-700/50" />
+                      <div
+                        className="absolute inset-y-0 left-0 bg-emerald-500/40 transition-[width] duration-700 ease-out"
+                        style={{ width: `${discoveredDealerPercent}%` }}
+                      />
+                      <div
+                        className="absolute inset-y-0 left-0 bg-emerald-400 transition-[width] duration-700 ease-out"
+                        style={{ width: `${completedDealerPercent}%` }}
+                      />
+                    </div>
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 px-2" aria-hidden>
+                      <div className="scrape-truck-track">
+                        <div className="scrape-truck-floor" />
+                        <div className="scrape-truck-ruts" />
+                        <span className="scrape-truck">
+                          <PlowTruck />
+                        </span>
+                      </div>
+                    </div>
+                    <span className="relative z-10 flex flex-col items-center gap-0.5 pb-1.5 leading-tight">
+                      <span>{reconnecting ? "Reconnecting…" : "Scraping…"}</span>
+                      <span className="max-w-full truncate px-1 text-center text-[11px] font-medium text-white/95">
+                        {`${dealerListLength}/${targetDealerCount} found · ${doneDealerCount}/${targetDealerCount} done · ${listingsCount}`}
+                      </span>
+                      {!isGameActive && (
+                        <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/80 animate-pulse">
+                          {preferTapPlayHint ? "Tap to play" : "Dbl-click to play"}
+                        </span>
+                      )}
+                      {!isGameActive && preferTapPlayHint && running ? (
+                        <button
+                          type="button"
+                          className="relative z-20 mt-1 rounded-md bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-white backdrop-blur-sm transition hover:bg-white/30"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsGameActive(true);
+                          }}
+                        >
+                          Play
+                        </button>
+                      ) : null}
+                    </span>
+                  </>
+                ) : (
+                  "Scrape inventory"
+                )}
+              </button>
             </div>
           </div>
           {!running && searchReadinessHint ? (

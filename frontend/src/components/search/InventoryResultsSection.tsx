@@ -297,33 +297,36 @@ export function InventoryResultsSection({
                 ) : null}
               </button>
             ) : null}
-            <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-              <span className="shrink-0 font-medium text-zinc-700 dark:text-zinc-300">Sort by</span>
-              <select
-                value={sortOrder}
-                onChange={(e) => onSortOrderChange(e.target.value as ListingSortOrder)}
-                className="min-w-[11rem] rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-zinc-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
-              >
-                <option value="year_desc">Year (newest)</option>
-                <option value="price_asc">Price (low to high)</option>
-                <option value="price_desc">Price (high to low)</option>
-                <option value="mileage_asc">{usageSortLabel}</option>
-                <option value="days_on_lot_desc">Days on lot (longest)</option>
-                <option value="days_on_lot_asc">Days on lot (shortest)</option>
-              </select>
-            </label>
+            <select
+              value={sortOrder}
+              onChange={(e) => onSortOrderChange(e.target.value as ListingSortOrder)}
+              aria-label="Sort order"
+              className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+            >
+              <option value="year_desc">Year (newest)</option>
+              <option value="price_asc">Price ↑</option>
+              <option value="price_desc">Price ↓</option>
+              <option value="mileage_asc">{usageSortLabel}</option>
+              <option value="days_on_lot_desc">Longest on lot</option>
+              <option value="days_on_lot_asc">Newest on lot</option>
+            </select>
             <button
               type="button"
               disabled={filteredListings.length === 0 || !allowCsvExport}
-              title={!allowCsvExport ? "CSV export is included with Standard, Pro, and Max Pro." : undefined}
+              title={!allowCsvExport ? "CSV export is included with Standard, Pro, and Max Pro." : "Download CSV"}
               onClick={() => {
                 const csv = listingsToCsv(filteredListings);
                 const day = new Date().toISOString().slice(0, 10);
                 downloadCsv(`motorscrape-inventory-${day}.csv`, csv);
               }}
-              className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-emerald-400 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-emerald-600"
+              className="flex items-center justify-center rounded-lg border border-zinc-300 bg-white p-1.5 text-zinc-700 shadow-sm transition hover:border-emerald-400 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-emerald-600"
+              aria-label="Download CSV"
             >
-              Download CSV
+              <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
             </button>
             {/* View mode toggle */}
             <div className="flex items-center rounded-lg border border-zinc-300 bg-white shadow-sm dark:border-zinc-600 dark:bg-zinc-900" role="group" aria-label="View mode">
