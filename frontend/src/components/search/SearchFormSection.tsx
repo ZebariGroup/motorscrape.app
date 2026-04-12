@@ -462,18 +462,18 @@ export function SearchFormSection({
               </>
             )}
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="mt-4 flex items-center justify-between gap-2">
             <button
               type="button"
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex items-center gap-1 text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-800 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
+              className="flex shrink-0 items-center gap-1 text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-800 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`h-3 w-3 transition-transform ${showAdvanced ? "rotate-180" : ""}`} aria-hidden>
                 <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
               </svg>
               {showAdvanced ? "Fewer options" : "More options"}
             </button>
-            <div className="flex flex-1 justify-end gap-2">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 className="inline-flex min-h-[2.5rem] min-w-[4rem] items-center justify-center rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-900"
@@ -515,7 +515,7 @@ export function SearchFormSection({
               ) : null}
               <button
                 type="button"
-                className={`relative inline-flex min-h-[2.5rem] flex-col items-center justify-center overflow-hidden rounded-lg bg-emerald-600 px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-500 hover:text-white sm:min-w-[10rem] ${
+                className={`relative inline-flex min-h-[2.5rem] flex-col items-center justify-center overflow-hidden rounded-lg bg-emerald-600 px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-500 hover:text-white ${
                   !running && !canSearch ? "cursor-not-allowed opacity-50" : ""
                 }`}
                 disabled={!running && !canSearch}
