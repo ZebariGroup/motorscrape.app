@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from app.api.deps import AccessContext, get_access_context, require_admin_context
@@ -575,3 +578,47 @@ async def admin_backfill_dealer_slugs(
         "enrichment_queued": len(enrichment_tasks),
         "message": f"Set provisional slugs for {updated} dealer(s); enrichment queued for {len(enrichment_tasks)}.",
     }
+
+
+# ---------------------------------------------------------------------------
+# Dealer directory sweep
+# ---------------------------------------------------------------------------
+
+@router.post("/dealer-sweep/run")
+async def run_dealer_sweep(
+    background_tasks: BackgroundTasks,
+    max_pairs: int = Query(default=25, ge=1, le=200, description="Max (make, metro) pairs to process this call"),
+    x_sweep_secret: Annotated[str | None, Header(alias="X-Sweep-Secret")] = None,
+) -> dict[str, Any]:
+    """
+    Kick off a batch of the dealer directory sweep in the background and
+    return immediately.  The Vercel cron (or a manual curl) gets a quick
+    202-style acknowledgement; the actual Places searches run asynchronously
+    so the caller never times out.
+
+    Protected by the X-Sweep-Secret header (DEALER_SWEEP_SECRET env var).
+    """
+    configured_secret = (settings.dealer_sweep_secret or "").strip()
+    if not configured_secret or x_sweep_secret != configured_secret:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or missing sweep secret.")
+
+    from app.services.dealer_sweep import run_sweep_batch
+
+    async def _run() -> None:
+        try:
+            result = await run_sweep_batch(max_pairs=max_pairs)
+            logger.info("Dealer sweep batch complete: %s", result)
+        except Exception as exc:
+            logger.error("Dealer sweep batch failed: %s", exc)
+
+    background_tasks.add_task(_run)
+    return {"ok": True, "accepted": True, "max_pairs": max_pairs}
+
+
+@router.get("/dealer-sweep/coverage")
+async def get_dealer_sweep_coverage(
+    _ctx: Annotated[AccessContext, Depends(_get_admin_ctx)],
+) -> dict[str, Any]:
+    """Coverage report: how many (make, metro) pairs are already discovered."""
+    from app.services.dealer_sweep import sweep_coverage_summary
+    return {"ok": True, **sweep_coverage_summary()}

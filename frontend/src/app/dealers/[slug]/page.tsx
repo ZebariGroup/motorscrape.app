@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 import { DirectoryHeader } from "@/components/DirectoryHeader";
-import { fetchDealerBySlug, type DealerProfile, type DealerHours } from "@/lib/dealerApi";
+import { fetchDealerBySlug, type DealerHours } from "@/lib/dealerApi";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -186,6 +186,8 @@ export default async function DealerPage({ params }: Props) {
   const hasSocialLinks = dealer.social_links && Object.keys(dealer.social_links).length > 0;
   const hasHours = Boolean(dealer.hours_json?.weekdayDescriptions?.length);
   const hasStats = dealer.stats.scrape_count > 0;
+  const heroPhotoRef = dealer.photo_refs?.[0]?.name ?? null;
+  const hasMap = dealer.lat != null && dealer.lng != null;
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -228,6 +230,17 @@ export default async function DealerPage({ params }: Props) {
           <span>/</span>
           <span className="text-zinc-700 dark:text-zinc-300 truncate">{dealer.name}</span>
         </nav>
+
+        {/* Hero photo */}
+        {heroPhotoRef && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={`/server/dealerships/photo?ref=${encodeURIComponent(heroPhotoRef)}&max_width=1200`}
+            alt={`${dealer.name} dealership`}
+            className="w-full h-52 rounded-2xl object-cover sm:h-72"
+            loading="eager"
+          />
+        )}
 
         {/* Header */}
         <header className="flex flex-col gap-4">
@@ -354,6 +367,19 @@ export default async function DealerPage({ params }: Props) {
                     url ? <SocialLink key={platform} platform={platform} url={url} /> : null
                   )}
                 </div>
+              </section>
+            )}
+
+            {/* Map */}
+            {hasMap && (
+              <section className="overflow-hidden rounded-2xl border border-zinc-200 shadow-sm dark:border-zinc-800">
+                <iframe
+                  title={`Map showing location of ${dealer.name}`}
+                  src={`https://www.google.com/maps?q=${dealer.lat},${dealer.lng}&output=embed&z=15`}
+                  className="h-52 w-full"
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                />
               </section>
             )}
           </div>

@@ -251,6 +251,7 @@ class Settings(BaseSettings):
     resend_api_key: str = Field(default="", validation_alias=AliasChoices("RESEND_API_KEY"))
     alerts_from_email: str = Field(default="", validation_alias=AliasChoices("ALERTS_FROM_EMAIL"))
     alerts_internal_secret: str = Field(default="", validation_alias=AliasChoices("ALERTS_INTERNAL_SECRET"))
+    dealer_sweep_secret: str = Field(default="", validation_alias=AliasChoices("DEALER_SWEEP_SECRET"))
     admin_emails: str = Field(default="", validation_alias=AliasChoices("ADMIN_EMAILS", "MOTORSCRAPE_ADMIN_EMAILS"))
     enabled_vehicle_categories: str = Field(
         default="car",

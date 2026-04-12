@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 
 from app.config import settings
 
@@ -144,7 +146,7 @@ async def list_dealerships(
         query = client.table("dealerships").select(
             "id, slug, name, address, website, lat, lng, rating, review_count, oem_brands, services, enriched_at"
         ).not_.is_("slug", "null")
-        
+
         count_query = client.table("dealerships").select("id", count="exact").not_.is_("slug", "null")
 
         if make:
@@ -160,7 +162,7 @@ async def list_dealerships(
         if city:
             query = query.ilike("address", f"%{city}%")
             count_query = count_query.ilike("address", f"%{city}%")
-            
+
         if q:
             query = query.or_(f"name.ilike.%{q}%,address.ilike.%{q}%")
             count_query = count_query.or_(f"name.ilike.%{q}%,address.ilike.%{q}%")
@@ -203,6 +205,50 @@ async def list_dealerships(
 
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to query dealer directory: {exc}") from exc
+
+
+@router.get("/photo")
+async def get_dealer_photo(
+    ref: str = Query(..., description="Google Places photo reference string"),
+    max_width: int = Query(default=800, ge=100, le=1600),
+) -> Response:
+    """
+    Proxy a Google Places photo by reference string.  Keeps the API key
+    server-side so it never appears in frontend HTML or browser network tabs.
+    Responses are cached for 7 days via Cache-Control.
+    """
+    key = settings.google_places_api_key
+    if not key:
+        raise HTTPException(status_code=503, detail="Google Places API key not configured.")
+
+    # Places Photo API (New) — follow the redirect to the CDN URL.
+    photo_url = (
+        f"https://places.googleapis.com/v1/{ref}/media"
+        f"?maxWidthPx={max_width}&key={key}&skipHttpRedirect=false"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            r = await client.get(photo_url)
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Photo fetch timed out.")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Photo fetch failed: {exc}") from exc
+
+    if r.status_code == 404:
+        raise HTTPException(status_code=404, detail="Photo not found.")
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Places returned {r.status_code}.")
+
+    content_type = r.headers.get("content-type", "image/jpeg")
+    return Response(
+        content=r.content,
+        media_type=content_type,
+        headers={
+            "Cache-Control": "public, max-age=604800, immutable",
+            "Vary": "Accept",
+        },
+    )
 
 
 @router.get("/{slug}")

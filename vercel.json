@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/run-alerts",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/dealer-sweep",
+      "schedule": "0 */4 * * *"
     }
   ],
   "experimentalServices": {
