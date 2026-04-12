@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-
-logger = logging.getLogger(__name__)
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -25,6 +23,8 @@ from app.db.account_store import (
 )
 from app.services.search_log_summary import build_dealer_outcomes, summarize_dealer_outcomes
 from app.tiers import TierId, limits_for_tier
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -539,8 +539,9 @@ async def admin_backfill_dealer_slugs(
     if not rows:
         return {"ok": True, "updated": 0, "message": "All dealers already have slugs."}
 
-    from app.services.dealer_enrichment import generate_slug, enrich_dealer
     import asyncio
+
+    from app.services.dealer_enrichment import enrich_dealer, generate_slug
 
     updated = 0
     enrichment_tasks = []
