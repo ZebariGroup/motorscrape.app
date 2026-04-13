@@ -1,14 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAccessSummary } from "@/hooks/useAccessSummary";
 import { SearchTabBar } from "@/components/search/SearchTabBar";
 import type { SearchTab } from "@/components/search/SearchTabBar";
 import { SearchTabPanel } from "@/components/SearchTabPanel";
 
-/** Maximum UI tabs for paid users (backend limits concurrent searches per tier). */
-const MAX_PAID_TABS = 3;
+/**
+ * Hard limit on how many scrapes can run simultaneously in the UI.
+ * The backend enforces its own per-tier limit; this provides a clear UX
+ * cap so users understand the constraint before the backend rejects a request.
+ */
+const MAX_RUNNING_SCRAPES = 3;
 
 /** Tiers that unlock multi-tab searching. */
 const PAID_TIERS = new Set(["standard", "premium", "max_pro", "enterprise", "custom"]);
@@ -34,13 +38,22 @@ export function SearchExperience({
 
   const isPaidUser = access ? PAID_TIERS.has(access.tier) : false;
 
-  // Cap to backend's concurrent search limit (max 3 in the UI regardless of tier)
+  // How many tabs can exist: 2× the backend concurrent limit, capped at 8.
+  // This lets users keep finished searches open as history while running new ones.
   const maxTabs = isPaidUser
-    ? Math.min(MAX_PAID_TABS, access?.limits?.max_concurrent_searches ?? MAX_PAID_TABS)
+    ? Math.min((access?.limits?.max_concurrent_searches ?? MAX_RUNNING_SCRAPES) * 2, 8)
+    : 1;
+
+  // How many scrapes may run simultaneously in the UI.
+  const maxRunning = isPaidUser
+    ? Math.min(MAX_RUNNING_SCRAPES, access?.limits?.max_concurrent_searches ?? MAX_RUNNING_SCRAPES)
     : 1;
 
   const [tabs, setTabs] = useState<SearchTab[]>(() => [makeInitialTab()]);
   const [activeTabId, setActiveTabId] = useState<string>(() => tabs[0].id);
+
+  // Count how many tabs are currently running
+  const runningCount = useMemo(() => tabs.filter((t) => t.running).length, [tabs]);
 
   // Sync active tab if it was closed
   useEffect(() => {
@@ -133,6 +146,8 @@ export function SearchExperience({
           onTabClose={closeTab}
           onAddTab={addTab}
           maxTabs={maxTabs}
+          maxRunning={maxRunning}
+          runningCount={runningCount}
           isPaidUser={isPaidUser}
         />
       )}
@@ -150,6 +165,8 @@ export function SearchExperience({
             onRefreshAccess={refreshAccess}
             initialCriteria={index === 0 ? initialCriteria : undefined}
             syncWithUrl={index === 0}
+            atRunningLimit={!tab.running && runningCount >= maxRunning}
+            maxRunning={maxRunning}
             onLabelChange={getLabelCallback(tab.id)}
             onStatusChange={getStatusCallback(tab.id)}
           />

@@ -13,7 +13,12 @@ type SearchTabBarProps = {
   onTabSelect: (id: string) => void;
   onTabClose: (id: string) => void;
   onAddTab: () => void;
+  /** Max number of tabs that can exist (for history + queuing) */
   maxTabs: number;
+  /** Max number of scrapes that may run at the same time */
+  maxRunning: number;
+  /** How many tabs are currently running */
+  runningCount: number;
   isPaidUser: boolean;
 };
 
@@ -24,9 +29,13 @@ export function SearchTabBar({
   onTabClose,
   onAddTab,
   maxTabs,
+  maxRunning,
+  runningCount,
   isPaidUser,
 }: SearchTabBarProps) {
   const canAddTab = isPaidUser && tabs.length < maxTabs;
+  const atTabLimit = isPaidUser && tabs.length >= maxTabs;
+  const atRunningLimit = runningCount >= maxRunning;
 
   return (
     <div className="flex items-stretch border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 overflow-x-auto">
@@ -50,7 +59,7 @@ export function SearchTabBar({
                 <span className="absolute inset-x-0 bottom-0 h-0.5 bg-emerald-500" />
               )}
 
-              {/* Running pulse dot */}
+              {/* Status dot */}
               {tab.running ? (
                 <span className="relative flex h-2 w-2 shrink-0">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -67,14 +76,14 @@ export function SearchTabBar({
                 {tab.label || `Search ${index + 1}`}
               </span>
 
-              {/* Listing count badge */}
+              {/* Listing count badge (when done) */}
               {tab.listingCount > 0 && !tab.running && (
                 <span className="shrink-0 rounded-full bg-zinc-200 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
                   {tab.listingCount}
                 </span>
               )}
 
-              {/* Close button — only shown if more than one tab */}
+              {/* Close button */}
               {tabs.length > 1 && (
                 <button
                   type="button"
@@ -116,11 +125,11 @@ export function SearchTabBar({
           >
             <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
           </svg>
-          <span className="hidden sm:inline text-xs font-medium">New Search</span>
+          <span className="hidden sm:inline text-xs font-medium">New Tab</span>
         </button>
-      ) : isPaidUser && tabs.length >= maxTabs ? (
+      ) : atTabLimit ? (
         <div
-          title={`Maximum ${maxTabs} simultaneous searches on your plan`}
+          title={`Maximum ${maxTabs} tabs on your plan`}
           className="flex shrink-0 items-center gap-1 px-3 py-2 text-xs text-zinc-300 dark:text-zinc-600 cursor-not-allowed"
         >
           <svg
@@ -131,9 +140,22 @@ export function SearchTabBar({
           >
             <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
           </svg>
-          <span className="hidden sm:inline">{maxTabs} max</span>
+          <span className="hidden sm:inline">{maxTabs} tab max</span>
         </div>
       ) : null}
+
+      {/* Running count indicator — right side */}
+      {runningCount > 0 && (
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          </span>
+          <span className={atRunningLimit ? "font-semibold text-amber-600 dark:text-amber-400" : ""}>
+            {runningCount}/{maxRunning} running
+          </span>
+        </div>
+      )}
     </div>
   );
 }

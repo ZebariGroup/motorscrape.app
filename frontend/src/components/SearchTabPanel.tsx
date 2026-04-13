@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSearchStream } from "@/hooks/useSearchStream";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -95,6 +95,13 @@ type SearchTabPanelProps = {
    * each other's form state.
    */
   syncWithUrl?: boolean;
+  /**
+   * True when this tab is idle but the global running-scrape limit has been
+   * reached. The panel will block the start button and explain why.
+   */
+  atRunningLimit?: boolean;
+  /** The maximum number of simultaneous scrapes allowed (used in the message). */
+  maxRunning?: number;
 };
 
 export function SearchTabPanel({
@@ -105,6 +112,8 @@ export function SearchTabPanel({
   onLabelChange,
   onStatusChange,
   syncWithUrl = true,
+  atRunningLimit = false,
+  maxRunning = 3,
 }: SearchTabPanelProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -324,6 +333,12 @@ export function SearchTabPanel({
     };
   }, [search.historyView, search.clearHistoryView]);
 
+  // Wrap startSearch to enforce the UI-level concurrent running limit
+  const handleStartSearch = useCallback(() => {
+    if (atRunningLimit) return;
+    search.startSearch();
+  }, [atRunningLimit, search]);
+
   const hiddenUpgradeMessages = new Set(
     search.errorEvents.filter((error) => error.upgrade_required).map((error) => error.message),
   );
@@ -432,6 +447,19 @@ export function SearchTabPanel({
               </div>
             </header>
 
+            {/* Running-limit banner — shown when all scrape slots are occupied */}
+            {atRunningLimit && (
+              <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm dark:border-amber-800/50 dark:bg-amber-950/30">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0 text-amber-500">
+                  <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+                </svg>
+                <p className="text-amber-800 dark:text-amber-300">
+                  <strong>{maxRunning} scrapes are already running</strong> across your tabs.
+                  Stop one to start this search, or open a finished tab to view its results.
+                </p>
+              </div>
+            )}
+
             <SearchFormSection
               running={search.running}
               reconnecting={search.reconnecting}
@@ -454,10 +482,10 @@ export function SearchTabPanel({
               setPreferSmallDealers={form.setPreferSmallDealers}
               maxDealerships={form.maxDealerships}
               setMaxDealerships={form.setMaxDealerships}
-              onSearch={search.startSearch}
+              onSearch={handleStartSearch}
               onStop={search.stopStream}
-              canSearch={canSearch}
-              searchReadinessHint={searchReadinessHint}
+              canSearch={canSearch && !atRunningLimit}
+              searchReadinessHint={atRunningLimit ? null : searchReadinessHint}
               errors={visibleErrors}
               discoveredDealerPercent={dealers.discoveredDealerPercent}
               completedDealerPercent={dealers.completedDealerPercent}
